@@ -12,6 +12,9 @@ import {
   compareAttention,
   countByTier,
   lane,
+  mergedOnTheirOwn,
+  oldestWaitingSince,
+  selectable,
   startOfDay,
   tier,
   type Item,
@@ -372,5 +375,43 @@ describe("board", () => {
 
   test("empty board: the fixed columns only", () => {
     expect(boardView([], { me: "mara-l" }).map((c) => c.id)).toEqual(["me", "automation", "done"]);
+  });
+});
+
+describe("hints and summaries", () => {
+  test("only tiers 1 and 2 get a checkbox", () => {
+    expect(selectable(pr({ number: 1, needsMe: true, mine: false }))).toBe(true);
+    expect(selectable(pr({ number: 1, needsMe: true, mine: true, risk: 1 }))).toBe(true);
+    expect(selectable(pr({ number: 1, fyiForMe: true }))).toBe(false);
+    expect(selectable(pr({ number: 1, risk: 3 }))).toBe(false);
+    expect(selectable(pr({ number: 1 }))).toBe(false);
+  });
+
+  test("the oldest wait of what needs me: waitingSince, else the opening", () => {
+    expect(oldestWaitingSince([])).toBeNull();
+    expect(
+      oldestWaitingSince([
+        pr({ number: 1, needsMe: true, waitingSince: NOW - 2 * HOUR }),
+        pr({ number: 2, needsMe: true, openedAt: NOW - 3 * HOUR }),
+        pr({ number: 3, needsMe: false, openedAt: NOW - 9 * HOUR }),
+      ]),
+    ).toBe(NOW - 3 * HOUR);
+    expect(oldestWaitingSince(mockup().prs)).toBe(NOW - 5 * HOUR - 40 * MIN);
+  });
+
+  test("merged on their own since a time: merged then, and no nod of mine", () => {
+    const mine = { byMe: true } as PrView["signatures"][number];
+    const since = NOW - 24 * HOUR;
+    expect(
+      mergedOnTheirOwn(
+        [
+          pr({ number: 1, state: "merged", mergedAt: NOW - HOUR }),
+          pr({ number: 2, state: "merged", mergedAt: NOW - 30 * HOUR }),
+          pr({ number: 3, state: "merged", mergedAt: NOW - HOUR, signatures: [mine] }),
+          pr({ number: 4, state: "open" }),
+        ],
+        since,
+      ),
+    ).toBe(1);
   });
 });

@@ -39,6 +39,13 @@ nod
     (`signer.ts`: the seam, the unlock window and the fake), `view.ts` turns a source's `PrFacts` into the user-relative view model;
     `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
     renders; the web app talks only through `useConnection` (`src/web/hooks/`)
+  - web app: `app.tsx` gates on the connection (calm full pages) and mounts
+    `components/dashboard.tsx` (list state, keyboard, resizable panel); rows in
+    `pr-row.tsx`, panel in `detail-panel.tsx`; pure helpers with tests in `src/web/lib/`
+    (route, focus, selection, panel width, time, diff bar, wording); theme tokens (the r3
+    palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). Every way to sign
+    calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`, the batch dialog's seam);
+    the board is a placeholder in `dashboard.tsx`. Screenshots of it: `docs/design/r3/impl/`
   - the real signer (`src/server/signer/`, ADR 0004): the key file under
     `$XDG_CONFIG_HOME/nod/signing-key.json` (scrypt + AES-256-GCM), our own SSHSIG output, a
     `SigningMethod` seam for ssh-agent signers later; `nod key create|show|test`. Security code: keep
