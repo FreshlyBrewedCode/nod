@@ -25,6 +25,7 @@ import type {
 } from "../shared/protocol";
 import type { Clock, Timer } from "./clock";
 import { FAKE_KEY } from "./signer";
+import { publicKeyId } from "./signer/ssh-wire";
 import {
   FAKE_ME,
   FAKE_PEOPLE,
@@ -61,6 +62,8 @@ export interface FakeSourceOptions {
   readonly live?: boolean;
   /** From "requirement met and checks green" to merged. */
   readonly mergeDelayMs?: number;
+  /** The public key the scenario treats as mine (default the fake signer's). */
+  readonly myKey?: string;
 }
 
 const SETUP_PR = 494;
@@ -84,6 +87,7 @@ export class FakeSource implements Source {
   private repoName: RepoName | null;
   private setupState: SetupState;
   private setupPr: PrLink | null = null;
+  /** By `publicKeyId`: the key, not its comment. */
   private readonly enrolments = new Map<string, Enrolment>();
   private readonly listeners = new Set<(change: SourceChange) => void>();
   private readonly timers: Timer[] = [];
@@ -102,13 +106,14 @@ export class FakeSource implements Source {
 
     if (scenario === "team" || scenario === "clear" || scenario === "join")
       this.facts = SEEDS.map((s) => seedFacts(s, this.started, repo));
+    const myKey = publicKeyId(options.myKey ?? FAKE_KEY.publicKey);
     if (scenario === "team" || scenario === "clear")
-      this.enrolments.set(FAKE_KEY.publicKey, { state: "active" });
+      this.enrolments.set(myKey, { state: "active" });
     if (scenario === "clear") this.facts = this.facts.map((f) => this.alreadyDone(f));
     if (scenario === "first-run") {
       this.setupState = "pending";
       this.setupPr = { number: SETUP_PR, url: prUrl(repo, SETUP_PR) };
-      this.enrolments.set(FAKE_KEY.publicKey, { state: "pending", pr: this.setupPr });
+      this.enrolments.set(myKey, { state: "pending", pr: this.setupPr });
       this.unclassified = UNCLASSIFIED_TITLES.map((title, i) => {
         const number = SEEDS.filter((s) => s.state === "open")[i]?.n ?? 470 + i;
         return { number, title, url: prUrl(repo, number) };
@@ -257,13 +262,13 @@ export class FakeSource implements Source {
       this.setupState === "pending" && this.setupPr
         ? this.setupPr
         : { number: ENROL_PR, url: prUrl(this.repoName, ENROL_PR) };
-    this.enrolments.set(publicKey, { state: "pending", pr });
+    this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr });
     this.emit("enrolment");
     return pr;
   }
 
   enrolment(publicKey: string): Enrolment {
-    return this.enrolments.get(publicKey) ?? { state: "not-enrolled" };
+    return this.enrolments.get(publicKeyId(publicKey)) ?? { state: "not-enrolled" };
   }
 
   keyCreated(publicKey: string): void {
@@ -273,7 +278,7 @@ export class FakeSource implements Source {
       this.enrolment(publicKey).state !== "not-enrolled"
     )
       return;
-    this.enrolments.set(publicKey, { state: "pending", pr: this.setupPr });
+    this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr: this.setupPr });
     this.emit("enrolment");
   }
 

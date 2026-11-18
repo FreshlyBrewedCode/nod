@@ -1,12 +1,14 @@
 /**
- * The `nod` CLI entry: `nod serve` (the local server, src/server/) and
- * `nod init` (opens the repo-owned setup PR, src/init/).
+ * The `nod` CLI entry: `nod serve` (the local server, src/server/),
+ * `nod key` (the signing key, src/server/signer/key-cli.ts) and `nod init`
+ * (opens the repo-owned setup PR, src/init/).
  */
 import { parseArgs as parseFlags } from "node:util";
 
 import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
+import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 
 // Placeholder: the release task (semantic-release) stamps the real version.
@@ -31,6 +33,7 @@ export interface ServeFlags {
 export type Command =
   | { kind: "serve"; flags: ServeFlags }
   | { kind: "init"; flags: InitFlags }
+  | { kind: "key"; flags: KeyFlags }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -42,6 +45,7 @@ usage: nod <command>
 commands:
   serve        start the local server for the dashboard
   init         set up .nod/ and the workflow in this repository
+  key          create, show or test the signing key (see below)
 
 serve options:
   --port <n>          port on 127.0.0.1 (default ${DEFAULT_SERVE_PORT})
@@ -59,6 +63,8 @@ serve options:
 
 ${INIT_HELP}
 
+${KEY_HELP}
+
 options:
   --help       show this help
   --version    show the version
@@ -71,6 +77,7 @@ export function parseArgs(argv: readonly string[]): Command {
   if (first === "--version" || first === "-v") return { kind: "version" };
   if (first === "init") return parseInitArgs(rest);
   if (first === "serve") return parseServe(rest);
+  if (first === "key") return parseKeyArgs(rest);
   return { kind: "error", message: `unknown command: ${first}` };
 }
 
@@ -191,6 +198,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     case "serve":
       return runServe(cmd.flags);
+    case "key":
+      return (await import("./server/signer/key-cli")).runKey(cmd.flags);
     case "init": {
       const { runInit } = await import("./init/init");
       return runInit(cmd.flags, { version: VERSION });

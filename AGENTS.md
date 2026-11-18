@@ -36,9 +36,14 @@ nod
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
   - server seams: `Source` (`src/server/source.ts`; fake now, GitHub later), `Signer`
-    (`signer.ts`), `view.ts` turns a source's `PrFacts` into the user-relative view model;
+    (`signer.ts`: the seam, the unlock window and the fake), `view.ts` turns a source's `PrFacts` into the user-relative view model;
     `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
     renders; the web app talks only through `useConnection` (`src/web/hooks/`)
+  - the real signer (`src/server/signer/`, ADR 0004): the key file under
+    `$XDG_CONFIG_HOME/nod/signing-key.json` (scrypt + AES-256-GCM), our own SSHSIG output, a
+    `SigningMethod` seam for ssh-agent signers later; `nod key create|show|test`. Security code: keep
+    it small; every SSHSIG test verifies with the real `ssh-keygen`; tests use temp dirs and
+    cheap scrypt parameters (`scrypt` option), never the real config dir
   - browser checks: `env -u LD_LIBRARY_PATH playwright-cli open --config=<json>` with a config
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)

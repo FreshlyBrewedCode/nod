@@ -18,6 +18,14 @@ test("--version", () => {
   expect(parseArgs(["--version"])).toEqual({ kind: "version" });
 });
 
+test("key: the subcommands go to nod key", () => {
+  expect(parseArgs(["key", "show", "--login", "mara-l"])).toEqual({
+    kind: "key",
+    flags: { command: "show", keyFile: null, login: "mara-l", replace: false },
+  });
+  expect(parseArgs(["key"]).kind).toBe("error");
+});
+
 test("serve defaults: GitHub, port 4518, no browser", () => {
   expect(serveFlags([])).toEqual({
     fake: false,
