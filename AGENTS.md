@@ -11,6 +11,13 @@ nod
   2. **web app** (`src/web/`): Vite/React SPA, hosted UI later, Vite dev server locally
 - `src/shared/protocol.ts` is the wire contract of both halves; `src/kit/` is the pure helper
   kit the repo-owned verifier imports as `@frebreco/nod/kit`
+- `templates/` is what `nod init` (`src/init/`) writes into a user's repo: `.nod/policy.ts`,
+  `.nod/classifiers/`, `.nod/verify.ts`, `allowed_signers`, the kit pin and
+  `.github/workflows/nod.yml`. They are shipped in the npm package, typechecked, linted and run
+  in `src/init/templates.test.ts` (`@frebreco/nod/kit` maps to `src/kit/` via `tsconfig.json`);
+  the workflow follows finding 01's hygiene rules, enforced by `setup-files.test.ts`
+- the sandbox `FreshlyBrewedCode/nod-sandbox` (public) runs the real setup; findings 01 and 02
+  describe its state
 - kit: zero dependencies; nod format, patch-id and file list via `git`, SSHSIG via `ssh-keygen`
   (argument arrays, never a shell), classifiers, policy, check summary, sticky comment, REST helpers;
   everything exported has a doc comment; tests use real `git`/`ssh-keygen` in temp dirs, never `~/.ssh`
@@ -29,7 +36,7 @@ nod
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
   - server seams: `Source` (`src/server/source.ts`; fake now, GitHub later), `Signer`
-    (`signer.ts`), `view.ts` turns a source's `PrFacts` into the user-relative view model;
+    (`signer.ts`: the seam, the unlock window and the fake), `view.ts` turns a source's `PrFacts` into the user-relative view model;
     `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
     renders; the web app talks only through `useConnection` (`src/web/hooks/`)
   - web app: `app.tsx` gates on the connection (calm full pages) and mounts
@@ -39,6 +46,11 @@ nod
     palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). Every way to sign
     calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`, the batch dialog's seam);
     the board is a placeholder in `dashboard.tsx`. Screenshots of it: `docs/design/r3/impl/`
+  - the real signer (`src/server/signer/`, ADR 0004): the key file under
+    `$XDG_CONFIG_HOME/nod/signing-key.json` (scrypt + AES-256-GCM), our own SSHSIG output, a
+    `SigningMethod` seam for ssh-agent signers later; `nod key create|show|test`. Security code: keep
+    it small; every SSHSIG test verifies with the real `ssh-keygen`; tests use temp dirs and
+    cheap scrypt parameters (`scrypt` option), never the real config dir
   - browser checks: `env -u LD_LIBRARY_PATH playwright-cli open --config=<json>` with a config
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)

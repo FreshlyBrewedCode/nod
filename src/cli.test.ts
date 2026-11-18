@@ -18,6 +18,14 @@ test("--version", () => {
   expect(parseArgs(["--version"])).toEqual({ kind: "version" });
 });
 
+test("key: the subcommands go to nod key", () => {
+  expect(parseArgs(["key", "show", "--login", "mara-l"])).toEqual({
+    kind: "key",
+    flags: { command: "show", keyFile: null, login: "mara-l", replace: false },
+  });
+  expect(parseArgs(["key"]).kind).toBe("error");
+});
+
 test("serve defaults: GitHub, port 4518, no browser", () => {
   expect(serveFlags([])).toEqual({
     fake: false,
@@ -64,7 +72,15 @@ test("serve flags", () => {
 });
 
 test("init", () => {
-  expect(parseArgs(["init"])).toEqual({ kind: "init" });
+  const cmd = parseArgs(["init"]);
+  expect(cmd).toMatchObject({ kind: "init", flags: { pr: true, dryRun: false, signers: [] } });
+  expect(
+    parseArgs(["init", "--signer", "alice ssh-ed25519 AAAA", "--signer", "bob ssh-ed25519 BBBB"]),
+  ).toMatchObject({ flags: { signers: ["alice ssh-ed25519 AAAA", "bob ssh-ed25519 BBBB"] } });
+  expect(parseArgs(["init", "--no-pr", "--dry-run", "--ruleset"])).toMatchObject({
+    flags: { pr: false, dryRun: true, ruleset: true },
+  });
+  expect(parseArgs(["init", "--help"])).toEqual({ kind: "help" });
 });
 
 test("bad arguments are errors", () => {
@@ -79,6 +95,8 @@ test("bad arguments are errors", () => {
     ["serve", "--web-url", "ui.example.test"],
     ["serve", "--wat"],
     ["init", "x"],
+    ["init", "--repo", "no-slash"],
+    ["init", "--kit", "has space"],
   ])
     expect(parseArgs(argv).kind).toBe("error");
 });

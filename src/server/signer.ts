@@ -2,19 +2,24 @@
  * The signing key, behind one seam. `nod serve` holds the decrypted key in
  * memory while unlocked and locks on its own after N minutes (15 by default).
  *
+ * - `KeyFileSigner` (`signer/key-file-signer.ts`): the real one, an ed25519
+ *   key under `~/.config/nod` encrypted with scrypt + AES-256-GCM
+ *   (`signer/key-store.ts`), producing SSHSIG that `ssh-keygen -Y verify`
+ *   accepts (`signer/sshsig.ts`). ADR 0004.
  * - `FakeSigner` (for `nod serve --fake`): any non-empty passphrase unlocks
  *   except the literal `wrong`, which fails so the UI's error state can be
  *   seen; signatures are placeholders in the SSHSIG armor.
- * - The real signer (an ed25519 key under `~/.config/nod`, encrypted with
- *   scrypt + AES-GCM, producing SSHSIG that `ssh-keygen -Y verify` accepts)
- *   is a later task: `keyFileSigner` is its stub.
  *
  * Passphrases are never logged, and never part of an error message.
  */
 
 import { createHash } from "node:crypto";
 
-import { DEFAULT_UNLOCK_MINUTES, MAX_UNLOCK_MINUTES } from "../shared/protocol";
+import {
+  DEFAULT_UNLOCK_MINUTES,
+  MAX_UNLOCK_MINUTES,
+  MIN_PASSPHRASE_LENGTH,
+} from "../shared/protocol";
 import type { Clock, Timer } from "./clock";
 
 /** The key without its enrolment, which the repo decides (`Source.enrolment`). */
@@ -54,8 +59,9 @@ export interface Signer {
   /** Verify against the key's own public half (onboarding's test signature). */
   verify(payloadLine: string, signature: string): Promise<boolean>;
   /**
-   * Create a new key encrypted with `passphrase`, or adopt the private key at
-   * `path`. Throws `SignerError` `key-exists`, `weak-passphrase`, `not-found`.
+   * Create a new key encrypted with `passphrase`; never replaces one. Adopting
+   * the private key at `path` is not built. Throws `SignerError`
+   * `key-exists`, `weak-passphrase`, `not-implemented`.
    */
   createKey(passphrase: string, path?: string): Promise<SignerKey>;
   /** Called on every change of `status()`, auto-lock included. */
@@ -69,6 +75,7 @@ export type SignerErrorCode =
   | "bad-passphrase"
   | "weak-passphrase"
   | "key-exists"
+  | "bad-key-file"
   | "not-found"
   | "not-implemented";
 
@@ -79,6 +86,27 @@ export class SignerError extends Error {
   ) {
     super(message);
   }
+}
+
+export const MAX_PASSPHRASE_LENGTH = 1024;
+
+/**
+ * Throws `weak-passphrase` for an empty, short or overlong new passphrase.
+ * Length counts characters (code points), not bytes. Why 12: ADR 0004.
+ */
+export function checkNewPassphrase(passphrase: string): void {
+  const length = [...passphrase].length;
+  if (length === 0) throw new SignerError("weak-passphrase", "Enter a passphrase.");
+  if (length < MIN_PASSPHRASE_LENGTH)
+    throw new SignerError(
+      "weak-passphrase",
+      `Use a passphrase of at least ${MIN_PASSPHRASE_LENGTH} characters; a few words are easy to type.`,
+    );
+  if (length > MAX_PASSPHRASE_LENGTH)
+    throw new SignerError(
+      "weak-passphrase",
+      `Use a passphrase of at most ${MAX_PASSPHRASE_LENGTH} characters.`,
+    );
 }
 
 export function unlockMinutes(minutes: number | undefined): number {
@@ -92,7 +120,7 @@ export function unlockMinutes(minutes: number | undefined): number {
  */
 export abstract class UnlockWindow implements Signer {
   private key: SignerKey | null;
-  private unlocked: { until: number; once: boolean; timer: Timer } | null = null;
+  private unlocked: { until: number; once: boolean; spent: boolean; timer: Timer } | null = null;
   private listeners = new Set<() => void>();
 
   constructor(
@@ -123,6 +151,7 @@ export abstract class UnlockWindow implements Signer {
     this.unlocked = {
       until: this.clock.now() + ms,
       once: options.once ?? false,
+      spent: false,
       timer: this.clock.after(ms, () => this.lockNow()),
     };
     this.emit();
@@ -135,10 +164,16 @@ export abstract class UnlockWindow implements Signer {
   async sign(payloadLine: string): Promise<string> {
     const status = this.status();
     if (status.state === "no-key") throw new SignerError("no-key", "There is no signing key yet.");
-    if (status.state === "locked") throw new SignerError("locked", "Signing is locked.");
-    const signature = await this.signLine(payloadLine);
-    if (status.once) this.lockNow();
-    return signature;
+    if (status.state === "locked" || this.unlocked?.spent)
+      throw new SignerError("locked", "Signing is locked.");
+    // `once` is spent before the first await, so a second request racing
+    // the first cannot sign as well.
+    if (status.once) this.unlocked!.spent = true;
+    try {
+      return await this.signLine(payloadLine);
+    } finally {
+      if (status.once) this.lockNow();
+    }
   }
 
   abstract verify(payloadLine: string, signature: string): Promise<boolean>;
@@ -158,6 +193,7 @@ export abstract class UnlockWindow implements Signer {
   stop(): void {
     this.unlocked?.timer.clear();
     this.unlocked = null;
+    this.close();
     this.listeners.clear();
   }
 
@@ -222,21 +258,9 @@ export class FakeSigner extends UnlockWindow {
   }
 
   protected async makeKey(passphrase: string): Promise<SignerKey> {
-    if (passphrase.length < 8)
-      throw new SignerError("weak-passphrase", "Use a passphrase of at least 8 characters.");
+    checkNewPassphrase(passphrase);
     return FAKE_KEY;
   }
 
   protected close(): void {}
-}
-
-// ---------------------------------------------------------------------------
-// the real signer: a later task
-
-/** The key-file signer (ed25519 under `~/.config/nod`). Not built yet. */
-export function keyFileSigner(_clock: Clock): Signer {
-  throw new SignerError(
-    "not-implemented",
-    "The key-file signer is not implemented yet. Run `nod serve --fake` to try the dashboard.",
-  );
 }

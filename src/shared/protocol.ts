@@ -144,6 +144,8 @@ export type SignerState =
 /** Unlock windows the UI offers; the server clamps to [1, MAX_UNLOCK_MINUTES]. */
 export const DEFAULT_UNLOCK_MINUTES = 15;
 export const MAX_UNLOCK_MINUTES = 60;
+/** The shortest passphrase `create-key` accepts, in characters. */
+export const MIN_PASSPHRASE_LENGTH = 12;
 
 // ---------------------------------------------------------------------------
 // the PR view model
@@ -523,10 +525,12 @@ export interface Requests {
    */
   "open-setup-pr": { body: Record<never, never>; result: { readonly pr: PrLink } };
   /**
-   * Onboarding step 3: create a new ed25519 key encrypted with `passphrase`,
-   * or adopt the existing private key at `path` (it must have a passphrase).
-   * The new state also arrives as a `signer` push. Errors: `key-exists`,
-   * `weak-passphrase`, `bad-passphrase`, `not-found`.
+   * Onboarding step 3: create a new ed25519 key encrypted with `passphrase`
+   * (at least MIN_PASSPHRASE_LENGTH characters). Never replaces a key: that
+   * is `nod key create --replace` in a terminal. Adopting the existing
+   * private key at `path` is not built (`not-implemented`, ADR 0004). The new
+   * state also arrives as a `signer` push. Errors: `key-exists`,
+   * `weak-passphrase`, `not-implemented`.
    */
   "create-key": {
     body: { readonly passphrase: string; readonly path?: string };
@@ -564,6 +568,8 @@ export type ErrorCode =
   | "locked"
   | "bad-passphrase"
   | "weak-passphrase"
+  /** The key file is damaged, of a newer version, or changed while nod serve ran. */
+  | "bad-key-file"
   | "stale"
   | "not-found"
   | "not-open"

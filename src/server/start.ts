@@ -9,7 +9,9 @@ import { FakeSource, scenarioHasKey, type FakeScenario } from "./fake-source";
 import { githubSource } from "./github-source";
 import { serve, type Serving } from "./server";
 import { Session } from "./session";
-import { FakeSigner, keyFileSigner, type Signer } from "./signer";
+import { FakeSigner, type Signer } from "./signer";
+import { KeyFileSigner } from "./signer/key-file-signer";
+import { defaultKeyFile } from "./signer/key-store";
 import type { Source } from "./source";
 import { loadOrCreateToken } from "./token";
 import { allowedOrigins, hostLink, isRelease, serverUrl } from "./web-url";
@@ -25,6 +27,8 @@ export interface StartOptions {
   readonly fake?: { readonly scenario: FakeScenario; readonly live: boolean } | null;
   readonly repo?: string | null;
   readonly clock?: Clock;
+  /** The signing key file (default `$XDG_CONFIG_HOME/nod/signing-key.json`); not with `fake`. */
+  readonly keyFile?: string;
 }
 
 export interface Started {
@@ -41,7 +45,11 @@ export interface Started {
 export function start(options: StartOptions): Started {
   const clock = options.clock ?? systemClock;
   const fake = options.fake ?? null;
-  // Fails with "not implemented yet" for the real source and signer.
+  // First, as it starts nothing: a damaged key file fails before any polling.
+  const signer: Signer = fake
+    ? new FakeSigner(clock, { hasKey: scenarioHasKey(fake.scenario) })
+    : new KeyFileSigner({ clock, file: options.keyFile ?? defaultKeyFile() });
+  // The real source fails with "not implemented yet" for now.
   const source: Source = fake
     ? new FakeSource({
         clock,
@@ -50,9 +58,6 @@ export function start(options: StartOptions): Started {
         ...(options.repo && { repo: options.repo }),
       })
     : githubSource({ clock, repo: options.repo ?? null });
-  const signer: Signer = fake
-    ? new FakeSigner(clock, { hasKey: scenarioHasKey(fake.scenario) })
-    : keyFileSigner(clock);
   const version = isRelease(options.version) ? options.version : null;
   const session = new Session({ source, signer, clock, version, fake: fake !== null });
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });
