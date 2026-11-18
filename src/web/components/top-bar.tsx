@@ -3,6 +3,7 @@
  * the shortcuts, the signing lock chip with its countdown, and me.
  */
 
+import { useState } from "react";
 import type * as React from "react";
 
 import type { Person } from "../../shared/protocol";
@@ -119,6 +120,47 @@ export function ShortcutsHelp({
   );
 }
 
-export function Me({ login, people }: { login: string; people: ReadonlyArray<Person> }) {
-  return <Avatar login={login} people={people} large />;
+/**
+ * Me, and the avatar menu: who `nod serve` is signed in as, and "Setup and
+ * checks" to reopen onboarding (r3 shows no other place for it).
+ */
+export function Me({
+  login,
+  people,
+  onSetup,
+}: {
+  login: string;
+  people: ReadonlyArray<Person>;
+  onSetup: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const name = people.find((p) => p.login.toLowerCase() === login.toLowerCase())?.name;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger className="rounded-full" aria-label={`${login}: menu`}>
+        <Avatar login={login} people={people} large />
+      </PopoverTrigger>
+      <PopoverContent className="w-[240px] p-1.5">
+        <div className="px-2.5 pt-1.5 pb-2 text-[13px]">
+          <b className="block font-semibold">{name ?? login}</b>
+          <span className="text-tx3 text-[12.5px]">
+            {name ? `${login} · ` : ""}through <code className="font-mono text-[11.5px]">gh</code>
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            onSetup();
+          }}
+          className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px]"
+        >
+          Setup and checks
+          <span className="text-tx3 block text-[12px]">
+            repository, signing key, test signature
+          </span>
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
 }

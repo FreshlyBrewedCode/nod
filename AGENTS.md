@@ -57,6 +57,15 @@ nod
     review, unlock in place, signed / stale / posting failed, the steps a pure state machine
     in `lib/batch.ts`; the passphrase only ever lives in its input (`components/unlock.tsx`,
     also the lock chip). Screenshots of it: `docs/design/r3/impl/`
+  - onboarding (`components/onboarding.tsx`): shown by `app.tsx` while the setup or the key is
+    not ready, reopened at `#/setup` (avatar menu); where it starts is derived from server state
+    only (`lib/onboarding.ts`, tested). Deep links (`components/link-landing.tsx`,
+    `lib/deep-link.ts`): `#/pr/<owner>/<repo>/<n>` and `#/batch/<owner>/<repo>/<n>,<n>` (kit:
+    `prDeepLink`, `batchDeepLink`) only open views; a link opened before pairing is remembered
+    and the host link lands on it (`rememberLink`/`takeLink` in `lib/connection.ts`). The host
+    link may carry a route: `#/pr/…?host=…&token=…`
+  - the real source without touching `~/.config/nod`: start it from a script calling `start()`
+    (`src/server/start.ts`) with `keyFile` and `tokenFile` in a temp folder
   - stale and posting-failure states can't be produced by `--fake`: in a browser check, route
     the socket (`page.routeWebSocket`) and rewrite the `sign` request or its reply
   - the real signer (`src/server/signer/`, ADR 0004): the key file under

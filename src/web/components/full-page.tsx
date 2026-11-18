@@ -1,7 +1,7 @@
 /**
  * Calm full-page messages for when there is no dashboard to show: not
  * paired, connecting, `nod serve` not running, a refused pairing, a version
- * mismatch, and the states onboarding (a later task) will take over.
+ * mismatch. Onboarding and a deep link before pairing have their own pages.
  */
 
 import type * as React from "react";

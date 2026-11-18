@@ -14,6 +14,8 @@ export const STORAGE_KEYS = {
   lastVisit: "nod.lastVisit",
   /** The board's group-by: "wait" or "state". */
   board: "nod.board",
+  /** The repo whose key step was put off ("Look around first"): read now, enrol later. */
+  keySkipped: "nod.keySkipped",
 } as const;
 
 export function browserStorage(): KeyValue | null {

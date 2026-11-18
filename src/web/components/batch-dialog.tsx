@@ -52,6 +52,7 @@ import {
   type BatchState,
   type Outcome,
 } from "@/lib/batch";
+import { whyNotNeeded } from "@/lib/deep-link";
 import { STORAGE_KEYS, browserStorage, readJson, readOpened } from "@/lib/storage";
 import { countdown } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -470,16 +471,15 @@ function ReviewRow({
   onToggle: () => void;
 }) {
   const { pr } = row;
+  const now = useNow(60 * SECOND);
   const outcome: Outcome = !row.included
     ? {
         text:
-          row.blocked === "no-ask"
-            ? "no longer needs you"
-            : row.blocked === "not-open"
-              ? `${pr.state} meanwhile`
-              : row.blocked === "no-patch-id"
-                ? "patch-id not known yet"
-                : "left out",
+          row.blocked === "no-ask" || row.blocked === "not-open"
+            ? (whyNotNeeded(pr, people, now) ?? "no longer needs you")
+            : row.blocked === "no-patch-id"
+              ? "patch-id not known yet"
+              : "left out",
         tone: "none",
       }
     : outcomeOf(pr, people);

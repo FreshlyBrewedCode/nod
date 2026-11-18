@@ -46,7 +46,7 @@ import {
   type FocusKey,
 } from "@/lib/focus";
 import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs } from "@/lib/panel";
-import { viewOf, type Route, type View } from "@/lib/route";
+import { isLinkRoute, viewOf, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
 import {
   STORAGE_KEYS,
@@ -61,6 +61,7 @@ import { BatchProvider, useBatch } from "./batch-dialog";
 import { Board, BoardBar, type BoardColumnView, type GroupBy } from "./board";
 import { DetailPanel } from "./detail-panel";
 import { Legend } from "./legend";
+import { LinkLanding } from "./link-landing";
 import { BucketSection, EmptyLane, LaneHeader, LaneSection } from "./lists";
 import { SelectionBar } from "./selection-bar";
 import { SubBar } from "./sub-bar";
@@ -284,20 +285,17 @@ function DashboardInner({
     [selectableNumbers],
   );
 
-  // -- a deep link focuses its PR and opens the panel, then the URL is the list's --
-  const [linked, setLinked] = useState<Route | null>(null);
-  if (route.view === "pr" && route !== linked) {
-    setLinked(route);
-    if (route.repo.toLowerCase() === snapshot.repo.toLowerCase()) {
-      setFocusState({ key: prKey(route.number), pr: route.number });
+  // -- a deep link shows its landing; "Open" there shows the PR in the list --
+  const landing = isLinkRoute(route) ? route : null;
+  const openInList = useCallback(
+    (pr: number) => {
+      setFocusState({ key: prKey(pr), pr });
       setPrefs((p) => ({ ...p, open: true }));
-    }
-  }
-  useEffect(() => {
-    if (route.view !== "pr") return;
-    scrollOnFocus.current = true;
-    go({ view: "list" }, { replace: true });
-  }, [route, go]);
+      scrollOnFocus.current = true;
+      go({ view: "list" });
+    },
+    [go],
+  );
 
   const focusRow = useCallback(
     (key: FocusKey, options: { open?: boolean } = {}) => {
@@ -318,9 +316,10 @@ function DashboardInner({
 
   // -- the keyboard ------------------------------------------------------------------
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const latest = useRef({ view, keys, columnKeys, focus, panelOpen, selection, prs });
+  const onLanding = landing !== null;
+  const latest = useRef({ view, keys, columnKeys, focus, panelOpen, selection, prs, onLanding });
   useLayoutEffect(() => {
-    latest.current = { view, keys, columnKeys, focus, panelOpen, selection, prs };
+    latest.current = { view, keys, columnKeys, focus, panelOpen, selection, prs, onLanding };
   });
   useEffect(() => {
     let chord = false;
@@ -352,6 +351,8 @@ function DashboardInner({
         setShortcutsOpen(true);
         return;
       }
+      // The landing of a deep link has no rows to move through.
+      if (s.onLanding) return;
       const board = s.view === "board";
       const focusedPr = prOfKey(s.focus);
       const pr = focusedPr === null ? null : s.prs.find((p) => p.number === focusedPr);
@@ -460,7 +461,7 @@ function DashboardInner({
       )}
       <main className="mx-auto max-w-[1000px] px-6 pt-[22px] pb-[110px]">
         {showLegend && <Legend onDismiss={dismissLegend} />}
-        {/* SLOT: the pending-key note (onboarding task): "Your key is pending. Setup PR #494 …" */}
+        <KeyNote signer={signer} setup={setup} onSetup={() => go({ view: "setup" })} />
         {view === "chrono" && !firstRun ? (
           buckets.map((b) => <BucketSection key={b.id} bucket={b} />)
         ) : firstRun ? (
@@ -517,7 +518,7 @@ function DashboardInner({
           )}
           <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
           <LockChip signer={signer} actions={actions} />
-          <Me login={me} people={snapshot.people} />
+          <Me login={me} people={snapshot.people} onSetup={() => go({ view: "setup" })} />
         </TopBarShell>
         {status !== "open" && (
           <div className="bg-need-bg text-need border-line border-b px-5 py-1.5 text-[12.5px]">
@@ -525,7 +526,17 @@ function DashboardInner({
             {snapshot.sync.at ? clockTime(snapshot.sync.at, utcOffsetMinutes) : "earlier"}.
           </div>
         )}
-        {onBoard ? (
+        {landing ? (
+          <div className="min-h-0 flex-1 overflow-auto">
+            <LinkLanding
+              route={landing}
+              snapshot={{ ...snapshot, prs }}
+              signer={signer}
+              onOpen={openInList}
+              onList={() => go({ view: "list" })}
+            />
+          </div>
+        ) : onBoard ? (
           <>
             <BoardBar group={group} onGroup={chooseGroup} />
             <Board columns={columns} onBackground={() => setDrawerOpen(false)} />
@@ -760,5 +771,62 @@ function SignColumn({ column }: { column: Column }) {
     >
       {picked.length ? `Sign ${picked.length}…` : "Sign…"}
     </button>
+  );
+}
+
+/**
+ * The pending-key note (r3 `17`): my key waits for the PR that enrols it, or
+ * is not enrolled at all. Read everything, sign nothing, until it merges.
+ */
+function KeyNote({
+  signer,
+  setup,
+  onSetup,
+}: {
+  signer: SignerState | null;
+  setup: SetupStatus | null;
+  onSetup: () => void;
+}) {
+  if (!signer) return null;
+  const box =
+    "border-line2 text-tx2 mb-[26px] rounded-[10px] border border-dashed px-3.5 py-2.5 text-[13px] leading-[1.55]";
+  const link = "underline underline-offset-2 hover:text-tx";
+  if (signer.state === "no-key")
+    return (
+      <div className={box} role="note">
+        <b className="text-tx font-semibold">You have no signing key yet.</b> You can read
+        everything; to nod, create a key and enrol it in this repository.{" "}
+        <button type="button" className={link} onClick={onSetup}>
+          Create it
+        </button>
+      </div>
+    );
+  const enrolment = signer.key.enrolment;
+  if (enrolment.state === "active") return null;
+  if (enrolment.state === "not-enrolled")
+    return (
+      <div className={box} role="note">
+        <b className="text-tx font-semibold">Your key is not enrolled.</b> Until a pull request adds
+        it to <code className="font-mono text-xs">.nod/allowed_signers</code> you can read
+        everything and sign nothing.{" "}
+        <button type="button" className={link} onClick={onSetup}>
+          Enrol it
+        </button>
+      </div>
+    );
+  const pr = enrolment.pr;
+  const viaSetup = pr !== null && setup?.setupPr?.number === pr.number;
+  return (
+    <div className={box} role="note">
+      <b className="text-tx font-semibold">Your key is pending.</b>{" "}
+      {viaSetup
+        ? `Setup PR #${pr.number} adds the policy, the verifier and your public key. Until it merges nothing is gated and your signatures do not count yet.`
+        : `${pr ? `Enrolment PR #${pr.number}` : "A pull request"} adds your public key to .nod/allowed_signers, and a teammate has to nod it. Until it merges you can read everything and your signatures do not count yet.`}{" "}
+      {pr && (
+        <a href={pr.url} target="_blank" rel="noreferrer" className={link}>
+          Open #{pr.number}
+        </a>
+      )}
+    </div>
   );
 }
