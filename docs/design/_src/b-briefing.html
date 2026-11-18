@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Countersign · Briefing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f8f6f1; --paper:#fffdf9; --ink:#1c1a16; --ink2:#55514a; --ink3:#8d887e; --rule:#e4dfd4; --rule2:#cfc9bb;
+  --need:#b3421c; --need-bg:#b3421c12; --know:#1f5fa8; --know-bg:#1f5fa812; --ok:#23744d; --ok-bg:#23744d14; --warn:#9a6a00; --warn-bg:#e9b94426;
+  --shadow:0 1px 2px #0000000a,0 8px 30px #0000000f;
+}
+:root[data-theme=dark]{
+  --bg:#15140f; --paper:#1c1b16; --ink:#efece4; --ink2:#b9b4a8; --ink3:#837e72; --rule:#2e2c25; --rule2:#45423a;
+  --need:#f08a5d; --need-bg:#f08a5d1c; --know:#7fb2ee; --know-bg:#7fb2ee1a; --ok:#63c596; --ok-bg:#63c5961c; --warn:#e3b54f; --warn-bg:#e3b54f1f;
+  --shadow:0 8px 30px #0006;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.serif{font-family:Newsreader,Georgia,serif}
+.mono,code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+code{color:var(--ink2);background:var(--rule);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.av{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:10.5px;font-weight:700;color:#fff;background:hsl(var(--h) 40% 42%);vertical-align:-4px}
+.top{position:sticky;top:0;z-index:5;height:52px;display:flex;align-items:center;gap:22px;padding:0 32px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
+.logo{font-family:Newsreader,serif;font-size:20px;font-weight:600;letter-spacing:-.01em}
+.top .repo{color:var(--ink3)} .nav{display:flex;gap:18px;color:var(--ink2)} .nav a.on{color:var(--ink);font-weight:600;box-shadow:0 17px 0 -15px var(--ink)}
+.sp{flex:1}
+.lock{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--rule2);border-radius:99px;color:var(--ink2);font-size:13px}
+.lock svg{width:14px;height:14px}
+.lock.open{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)} .lock.open b{font-family:"JetBrains Mono",monospace;font-weight:500} .lock.open a{color:var(--ink2);padding-left:8px;border-left:1px solid var(--rule2)}
+.page{display:grid;grid-template-columns:minmax(0,820px) 360px;gap:64px;justify-content:center;padding:44px 32px 96px}
+.kicker{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:600}
+h1{font-family:Newsreader,serif;font-weight:500;font-size:44px;line-height:1.08;letter-spacing:-.02em;margin:12px 0 16px}
+h1 em{font-style:normal;color:var(--need)}
+.lede{font-family:Newsreader,serif;font-size:19px;line-height:1.5;color:var(--ink2);margin:0;max-width:720px}
+.lede b{color:var(--ink);font-weight:500}
+.stats{display:flex;gap:0;margin:28px 0 0;border-top:1px solid var(--ink);border-bottom:1px solid var(--rule)}
+.stats div{flex:1;padding:12px 16px 12px 0} .stats div+div{border-left:1px solid var(--rule);padding-left:16px}
+.stats b{display:block;font-family:Newsreader,serif;font-size:28px;font-weight:500;line-height:1.1} .stats span{font-size:12px;color:var(--ink3)}
+.stats .n b{color:var(--need)} .stats .k b{color:var(--know)}
+h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;margin:52px 0 0;padding-bottom:10px;border-bottom:2px solid var(--ink);display:flex;gap:10px;align-items:baseline}
+h2 span{font-weight:500;color:var(--ink3);letter-spacing:0;text-transform:none;font-size:13px;margin-left:auto}
+h2.n{color:var(--need);border-color:var(--need)} h2.k{color:var(--know);border-color:var(--know)}
+.topic{padding:22px 0 6px;display:flex;gap:12px;align-items:baseline}
+.topic h3{font-family:Newsreader,serif;font-size:24px;font-weight:500;margin:0;letter-spacing:-.01em} .topic p{margin:0;color:var(--ink2)}
+.item{display:grid;grid-template-columns:76px 1fr 132px;gap:18px;padding:18px 0;border-top:1px solid var(--rule)}
+.gut{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--ink3);padding-top:4px}
+.gut b{display:block;margin-top:6px;font-family:Inter,sans-serif;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--need)}
+.item.k .gut b{color:var(--know)}
+.item h4{font-family:Newsreader,serif;font-size:20px;font-weight:500;line-height:1.25;margin:0 0 6px;letter-spacing:-.005em}
+.item p{margin:0 0 8px;font-family:Newsreader,serif;font-size:16.5px;line-height:1.5;color:var(--ink)}
+.item p .why{color:var(--ink2)}
+.facts{display:grid;grid-template-columns:70px 1fr;gap:5px 10px;font-size:13px;color:var(--ink2);margin-top:4px}
+.facts dt{color:var(--ink3)} .facts dd{margin:0}
+.rs{display:inline-flex;align-items:center;gap:5px;margin:0 6px 4px 0;padding:1px 8px;border-radius:99px;border:1px solid var(--rule2);font-size:12px;white-space:nowrap}
+.rs b{font-weight:600} .rs.up{border-color:color-mix(in srgb,var(--need) 45%,transparent);background:var(--need-bg);color:var(--need)}
+.rs.bl{border-color:color-mix(in srgb,var(--know) 45%,transparent);background:var(--know-bg);color:var(--know)}
+.by{font-size:12.5px;color:var(--ink3);margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.d .a{color:var(--ok)} .d .x{color:var(--need)}
+.act{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.btn{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--rule2);background:var(--paper);color:var(--ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn.in{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--need);border-color:var(--need);color:#fff}
+.btn.big{height:44px;font-size:15px;padding:0 20px}
+.btn.txt{border:0;background:none;color:var(--ink3);font-weight:500;height:24px}
+.btn.acked{color:var(--ok);border-color:transparent;background:var(--ok-bg)}
+.also{padding:12px 0 12px 94px;border-top:1px solid var(--rule);color:var(--ink2);font-size:13.5px}
+.line{display:grid;grid-template-columns:76px 1fr auto;gap:18px;padding:9px 0;border-top:1px solid var(--rule);font-size:13.5px;align-items:baseline}
+.line .t{color:var(--ink2)} .line .s{color:var(--ink3);font-size:12.5px}
+.sub{font-size:12px;font-weight:600;color:var(--ink3);letter-spacing:.06em;text-transform:uppercase;margin:22px 0 8px}
+/* rail */
+.rail{position:sticky;top:84px;align-self:start;display:flex;flex-direction:column;gap:18px}
+.tray{background:var(--paper);border:1px solid var(--rule2);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.tray header{padding:16px 18px 12px;display:flex;align-items:baseline;gap:8px} .tray header h3{margin:0;font-family:Newsreader,serif;font-size:21px;font-weight:500} .tray header span{color:var(--ink3);margin-left:auto;font-size:12.5px}
+.tr{display:grid;grid-template-columns:40px 1fr auto;gap:8px;padding:9px 18px;border-top:1px solid var(--rule);font-size:13px;align-items:baseline}
+.tr .mono{color:var(--ink3)} .tr small{display:block;color:var(--ink3);font-size:12px} .tr .x{color:var(--ink3)}
+.tray footer{padding:14px 18px 16px;border-top:1px solid var(--rule);background:color-mix(in srgb,var(--rule) 30%,var(--paper))}
+.note{color:var(--ink3);font-size:12.5px;line-height:1.5}
+.pulse{padding:0 4px} .pulse h6{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
+.pl{display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;color:var(--ink2)} .pl b{margin-left:auto;font-weight:500;color:var(--ink3)}
+/* sheet */
+.sheet{max-width:940px;margin:36px auto 96px;background:var(--paper);border:1px solid var(--rule2);border-radius:6px;box-shadow:var(--shadow);padding:48px 56px 44px;position:relative}
+.sheet h1{font-size:34px;margin:8px 0 10px}
+.sheet table{width:100%;border-collapse:collapse;margin-top:26px} .sheet th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:0 10px 8px 0;border-bottom:1px solid var(--ink);white-space:nowrap}
+.sheet td{padding:13px 10px 13px 0;border-bottom:1px solid var(--rule);vertical-align:top;font-size:13.5px} .sheet td .ti{font-family:Newsreader,serif;font-size:17px;line-height:1.3}
+.sheet td small{color:var(--ink3);display:block;margin-top:3px}
+.out{display:inline-flex;gap:6px;align-items:center;white-space:nowrap} .out::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)} .out.wait::before{background:var(--warn)}
+.sig{display:grid;grid-template-columns:1fr 340px;gap:40px;margin-top:34px;align-items:end}
+.sigline{border-top:1px solid var(--ink);padding-top:8px;font-size:12.5px;color:var(--ink3)}
+.field{display:flex;align-items:center;height:44px;border:1px solid var(--need);border-radius:8px;padding:0 14px;background:var(--bg);font-size:18px;letter-spacing:3px;box-shadow:0 0 0 3px var(--need-bg)} .field::after{content:"";width:1px;height:20px;background:var(--ink);margin-left:2px}
+.opt{display:flex;gap:6px;margin:8px 0 12px} .opt span{flex:1;text-align:center;padding:6px;border:1px solid var(--rule2);border-radius:6px;color:var(--ink2);font-size:12.5px} .opt span.on{border-color:var(--need);color:var(--need);background:var(--need-bg);font-weight:600}
+.stamp{position:absolute;right:52px;top:44px;transform:rotate(-6deg);border:2.5px solid var(--ok);color:var(--ok);border-radius:8px;padding:6px 14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px;text-align:center}
+.stamp small{display:block;font-weight:500;letter-spacing:0;text-transform:none;font-family:"JetBrains Mono",monospace;font-size:11px}
+.pay{margin-top:18px;padding:12px 14px;border:1px dashed var(--rule2);border-radius:6px;color:var(--ink2);word-break:break-all;line-height:1.7}
+.callout{padding:14px 18px;border-left:3px solid var(--know);background:var(--know-bg);border-radius:0 8px 8px 0;margin:22px 0 0;font-size:14px}
+.callout q{font-family:Newsreader,serif;font-size:18px;display:block;margin:4px 0 6px;quotes:"“" "”"}
+.warn{margin-top:10px;padding:9px 12px;border-radius:8px;background:var(--warn-bg);font-size:13px;color:var(--ink)} .warn b{color:var(--warn)}
+/* dossier */
+.led{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px} .led th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid var(--rule2)}
+.led td{padding:11px 10px 11px 0;border-bottom:1px solid var(--rule);vertical-align:top} .led small{display:block;color:var(--ink3);font-size:12px;margin-top:2px}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.miss{background:var(--need-bg);color:var(--need)} .pill.no{background:var(--rule);color:var(--ink2)}
+.trace{counter-reset:t;margin:10px 0 0;padding:0;list-style:none} .trace li{display:grid;grid-template-columns:26px 1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid var(--rule);font-size:14px;align-items:baseline}
+.trace li::before{counter-increment:t;content:counter(t);font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink3)}
+.trace small{display:block;color:var(--ink3);font-family:"JetBrains Mono",monospace;font-size:11px} .trace .e{color:var(--ink3);font-size:13px} .trace .e.up{color:var(--need);font-weight:600}
+.prose{font-family:Newsreader,serif;font-size:18px;line-height:1.55} .prose p{margin:0 0 12px} .prose b{font-family:Inter,sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-right:8px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!--DATA-->
+<script>
+const LOCK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const OPEN = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7"/></svg>';
+const topbar = open => `<div class="top"><div class="logo">Countersign</div><div class="repo">${REPO}</div>
+  <div class="nav"><a class="on" href="#dashboard">Briefing</a><a>All pull requests</a><a>Signed by me</a><a>Policy</a></div><div class="sp"></div>
+  ${open ? `<div class="lock open">${OPEN}<span>Signing unlocked</span><b>${open}</b><a>Lock now</a></div>` : `<div class="lock">${LOCK}<span>Signing locked</span></div>`}${av('mara')}</div>`;
+const d = p => `<span class="d"><span class="a">+${p.add}</span> <span class="x">−${p.del}</span> · ${p.files} files</span>`;
+const checks = p => p.checks[2] === 'pass' ? `checks ${p.checks[0]}/${p.checks[1]}` : p.checks[2] === 'run' ? `checks running ${p.checks[0]}/${p.checks[1]}` : `1 check failing`;
+const reasons = p => p.facts.filter(f => f.raise || f.k.includes('fyi')).map(f => `<span class="rs ${f.k.includes('fyi') ? 'bl' : 'up'}">${f.fact.replace(/^adds /, '').replace(/^agent declared: /, 'agent: ').replace(/^author declared FYI: /, 'author: ')} <b>→ ${f.effect}</b></span>`).join('');
+const item = (p, st = {}) => { const inTray = st.tray?.includes(p.n), fy = p.lane === 'know', acked = st.acked?.includes(p.n);
+  return `<article class="item ${fy ? 'k' : ''}"><div class="gut">#${p.n}<b>${fy ? (p.stage === 'merged' ? 'FYI · merged' : 'FYI') : p.ask}</b></div><div>
+  <h4><a href="#detail">${esc(p.title.replace(/^[a-z]+: /, m => m))}</a></h4>
+  <p>${p.brief.what} <span class="why">${p.brief.why}</span></p>
+  <dl class="facts"><dt>Risk</dt><dd>${p.brief.risk}<div style="margin-top:5px">${reasons(p)}</div></dd>
+  ${fy ? '' : `<dt>Verified</dt><dd>${p.brief.verified}</dd>`}${p.brief.look.length ? `<dt>Look at</dt><dd>${p.brief.look.map(f => `<code>${f}</code>`).join(' ')}</dd>` : ''}</dl>
+  ${st.moved && p.moved ? `<div class="warn"><b>Changed since the link was posted.</b> Head moved <span class="mono">${p.moved.from} → ${p.sha}</span>, ${p.moved.commits} new commits. Not put on the tray for you.</div>` : ''}
+  <div class="by">${av(p.by)} ${p.by === ME ? 'your agent' : `${PEOPLE[p.by].short}'s agent`} (${p.agent})<span>${d(p)}</span><span>${checks(p)}</span><span>${p.stage === 'merged' ? `merged ${p.mergedAt}` : `open ${p.age}`}</span>
+    ${fy && p.fyi.acks.length ? `<span>acked by ${p.fyi.acks.map(a => PEOPLE[a].short).join(', ')}</span>` : ''}</div></div>
+  <div class="act">${fy ? (acked ? `<a class="btn acked">✓ Got it</a>` : `<a class="btn">Got it</a>`) : (inTray ? `<a class="btn in">✓ On the tray</a>` : `<a class="btn">Add to tray</a>`)}<a class="btn txt" href="#detail">Read more</a><a class="btn txt">GitHub ↗</a></div></article>`; };
+const tray = (ns, opts = {}) => `<div class="tray"><header><h3>Signing tray</h3><span>${ns.length} pull request${ns.length === 1 ? '' : 's'}</span></header>
+  ${ns.length ? ns.map(n => `<div class="tr"><span class="mono">#${n}</span><div>${esc(PR(n).title)}<small>as ${KIND[PR(n).askKind]} · <span class="mono">${PR(n).sha}</span></small></div><span class="x">×</span></div>`).join('') : `<div class="tr" style="grid-template-columns:1fr"><span class="note">Empty. Add pull requests while you read; sign them all with one unlock.</span></div>`}
+  <footer>${ns.length ? `<a class="btn pri big" style="width:100%" href="#batch">Review &amp; sign ${ns.length}</a>` : `<a class="btn big" style="width:100%;opacity:.5">Review &amp; sign</a>`}
+  <p class="note" style="margin:10px 0 0">${opts.note || 'You will see exactly what you sign before the passphrase is asked.'}</p></footer></div>`;
+const pulse = () => `<div class="pulse"><h6>Waiting on others</h6>
+  <div class="pl">${av('ines')} Ines · #479 event bus<b>1 day</b></div><div class="pl">${av('jonas')} Jonas · #492 drizzle, #485 self-attest<b>4h</b></div>
+  <h6 style="margin-top:18px">You are waiting for</h6><div class="pl">Nobody. Your agents are blocked only by you.</div></div>`;
+
+function dashboard(st) {
+  return topbar(st.open) + `<div class="page"><main>
+  <div class="kicker">Briefing · ${NOW} · since you last looked, yesterday 17:42</div>
+  <h1><em>Six pull requests</em> wait for you. Two of them hold up Billing v2.</h1>
+  <p class="lede">Eighteen pull requests moved in the last 21 hours. <b>Five merged without anyone</b> (docs, patch bumps, tier 1 modules). <b>Three are worth knowing</b>, among them a deprecation in the module SDK. Everything below is taken from the PR briefs and the policy result; nothing is merged or signed from this page without you.</p>
+  <div class="stats"><div class="n"><b>6</b><span>need you</span></div><div class="k"><b>3</b><span>worth knowing</span></div><div><b>5</b><span>merged on their own</span></div><div><b>2</b><span>in flight (CI, agents)</span></div><div><b>2</b><span>wait on Jonas or Ines</span></div></div>
+
+  <h2 class="n">Needs you <span>longest wait: 5 hours (#476)</span></h2>
+  <div class="topic"><h3>Billing v2</h3><p>Epic #431 · Jonas · two of three open PRs need a second person</p></div>
+  ${item(PR(482), st)}${item(PR(485), st)}
+  <div class="also">Also in this epic: <b>#483</b> tax rounding per line item. You signed it at 09:48; it was rebased since, the signature still holds, and it merges when checks pass.</div>
+  <div class="topic"><h3>Auth hardening</h3><p>Pen-test follow-ups · you own <code>core/auth</code></p></div>
+  ${item(PR(476), st)}
+  <div class="topic"><h3>Your own agents</h3><p>Three tier 2 changes you prompted · self-attest is enough</p></div>
+  ${item(PR(488), st)}${item(PR(490), st)}${item(PR(491), st)}
+
+  <h2 class="k">Worth knowing <span>no input wanted · an ack tells the others you saw it</span></h2>
+  ${item(PR(480), st)}${item(PR(487), st)}${item(PR(478), st)}
+
+  <h2>Happened without you <span>nothing to do</span></h2>
+  <div class="sub">Merged on their own</div>
+  ${[489, 486, 484, 477].map(n => `<div class="line"><span class="mono" style="color:var(--ink3)">#${n}</span><span class="t">${esc(PR(n).title)}</span><span class="s">${PR(n).facts[0].fact} · merged ${PR(n).mergedAt}</span></div>`).join('')}
+  <div class="sub">In flight</div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#481</span><span class="t">${PR(481).title}</span><span class="s">tier 1 · checks running 9/14</span></div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#493</span><span class="t">${PR(493).title}</span><span class="s">tier 1 · one check failed, your agent is fixing it</span></div>
+  <div class="sub">Waiting on someone else</div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#479</span><span class="t">${PR(479).title}</span><span class="s">your PR · you signed · waits on Ines for 1 day · <u>nudge</u></span></div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#492</span><span class="t">${PR(492).title}</span><span class="s">waits on Jonas (self-attest)</span></div>
+  </main><aside class="rail">${tray(st.tray || [])}${pulse()}</aside></div>`;
+}
+const sheetRows = (ns, signed) => ns.map(n => { const p = PR(n); return `<tr><td class="mono">#${n}</td><td><div class="ti">${esc(p.title)}</div><small>${p.by === ME ? 'your agent' : `${PEOPLE[p.by].short}'s agent`} · +${p.add} −${p.del} · ${p.facts.filter(f => f.raise).map(f => f.effect === 'attestation dropped' ? 'content changed since last signature' : f.fact.replace(/^adds /, '')).join(' · ')}</small></td>
+  <td>${KIND[p.askKind]}</td><td class="mono">${p.sha}<br><span style="color:var(--ink3)">${p.patch}</span></td><td><span class="out ${AFTER[n][0]}">${signed ? (AFTER[n][0] === 'ok' ? (n === 491 ? 'Verifier is checking' : 'Check green · agent may merge') : 'Posted · waits on Jonas') : AFTER[n][1].replace('Requirement met → agent auto-merges', 'Complete → agent merges')}</span>${signed ? `<small><u>comment ↗</u></small>` : ''}</td></tr>`; }).join('');
+function sheet(step) {
+  const signed = step === 'signed';
+  return topbar(signed ? '14:48' : null) + `<div class="sheet">${signed ? `<div class="stamp">Signed<small>mara-l · 18 Nov 14:21</small></div>` : ''}
+  <div class="kicker"><a href="#dashboard">← Briefing</a> · Signing sheet</div>
+  <h1>${signed ? 'Five pull requests signed.' : 'You are signing five pull requests.'}</h1>
+  <p class="lede">${signed ? 'One attestation comment was posted on each. Agents merge four of them on their own; one still needs Jonas.' : 'Each signature covers the exact content named below (head commit and patch-id). A rebase keeps it valid, a content change does not. Two are Jonas\' pull requests and count as peer review; three are your own.'}</p>
+  <table><tr><th></th><th>Pull request</th><th>You sign as</th><th>Head · patch-id</th><th>${signed ? 'Result' : 'After you sign'}</th></tr>${sheetRows(BATCH, signed)}</table>
+  ${signed ? `<div class="sig"><div class="note">Signatures stay valid across rebases. If an agent changes the content, the pull request comes back to your briefing as "Re-attest". You can revoke a signature from <u>Signed by me</u>.</div>
+      <div><a class="btn big in" style="width:100%" href="#dashboard">Back to the briefing · 1 left</a><p class="note" style="margin:10px 0 0;text-align:center">Signing stays unlocked for 14:48 · <u>lock now</u></p></div></div>` :
+  step === 'unlock' ? `<div class="pay mono">${payload(482)}<br>… and 4 more, one per pull request · verdict approve</div>
+    <div class="sig"><div><div class="sigline">Signed with ${KEYFP} · verified against github.com/mara-l.keys<br>The key stays inside this app (not ssh-agent) and only this browser tab can ask for signatures.</div></div>
+    <div><div class="note" style="margin-bottom:6px">Passphrase for ~/.ssh/id_ed25519_sign</div><div class="field">••••••••••••</div><div class="note" style="margin-top:12px">Keep unlocked for</div><div class="opt"><span>this sheet only</span><span class="on">15 min</span><span>1 hour</span></div>
+      <a class="btn pri big" style="width:100%" href="#signed">Sign 5 pull requests</a></div></div>` :
+  `<div class="pay mono">${payload(482)}<br>… and 4 more, one per pull request · verdict approve</div>
+    <div class="sig"><div><div class="sigline">Will be signed with ${KEYFP} · verified against github.com/mara-l.keys</div></div>
+    <div><a class="btn pri big" style="width:100%" href="#unlock">${LOCK.replace('<svg', '<svg width="16" height="16"')} Unlock &amp; sign 5</a><p class="note" style="margin:10px 0 0;text-align:center">Signing is locked. Next step asks for your passphrase.</p></div></div>`}
+  </div>`;
+}
+function detail() {
+  const p = PR(476);
+  return topbar() + `<div class="page"><main>
+  <div class="kicker"><a href="#dashboard">← Briefing</a> · Auth hardening · #476 · open 5 hours</div>
+  <h1 style="font-size:38px">Rotate session tokens on privilege change</h1>
+  <div class="by" style="margin:0 0 24px;font-size:13.5px">${av('jonas')} Jonas's agent (Claude Code)<span class="mono">agent/auth-rotate → main</span><span>${d(p)}</span><span>checks 14/14</span><a><u>GitHub ↗</u></a></div>
+  <div class="prose"><p><b>What</b>${p.brief.what}</p><p><b>Why</b>${p.brief.why}</p><p><b>Risk</b>${p.brief.risk}</p><p><b>Verified</b>${p.brief.verified}</p>
+    <p><b>Look at</b>${p.brief.look.map(f => `<code>${f}</code>`).join(' ')}</p></div>
+  <p class="note">Brief taken from the PR body, written by the agent. The classification below does not depend on it.</p>
+
+  <h2>Why it needs you <span>policy file at main · rule <span class="mono">core-change</span></span></h2>
+  <ol class="trace">${p.facts.map(f => `<li><div>${f.fact}<small>${f.k}</small></div><span class="e ${f.raise ? 'up' : ''}">${f.raise ? '↑ ' : ''}${f.effect}</span></li>`).join('')}</ol>
+  <p class="lede" style="font-size:17px;margin-top:14px">Result: category <b>decide</b>. It needs the prompter's own signature and one from the owner of <code>core/auth</code>, which is you.</p>
+
+  <h2>Signatures <span>check <span class="mono">human-attestation</span>: pending, 1 of 2</span></h2>
+  <table class="led"><tr><th>Slot</th><th>Who</th><th>Signed</th><th>Still valid?</th><th></th></tr>
+    <tr><td>Prompter</td><td style="white-space:nowrap">${av('jonas')} Jonas</td><td class="mono">5e0a91c<small>yesterday 16:12 · level self</small></td><td>Yes, by patch-id<small>head is now <span class="mono">d2c47fa</span> after a rebase onto main; patch-id <span class="mono">3fa9c1e7</span> is unchanged</small></td><td><span class="pill ok">valid</span></td></tr>
+    <tr><td>Owner of core/auth</td><td>${av('mara')} You</td><td>—</td><td>—</td><td><span class="pill miss">missing</span></td></tr></table>
+
+  <h2 class="k">FYI acks <span>policy: core/auth change · unsigned, never blocks</span></h2>
+  <table class="led"><tr><td>${av('ines')} Ines</td><td>reacted <span class="mono">:eyes:</span> on the verifier comment, today 10:30</td><td><span class="pill ok">acked</span></td></tr>
+    <tr><td>${av('mara')} You</td><td>your signature will count as ack</td><td><span class="pill no">open</span></td></tr></table>
+
+  <h2>Files <span>7 changed</span></h2>
+  ${p.filesList.map(f => `<div class="line" style="grid-template-columns:1fr 110px 80px"><span class="mono">${f[0]}</span><span class="s">${f[3]}</span><span class="d" style="text-align:right"><span class="a">+${f[1]}</span> <span class="x">−${f[2]}</span></span></div>`).join('')}
+  </main><aside class="rail"><div class="tray"><header><h3>Your signature</h3><span>missing</span></header>
+    <div class="tr" style="grid-template-columns:1fr"><div>As <b>owner of core/auth</b><small>head <span class="mono">d2c47fa</span> · patch-id <span class="mono">3fa9c1e7</span></small></div></div>
+    <div class="tr" style="grid-template-columns:1fr"><div>After you sign<small>requirement complete → check green → Jonas's agent may merge</small></div></div>
+    <footer><a class="btn pri big" style="width:100%" href="#unlock">${LOCK.replace('<svg', '<svg width="16" height="16"')} Sign this one</a><a class="btn big" style="width:100%;margin-top:8px">Add to tray (5 waiting)</a>
+    <p class="note" style="margin:10px 0 0">Not convinced? <u>Ask Jonas's agent a question</u> posts a PR comment and leaves this unsigned.</p></footer></div></aside></div>`;
+}
+function link() {
+  const st = { tray: [482, 476], moved: true };
+  return topbar() + `<div class="page"><main>
+  <div class="kicker">Opened from a link · comment on #482 · 38 minutes ago</div>
+  <h1>Jonas's agent asks you to look at <em>three pull requests</em>.</h1>
+  <div class="callout">${av('jonas')} <b>jonas-r</b> via Claude Code wrote on GitHub:<q>Billing v2 and the auth fix are ready for a second pair of eyes. Review &amp; approve these 3 PRs.</q>
+    <span class="note">The link only opened this page. Nothing is signed until you unlock your key and sign. One of the three changed after the request.</span></div>
+  <h2 class="n">The request <span>2 of 3 are on your tray</span></h2>
+  ${LINK.map(n => item(PR(n), st)).join('')}
+  <div class="also" style="padding-left:0"><a href="#dashboard"><u>Go to the full briefing</u></a> · 3 more pull requests wait for you there.</div>
+  </main><aside class="rail">${tray(st.tray, { note: '#485 was left off: it changed after the request. Add it once you have looked at the new commits.' })}${pulse()}</aside></div>`;
+}
+function render() {
+  const r = route();
+  document.getElementById('root').innerHTML = r === 'detail' ? detail() : r === 'link' ? link() : r === 'batch' ? sheet('review') : r === 'unlock' ? sheet('unlock') : r === 'signed' ? sheet('signed') :
+    dashboard({ tray: r === 'empty' ? [] : BATCH, acked: [487] });
+  scrollTo(0, 0);
+}
+addEventListener('hashchange', render); render();
+</script>
+</body>
+</html>

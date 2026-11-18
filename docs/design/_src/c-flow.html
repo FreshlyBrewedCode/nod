@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Countersign · Flow</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef0f4; --col:#e4e7ed; --card:#fff; --line:#d9dde5; --line2:#c3c9d4; --tx:#171a21; --tx2:#4c5361; --tx3:#7d8594;
+  --you:#4b3fd6; --you-bg:#4b3fd612; --you-col:#e3e1fb; --fyi:#0b7a8f; --fyi-bg:#0b7a8f14; --ok:#1a7f4e; --ok-bg:#1a7f4e16; --bad:#c43d2f; --bad-bg:#c43d2f14; --warn:#a06400; --warn-bg:#f1b53d2e;
+  --shadow:0 1px 2px #1118270f; --shadow2:0 24px 70px #11182740;
+}
+:root[data-theme=dark]{
+  --bg:#0f1116; --col:#161a22; --card:#1d222c; --line:#2a303c; --line2:#3a4252; --tx:#e8eaf0; --tx2:#a9b0bf; --tx3:#727b8c;
+  --you:#9d94ff; --you-bg:#9d94ff1c; --you-col:#221f45; --fyi:#4cc3d9; --fyi-bg:#4cc3d91c; --ok:#4fc68c; --ok-bg:#4fc68c1c; --bad:#f0766a; --bad-bg:#f0766a1c; --warn:#e6b450; --warn-bg:#e6b4501f;
+  --shadow:0 1px 2px #0006; --shadow2:0 24px 70px #000c;
+}
+*{box-sizing:border-box}
+html,body,#root{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:13px/1.4 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow:hidden}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11.5px}
+a{color:inherit;text-decoration:none}
+.av{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;color:#fff;background:hsl(var(--h) 42% 44%);flex:none}
+.top{height:48px;display:flex;align-items:center;gap:18px;padding:0 18px;background:var(--card);border-bottom:1px solid var(--line)}
+.logo{font-weight:700;font-size:15px;display:flex;gap:8px;align-items:center} .logo i{width:18px;height:18px;border-radius:50%;border:2px solid var(--you);display:grid;place-items:center} .logo i::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--you)}
+.repo{color:var(--tx3)} .nav{display:flex;gap:4px} .nav a{padding:5px 10px;border-radius:6px;color:var(--tx2)} .nav a.on{background:var(--bg);color:var(--tx);font-weight:600}
+.sp{flex:1} .sync{color:var(--tx3)}
+.lock{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;color:var(--tx2)} .lock svg{width:14px;height:14px}
+.lock.open{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)} .lock.open b{font-family:"IBM Plex Mono",monospace;font-weight:500} .lock.open a{color:var(--tx2);padding-left:8px;border-left:1px solid var(--line2)}
+/* bottleneck strip */
+.strip{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1.3fr;gap:10px;padding:12px 18px 0}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 12px;align-items:center;box-shadow:var(--shadow)}
+.tile .n{font-size:26px;font-weight:600;line-height:1;grid-row:span 2;font-variant-numeric:tabular-nums} .tile b{font-weight:600} .tile small{color:var(--tx3);font-size:12px}
+.tile.you{border-color:var(--you);background:linear-gradient(0deg,var(--you-bg),var(--you-bg)),var(--card)} .tile.you .n{color:var(--you)}
+.tile .meter{grid-column:1/-1;height:5px;border-radius:3px;background:var(--line);display:flex;overflow:hidden;margin-top:6px} .meter i{background:var(--ok)} .meter b{background:var(--you)} .meter u{background:var(--tx3)}
+/* board */
+.board{display:grid;grid-template-columns:0.9fr 1.15fr 0.95fr 1fr 1fr;gap:10px;padding:12px 18px 18px;height:calc(100% - 86px)}
+.colm{background:var(--col);border-radius:12px;display:flex;flex-direction:column;min-height:0;padding:0 8px 8px}
+.colm.you{background:var(--you-col);outline:1.5px solid color-mix(in srgb,var(--you) 40%,transparent)}
+.ch{display:flex;align-items:center;gap:8px;padding:11px 6px 9px} .ch h3{margin:0;font-size:12.5px;font-weight:600} .ch .c{color:var(--tx3);font-variant-numeric:tabular-nums} .ch .r{margin-left:auto;color:var(--tx3);font-size:12px}
+.ch .mini{margin-left:auto;height:24px;padding:0 9px;border-radius:6px;background:var(--you);color:#fff;font-weight:600;font-size:12px;display:inline-flex;align-items:center}
+.cards{display:flex;flex-direction:column;gap:7px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 10px 8px;box-shadow:var(--shadow);position:relative}
+.card .h{display:flex;gap:6px;align-items:center;color:var(--tx3);font-size:11.5px} .card .h .w{margin-left:auto;font-variant-numeric:tabular-nums}
+.card .h .w.old{color:var(--bad);font-weight:600}
+.card .t{font-weight:500;margin:3px 0 6px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .f{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.tag{display:inline-flex;height:17px;align-items:center;padding:0 6px;border-radius:4px;background:var(--bg);color:var(--tx2);font-size:11px;white-space:nowrap}
+.tag.r{background:var(--warn-bg);color:var(--warn)} .tag.fy{background:var(--fyi-bg);color:var(--fyi);font-weight:600} .tag.bad{background:var(--bad-bg);color:var(--bad)} .tag.ok{background:var(--ok-bg);color:var(--ok)}
+.pips{display:flex;gap:3px;margin-left:auto}
+.pip{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:9.5px;font-weight:700;border:1.5px dashed var(--line2);color:var(--tx3)}
+.pip.ok{border:0;background:var(--ok);color:#fff} .pip.me{border:1.5px solid var(--you);color:var(--you);background:var(--you-bg)} .pip.stale{border:1.5px solid var(--bad);color:var(--bad)}
+.card.sel{border-color:var(--you);box-shadow:0 0 0 2px color-mix(in srgb,var(--you) 30%,transparent)}
+.card.sel::after{content:"✓";position:absolute;right:-6px;top:-6px;width:17px;height:17px;border-radius:50%;background:var(--you);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center}
+.card.new{border-color:var(--ok);box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 28%,transparent)}
+.card.slim{padding:7px 10px} .card.slim .t{margin:2px 0 0;font-weight:400;color:var(--tx2);-webkit-line-clamp:1}
+.card.focus{border-color:var(--you);box-shadow:0 0 0 2px color-mix(in srgb,var(--you) 30%,transparent)}
+.dim .card:not(.lk),.dim .tile,.dim .ch{opacity:.32} .card.lk{border-color:var(--fyi);box-shadow:0 0 0 2px color-mix(in srgb,var(--fyi) 35%,transparent)}
+.grp{font-size:11px;color:var(--tx3);padding:4px 6px 0;display:flex;gap:6px;align-items:center}
+/* drawer */
+.drawer{position:fixed;top:48px;right:0;bottom:0;width:540px;background:var(--card);border-left:1px solid var(--line2);box-shadow:var(--shadow2);display:flex;flex-direction:column;z-index:5}
+.dh{padding:16px 22px 12px;border-bottom:1px solid var(--line)} .dh h2{margin:6px 0 8px;font-size:18px;line-height:1.25;letter-spacing:-.01em}
+.dh .m{display:flex;gap:10px;flex-wrap:wrap;align-items:center;color:var(--tx2);font-size:12px}
+.db{padding:14px 22px;overflow:auto;flex:1} .df{padding:14px 22px;border-top:1px solid var(--line);background:var(--bg);display:flex;gap:8px;align-items:center}
+h6{margin:0 0 8px;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3);font-weight:600}
+.brief{display:grid;grid-template-columns:64px 1fr;gap:5px 10px;margin:0 0 16px} .brief dt{color:var(--tx3)} .brief dd{margin:0}
+.tl{position:relative;margin:0;padding:0;list-style:none} .tl::before{content:"";position:absolute;left:8px;top:6px;bottom:6px;width:2px;background:var(--line)}
+.tl li{position:relative;padding:0 0 14px 30px} .tl li::before{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--card);border:2px solid var(--line2)}
+.tl li.ok::before{background:var(--ok);border-color:var(--ok)} .tl li.now::before{background:var(--you);border-color:var(--you);box-shadow:0 0 0 4px var(--you-bg)} .tl li.fy::before{background:var(--fyi);border-color:var(--fyi)}
+.tl li.fut{color:var(--tx3)} .tl li.fut::before{border-style:dashed}
+.tl b{font-weight:600} .tl .w{float:right;color:var(--tx3);font-size:12px} .tl p{margin:3px 0 0;color:var(--tx2);font-size:12.5px} .tl li.fut p{color:var(--tx3)}
+.tl li.now{background:var(--you-bg);margin:0 -10px 14px;padding:10px 10px 10px 40px;border-radius:8px} .tl li.now::before{left:13px;top:13px}
+.fact{display:flex;gap:8px;justify-content:space-between;padding:3px 0;font-size:12.5px} .fact span:last-child{color:var(--tx3);white-space:nowrap} .fact span.up{color:var(--warn);font-weight:600}
+.btn{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:34px;padding:0 14px;border-radius:8px;border:1px solid var(--line2);background:var(--card);color:var(--tx);font:inherit;font-weight:600;cursor:pointer}
+.btn.pri{background:var(--you);border-color:var(--you);color:#fff} .btn.big{height:42px;font-size:14px;padding:0 18px}
+.note{color:var(--tx3);font-size:12px;line-height:1.5}
+/* dock */
+.scrim{position:fixed;inset:48px 0 0;background:#11182733;z-index:4}
+.dock{position:fixed;left:18px;right:18px;bottom:18px;background:var(--card);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow2);z-index:6;display:grid;grid-template-columns:1fr 430px}
+.dock .l{padding:18px 22px;border-right:1px solid var(--line)} .dock .r{padding:18px 22px;background:var(--bg);border-radius:0 14px 14px 0}
+.dock h2{margin:0 0 2px;font-size:17px} .dock p{margin:0;color:var(--tx2)}
+.dr{display:grid;grid-template-columns:18px 44px 1fr 110px 84px 250px;gap:10px;padding:8px 0;border-top:1px solid var(--line);align-items:center} .dr:first-of-type{margin-top:12px}
+.dr .cb{width:15px;height:15px;border-radius:4px;background:var(--you);display:grid;place-items:center;color:#fff;font-size:10px}
+.mv{display:flex;gap:6px;align-items:center;font-size:12.5px} .mv i{font-style:normal;color:var(--tx3)} .mv b{font-weight:600;color:var(--ok)} .mv.wait b{color:var(--warn)}
+.field{display:flex;align-items:center;height:40px;border:1px solid var(--you);border-radius:8px;padding:0 12px;background:var(--card);font-size:18px;letter-spacing:3px;box-shadow:0 0 0 3px var(--you-bg)} .field::after{content:"";width:1px;height:18px;background:var(--tx);margin-left:2px}
+.opt{display:flex;gap:6px;margin:6px 0 12px} .opt span{flex:1;text-align:center;padding:5px;border:1px solid var(--line2);border-radius:6px;color:var(--tx2);font-size:12px;background:var(--card)} .opt span.on{border-color:var(--you);color:var(--you);background:var(--you-bg);font-weight:600}
+.flowsum{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin:12px 0}
+.fs{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 10px} .fs b{font-size:20px;display:block;line-height:1.1} .fs small{color:var(--tx3)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;background:var(--tx);color:var(--bg);border-radius:12px;padding:12px 16px;display:flex;gap:16px;align-items:center;box-shadow:var(--shadow2);z-index:6}
+.toast b{color:#7be0ad} :root[data-theme=dark] .toast b{color:var(--ok)} .toast a{text-decoration:underline;opacity:.8}
+.warn{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--warn-bg);font-size:12.5px} .warn b{color:var(--warn)}
+.rq{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px} .rq.on{border-color:var(--you)} .rq h4{margin:4px 0 6px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!--DATA-->
+<script>
+const LOCK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const OPEN = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7"/></svg>';
+const topbar = open => `<div class="top"><div class="logo"><i></i>Countersign</div><div class="repo">${REPO}</div>
+  <div class="nav"><a class="on" href="#dashboard">Flow</a><a>Signed by me</a><a>Policy</a></div><div class="sp"></div><div class="sync">synced 40s ago</div>
+  ${open ? `<div class="lock open">${OPEN}<span>Signing unlocked</span><b>${open}</b><a>Lock now</a></div>` : `<div class="lock">${LOCK}<span>Signing locked</span></div>`}${av('mara')}</div>`;
+const tagOf = f => ({ 'module-tier': f.fact.match(/tier \d/)?.[0], 'touches-core': 'core', migration: 'migration', 'llm-risk': 'security', 'diff-size': 'large diff', attestation: 'content changed', deps: f.fact.startsWith('minor') ? 'dep minor · db' : 'dep patch', 'docs-only': 'docs', paths: 'tooling' }[f.k]);
+const tags = p => p.facts.filter(f => f.raise || ['module-tier','deps','docs-only'].includes(f.k)).map(f => { const t = tagOf(f); return t ? `<span class="tag ${f.k === 'attestation' ? 'bad' : f.raise ? 'r' : ''}">${t}</span>` : ''; }).slice(0, 3).join('');
+const pips = (p, st) => p.slots.map(s => { const signed = st.signed?.includes(p.n) && (s.who === ME || s.role === 'Peer'); const who = signed ? 'mara' : s.who;
+  const init = who in PEOPLE ? PEOPLE[who].short[0] : (s.role === 'Peer' ? '+1' : '?');
+  return `<span class="pip ${signed || s.state === 'ok' ? 'ok' : s.state === 'stale' ? 'stale' : (who === ME || s.role === 'Peer') && p.lane === 'needs' ? 'me' : ''}" title="${s.role}">${signed || s.state === 'ok' ? init : s.state === 'stale' ? '!' : init}</span>`; }).join('');
+const fyTag = p => p.fyi ? `<span class="tag fy">${p.fyi.pending.includes(ME) ? 'FYI · ack?' : 'FYI'}</span>` : '';
+const card = (p, st, extra = '') => `<a class="card ${st.sel?.includes(p.n) ? 'sel' : ''} ${st.signed?.includes(p.n) ? 'new' : ''} ${st.focus === p.n ? 'focus' : ''} ${st.link?.includes(p.n) ? 'lk' : ''}" href="#detail">
+  <div class="h"><span class="mono">#${p.n}</span>${av(p.by)}<span>${p.by === ME ? 'your agent' : PEOPLE[p.by].short + "'s agent"}</span><span class="w ${p.ageH >= 5 && p.stage === 'waiting' ? 'old' : ''}">${st.signed?.includes(p.n) ? 'just signed' : extra || p.age}</span></div>
+  <div class="t">${esc(p.title)}</div><div class="f">${tags(p)}${fyTag(p)}<span class="pips">${pips(p, st)}</span></div></a>`;
+const slim = p => `<a class="card slim"><div class="h"><span class="mono">#${p.n}</span>${tags(p)}${fyTag(p)}<span class="w">${p.mergedAt.replace('yesterday ', 'yest. ').replace('today ', '')}</span></div><div class="t">${esc(p.title)}</div></a>`;
+
+function board(st = {}) {
+  const sg = st.signed || [];
+  const mine = PRS.filter(p => p.lane === 'needs' && !sg.includes(p.n)).sort((a, b) => b.ageH - a.ageH);
+  const others = [PR(479), PR(492), ...(sg.includes(485) ? [PR(485)] : [])];
+  const merging = [...sg.filter(n => n !== 485).map(PR), PR(483), PR(478)];
+  const ci = [PR(493), PR(481)], merged = PRS.filter(p => p.stage === 'merged');
+  const n = mine.length;
+  return topbar(st.open) + `<div style="height:calc(100% - 48px)" class="${st.link ? 'dim' : ''}">
+  <div class="strip">
+    <div class="tile you"><span class="n">${n}</span><b>wait on you</b><small>${n > 1 ? 'oldest 5h · 4 agent sessions idle because of it' : 'oldest 5h · #476 needs you as owner'}</small></div>
+    <div class="tile"><span class="n">${sg.length ? 3 : 2}</span><b>wait on Jonas</b><small>oldest 4h</small></div>
+    <div class="tile"><span class="n">1</span><b>wait on Ines</b><small style="color:var(--bad)">oldest 1d · your PR #479</small></div>
+    <div class="tile"><span class="n">${2 + merging.length}</span><b>with CI or agents</b><small>1 failing check being fixed</small></div>
+    <div class="tile" style="grid-template-columns:1fr"><div><b>Last 24h:</b> 6 merged, 5 without any human</div><small>human signature took 1h 50m in the median</small>
+      <div class="meter"><i style="width:33%"></i><b style="width:${n * 5.5}%"></b><u style="width:${(12 - n) * 5.5}%"></u></div></div>
+  </div>
+  <div class="board">
+    <section class="colm"><div class="ch"><h3>Checks &amp; agents</h3><span class="c">${ci.length}</span><span class="r">no human needed</span></div><div class="cards">
+      ${card(ci[0], st, 'check failed')}${card(ci[1], st, 'checks 9/14')}
+      <div class="grp">Policy says auto-merge for both (tier 1).</div></div></section>
+    <section class="colm you"><div class="ch"><h3>Waiting on you</h3><span class="c">${n}</span>${n > 1 ? `<a class="mini" href="#batch">Sign my lane…</a>` : ''}</div><div class="cards">${mine.map(p => card(p, st)).join('')}
+      ${n === 1 ? `<div class="grp">5 signed just now. One left: it needs a proper look.</div>` : ''}</div></section>
+    <section class="colm"><div class="ch"><h3>Waiting on teammates</h3><span class="c">${others.length}</span></div><div class="cards">
+      <div class="grp">${av('ines')} Ines</div>${card(others[0], st)}<div class="grp">${av('jonas')} Jonas</div>${others.slice(1).map(p => card(p, st)).join('')}</div></section>
+    <section class="colm"><div class="ch"><h3>Attested · merging</h3><span class="c">${merging.length}</span><span class="r">agents merge</span></div><div class="cards">${merging.map(p => card(p, st, p.checks[2] === 'run' ? `checks ${p.checks[0]}/${p.checks[1]}` : '')).join('')}</div></section>
+    <section class="colm"><div class="ch"><h3>Merged</h3><span class="c">${merged.length}</span><span class="r">last 24h</span></div><div class="cards">${merged.map(slim).join('')}
+      <div class="grp">2 of these want an FYI ack from you.</div></div></section>
+  </div></div>${st.over || ''}`;
+}
+const drawer = () => { const p = PR(476); return `<aside class="drawer">
+  <div class="dh"><div class="m"><span class="mono">#476</span><span class="tag r">core</span><span class="tag r">security</span><span class="tag fy">FYI</span><span style="margin-left:auto"><a href="#dashboard">Close ✕</a></span></div>
+    <h2>${esc(p.title)}</h2><div class="m">${av('jonas')}<span>Jonas's agent · Claude Code</span><span style="color:var(--ok)">+148</span><span style="color:var(--bad)">−61</span><span>7 files</span><span>checks 14/14</span><a><u>GitHub ↗</u></a></div></div>
+  <div class="db">
+    <dl class="brief"><dt>What</dt><dd>${p.brief.what}</dd><dt>Why</dt><dd>${p.brief.why}</dd><dt>Risk</dt><dd>${p.brief.risk}</dd><dt>Verified</dt><dd>${p.brief.verified}</dd></dl>
+    <h6>Journey of this pull request</h6>
+    <ul class="tl">
+      <li class="ok"><b>Opened by Jonas's agent</b><span class="w">yesterday 15:58</span></li>
+      <li class="ok"><b>Classified: decide</b><span class="w">15:59</span>
+        ${p.facts.map(f => `<div class="fact"><span>${f.fact}</span><span class="${f.raise ? 'up' : ''}">${f.raise ? '↑ ' : ''}${f.effect}</span></div>`).join('')}
+        <p>Rule <span class="mono">core-change</span> → needs prompter self-attest + named owner (Mara).</p></li>
+      <li class="ok"><b>Jonas signed as prompter</b><span class="w">yesterday 16:12</span><p>approve · <span class="mono">head 5e0a91c · patch-id 3fa9c1e7</span> · key verified</p></li>
+      <li class="ok"><b>Rebased onto main, signature held</b><span class="w">today 09:05</span><p><span class="mono">5e0a91c → d2c47fa</span>, same patch-id, so Jonas's signature still counts.</p></li>
+      <li class="fy"><b>Ines acked the FYI</b><span class="w">today 10:30</span><p><span class="mono">:eyes:</span> reaction. FYI by policy (core/auth change). Your signature will count as your ack.</p></li>
+      <li class="now"><b>Waiting on you as owner of core/auth</b><span class="w">for 5h</span><p>1 of 2 signatures. Check <span class="mono">human-attestation</span> is pending. Jonas's agent polls every few minutes.</p></li>
+      <li class="fut"><b>Check turns green</b><p>about a minute after your signature</p></li>
+      <li class="fut"><b>Jonas's agent merges</b><p>auto-merge is already enabled</p></li>
+    </ul></div>
+  <div class="df"><a class="btn pri big" href="#unlock">${LOCK.replace('<svg', '<svg width="15" height="15"')} Sign as owner</a><a class="btn big">Add to batch</a><span class="sp"></span><span class="note">signs <span class="mono">d2c47fa</span><br>patch-id <span class="mono">3fa9c1e7</span></span></div></aside>`; };
+const dock = step => `<div class="scrim"></div><div class="dock"><div class="l"><h2>Sign your lane: 5 pull requests</h2><p>One signature each, bound to head commit and patch-id. #476 is left out; it asks for you by name.</p>
+  ${BATCH.map(n => { const p = PR(n); return `<div class="dr"><span class="cb">✓</span><span class="mono">#${n}</span><span>${esc(p.title)}</span><span>as ${KIND[p.askKind]}</span><span class="mono" style="color:var(--tx3)">${p.sha}</span>
+    <span class="mv ${AFTER[n][0]}"><i>Waiting on you →</i><b>${AFTER[n][0] === 'ok' ? 'Attested · merging' : 'Waiting on Jonas'}</b></span></div>`; }).join('')}</div>
+  <div class="r">${step === 'unlock' ? `<h6>Unlock signing key</h6><div class="note" style="margin-bottom:6px">Passphrase for ~/.ssh/id_ed25519_sign</div><div class="field">••••••••••••</div>
+      <div class="note" style="margin-top:12px">Keep unlocked for</div><div class="opt"><span>this batch</span><span class="on">15 min</span><span>1 hour</span></div>
+      <a class="btn pri big" style="width:100%" href="#signed">Sign 5</a><p class="note" style="margin:10px 0 0">${KEYFP}. The key stays in this app, not in ssh-agent; the timer shows in the top bar.</p>` :
+    `<h6>What moves</h6><div class="flowsum"><div class="fs"><b style="color:var(--you)">6 → 1</b><small>waiting on you</small></div><span style="color:var(--tx3)">→</span><div class="fs"><b style="color:var(--ok)">4</b><small>agents can merge</small></div></div>
+      <p class="note" style="margin:0 0 12px">#485 also needs Jonas's own signature and moves to his lane. 2 are Jonas's PRs (you count as peer), 3 are yours (self).</p>
+      <a class="btn pri big" style="width:100%" href="#unlock">${LOCK.replace('<svg', '<svg width="15" height="15"')} Unlock &amp; sign 5</a><div style="display:flex;justify-content:space-between;margin-top:10px"><a class="note" href="#dashboard"><u>Cancel</u></a><a class="note"><u>Show signed payload</u></a></div>`}</div></div>`;
+const linkDrawer = () => `<aside class="drawer"><div class="dh"><div class="m"><span class="tag fy">Opened from a link</span><span>comment on #482 · 38 min ago</span><span style="margin-left:auto"><a href="#dashboard">Show whole board ✕</a></span></div>
+  <h2>Jonas's agent asks you to review 3 pull requests</h2><div class="m">"Billing v2 and the auth fix are ready for a second pair of eyes."</div></div>
+  <div class="db"><p class="note" style="margin:0 0 12px">The link only opened this view. Nothing is signed until you unlock and sign.</p>
+  ${LINK.map(n => { const p = PR(n); return `<div class="rq ${p.moved ? '' : 'on'}"><div class="h" style="display:flex;gap:8px;align-items:center;color:var(--tx3);font-size:12px"><span class="mono">#${n}</span>${tags(p)}<span style="margin-left:auto;color:var(--you);font-weight:600">${p.moved ? 'not selected' : '✓ ' + p.ask.toLowerCase()}</span></div>
+    <h4>${esc(p.title)}</h4><div style="color:var(--tx2)">${p.brief.what}</div><div class="note" style="margin-top:6px">Risk: ${p.brief.risk}</div>
+    ${p.moved ? `<div class="warn"><b>Changed since the link was posted.</b> <span class="mono">${p.moved.from} → ${p.sha}</span>, ${p.moved.commits} new commits. <u>See what changed</u></div>` : ''}</div>`; }).join('')}</div>
+  <div class="df"><a class="btn pri big" href="#unlock">${LOCK.replace('<svg', '<svg width="15" height="15"')} Review &amp; sign 2</a><span class="sp"></span><span class="note">signing is locked<br>passphrase comes next</span></div></aside>`;
+const toast = () => `<div class="toast"><span><b>Signed 5 pull requests.</b> 4 are with the agents now, #485 waits on Jonas.</span><a>Receipt</a><a>Undo (revoke)</a></div>`;
+function render() {
+  const r = route();
+  document.getElementById('root').innerHTML =
+    r === 'detail' ? board({ focus: 476, over: drawer() }) : r === 'batch' ? board({ sel: BATCH, over: dock('review') }) : r === 'unlock' ? board({ sel: BATCH, over: dock('unlock') }) :
+    r === 'signed' ? board({ signed: BATCH, open: '14:48', over: toast() }) : r === 'link' ? board({ link: LINK, over: linkDrawer() }) : board();
+}
+addEventListener('hashchange', render); render();
+</script>
+</body>
+</html>

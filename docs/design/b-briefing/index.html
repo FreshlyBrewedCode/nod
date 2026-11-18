@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Countersign · Briefing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f8f6f1; --paper:#fffdf9; --ink:#1c1a16; --ink2:#55514a; --ink3:#8d887e; --rule:#e4dfd4; --rule2:#cfc9bb;
+  --need:#b3421c; --need-bg:#b3421c12; --know:#1f5fa8; --know-bg:#1f5fa812; --ok:#23744d; --ok-bg:#23744d14; --warn:#9a6a00; --warn-bg:#e9b94426;
+  --shadow:0 1px 2px #0000000a,0 8px 30px #0000000f;
+}
+:root[data-theme=dark]{
+  --bg:#15140f; --paper:#1c1b16; --ink:#efece4; --ink2:#b9b4a8; --ink3:#837e72; --rule:#2e2c25; --rule2:#45423a;
+  --need:#f08a5d; --need-bg:#f08a5d1c; --know:#7fb2ee; --know-bg:#7fb2ee1a; --ok:#63c596; --ok-bg:#63c5961c; --warn:#e3b54f; --warn-bg:#e3b54f1f;
+  --shadow:0 8px 30px #0006;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.serif{font-family:Newsreader,Georgia,serif}
+.mono,code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+code{color:var(--ink2);background:var(--rule);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.av{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:10.5px;font-weight:700;color:#fff;background:hsl(var(--h) 40% 42%);vertical-align:-4px}
+.top{position:sticky;top:0;z-index:5;height:52px;display:flex;align-items:center;gap:22px;padding:0 32px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
+.logo{font-family:Newsreader,serif;font-size:20px;font-weight:600;letter-spacing:-.01em}
+.top .repo{color:var(--ink3)} .nav{display:flex;gap:18px;color:var(--ink2)} .nav a.on{color:var(--ink);font-weight:600;box-shadow:0 17px 0 -15px var(--ink)}
+.sp{flex:1}
+.lock{display:flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--rule2);border-radius:99px;color:var(--ink2);font-size:13px}
+.lock svg{width:14px;height:14px}
+.lock.open{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)} .lock.open b{font-family:"JetBrains Mono",monospace;font-weight:500} .lock.open a{color:var(--ink2);padding-left:8px;border-left:1px solid var(--rule2)}
+.page{display:grid;grid-template-columns:minmax(0,820px) 360px;gap:64px;justify-content:center;padding:44px 32px 96px}
+.kicker{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:600}
+h1{font-family:Newsreader,serif;font-weight:500;font-size:44px;line-height:1.08;letter-spacing:-.02em;margin:12px 0 16px}
+h1 em{font-style:normal;color:var(--need)}
+.lede{font-family:Newsreader,serif;font-size:19px;line-height:1.5;color:var(--ink2);margin:0;max-width:720px}
+.lede b{color:var(--ink);font-weight:500}
+.stats{display:flex;gap:0;margin:28px 0 0;border-top:1px solid var(--ink);border-bottom:1px solid var(--rule)}
+.stats div{flex:1;padding:12px 16px 12px 0} .stats div+div{border-left:1px solid var(--rule);padding-left:16px}
+.stats b{display:block;font-family:Newsreader,serif;font-size:28px;font-weight:500;line-height:1.1} .stats span{font-size:12px;color:var(--ink3)}
+.stats .n b{color:var(--need)} .stats .k b{color:var(--know)}
+h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;margin:52px 0 0;padding-bottom:10px;border-bottom:2px solid var(--ink);display:flex;gap:10px;align-items:baseline}
+h2 span{font-weight:500;color:var(--ink3);letter-spacing:0;text-transform:none;font-size:13px;margin-left:auto}
+h2.n{color:var(--need);border-color:var(--need)} h2.k{color:var(--know);border-color:var(--know)}
+.topic{padding:22px 0 6px;display:flex;gap:12px;align-items:baseline}
+.topic h3{font-family:Newsreader,serif;font-size:24px;font-weight:500;margin:0;letter-spacing:-.01em} .topic p{margin:0;color:var(--ink2)}
+.item{display:grid;grid-template-columns:76px 1fr 132px;gap:18px;padding:18px 0;border-top:1px solid var(--rule)}
+.gut{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--ink3);padding-top:4px}
+.gut b{display:block;margin-top:6px;font-family:Inter,sans-serif;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--need)}
+.item.k .gut b{color:var(--know)}
+.item h4{font-family:Newsreader,serif;font-size:20px;font-weight:500;line-height:1.25;margin:0 0 6px;letter-spacing:-.005em}
+.item p{margin:0 0 8px;font-family:Newsreader,serif;font-size:16.5px;line-height:1.5;color:var(--ink)}
+.item p .why{color:var(--ink2)}
+.facts{display:grid;grid-template-columns:70px 1fr;gap:5px 10px;font-size:13px;color:var(--ink2);margin-top:4px}
+.facts dt{color:var(--ink3)} .facts dd{margin:0}
+.rs{display:inline-flex;align-items:center;gap:5px;margin:0 6px 4px 0;padding:1px 8px;border-radius:99px;border:1px solid var(--rule2);font-size:12px;white-space:nowrap}
+.rs b{font-weight:600} .rs.up{border-color:color-mix(in srgb,var(--need) 45%,transparent);background:var(--need-bg);color:var(--need)}
+.rs.bl{border-color:color-mix(in srgb,var(--know) 45%,transparent);background:var(--know-bg);color:var(--know)}
+.by{font-size:12.5px;color:var(--ink3);margin-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.d .a{color:var(--ok)} .d .x{color:var(--need)}
+.act{display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.btn{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--rule2);background:var(--paper);color:var(--ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn.in{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri{background:var(--need);border-color:var(--need);color:#fff}
+.btn.big{height:44px;font-size:15px;padding:0 20px}
+.btn.txt{border:0;background:none;color:var(--ink3);font-weight:500;height:24px}
+.btn.acked{color:var(--ok);border-color:transparent;background:var(--ok-bg)}
+.also{padding:12px 0 12px 94px;border-top:1px solid var(--rule);color:var(--ink2);font-size:13.5px}
+.line{display:grid;grid-template-columns:76px 1fr auto;gap:18px;padding:9px 0;border-top:1px solid var(--rule);font-size:13.5px;align-items:baseline}
+.line .t{color:var(--ink2)} .line .s{color:var(--ink3);font-size:12.5px}
+.sub{font-size:12px;font-weight:600;color:var(--ink3);letter-spacing:.06em;text-transform:uppercase;margin:22px 0 8px}
+/* rail */
+.rail{position:sticky;top:84px;align-self:start;display:flex;flex-direction:column;gap:18px}
+.tray{background:var(--paper);border:1px solid var(--rule2);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.tray header{padding:16px 18px 12px;display:flex;align-items:baseline;gap:8px} .tray header h3{margin:0;font-family:Newsreader,serif;font-size:21px;font-weight:500} .tray header span{color:var(--ink3);margin-left:auto;font-size:12.5px}
+.tr{display:grid;grid-template-columns:40px 1fr auto;gap:8px;padding:9px 18px;border-top:1px solid var(--rule);font-size:13px;align-items:baseline}
+.tr .mono{color:var(--ink3)} .tr small{display:block;color:var(--ink3);font-size:12px} .tr .x{color:var(--ink3)}
+.tray footer{padding:14px 18px 16px;border-top:1px solid var(--rule);background:color-mix(in srgb,var(--rule) 30%,var(--paper))}
+.note{color:var(--ink3);font-size:12.5px;line-height:1.5}
+.pulse{padding:0 4px} .pulse h6{margin:0 0 8px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
+.pl{display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px;color:var(--ink2)} .pl b{margin-left:auto;font-weight:500;color:var(--ink3)}
+/* sheet */
+.sheet{max-width:940px;margin:36px auto 96px;background:var(--paper);border:1px solid var(--rule2);border-radius:6px;box-shadow:var(--shadow);padding:48px 56px 44px;position:relative}
+.sheet h1{font-size:34px;margin:8px 0 10px}
+.sheet table{width:100%;border-collapse:collapse;margin-top:26px} .sheet th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:0 10px 8px 0;border-bottom:1px solid var(--ink);white-space:nowrap}
+.sheet td{padding:13px 10px 13px 0;border-bottom:1px solid var(--rule);vertical-align:top;font-size:13.5px} .sheet td .ti{font-family:Newsreader,serif;font-size:17px;line-height:1.3}
+.sheet td small{color:var(--ink3);display:block;margin-top:3px}
+.out{display:inline-flex;gap:6px;align-items:center;white-space:nowrap} .out::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)} .out.wait::before{background:var(--warn)}
+.sig{display:grid;grid-template-columns:1fr 340px;gap:40px;margin-top:34px;align-items:end}
+.sigline{border-top:1px solid var(--ink);padding-top:8px;font-size:12.5px;color:var(--ink3)}
+.field{display:flex;align-items:center;height:44px;border:1px solid var(--need);border-radius:8px;padding:0 14px;background:var(--bg);font-size:18px;letter-spacing:3px;box-shadow:0 0 0 3px var(--need-bg)} .field::after{content:"";width:1px;height:20px;background:var(--ink);margin-left:2px}
+.opt{display:flex;gap:6px;margin:8px 0 12px} .opt span{flex:1;text-align:center;padding:6px;border:1px solid var(--rule2);border-radius:6px;color:var(--ink2);font-size:12.5px} .opt span.on{border-color:var(--need);color:var(--need);background:var(--need-bg);font-weight:600}
+.stamp{position:absolute;right:52px;top:44px;transform:rotate(-6deg);border:2.5px solid var(--ok);color:var(--ok);border-radius:8px;padding:6px 14px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px;text-align:center}
+.stamp small{display:block;font-weight:500;letter-spacing:0;text-transform:none;font-family:"JetBrains Mono",monospace;font-size:11px}
+.pay{margin-top:18px;padding:12px 14px;border:1px dashed var(--rule2);border-radius:6px;color:var(--ink2);word-break:break-all;line-height:1.7}
+.callout{padding:14px 18px;border-left:3px solid var(--know);background:var(--know-bg);border-radius:0 8px 8px 0;margin:22px 0 0;font-size:14px}
+.callout q{font-family:Newsreader,serif;font-size:18px;display:block;margin:4px 0 6px;quotes:"“" "”"}
+.warn{margin-top:10px;padding:9px 12px;border-radius:8px;background:var(--warn-bg);font-size:13px;color:var(--ink)} .warn b{color:var(--warn)}
+/* dossier */
+.led{width:100%;border-collapse:collapse;margin-top:10px;font-size:13.5px} .led th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid var(--rule2)}
+.led td{padding:11px 10px 11px 0;border-bottom:1px solid var(--rule);vertical-align:top} .led small{display:block;color:var(--ink3);font-size:12px;margin-top:2px}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok)} .pill.miss{background:var(--need-bg);color:var(--need)} .pill.no{background:var(--rule);color:var(--ink2)}
+.trace{counter-reset:t;margin:10px 0 0;padding:0;list-style:none} .trace li{display:grid;grid-template-columns:26px 1fr auto;gap:8px;padding:9px 0;border-bottom:1px solid var(--rule);font-size:14px;align-items:baseline}
+.trace li::before{counter-increment:t;content:counter(t);font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink3)}
+.trace small{display:block;color:var(--ink3);font-family:"JetBrains Mono",monospace;font-size:11px} .trace .e{color:var(--ink3);font-size:13px} .trace .e.up{color:var(--need);font-weight:600}
+.prose{font-family:Newsreader,serif;font-size:18px;line-height:1.55} .prose p{margin:0 0 12px} .prose b{font-family:Inter,sans-serif;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-right:8px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Shared fake data for all three mockups. Repo: tallyho/fieldbook. Viewer: Mara.
+const REPO = 'tallyho/fieldbook';
+const ME = 'mara';
+const NOW = 'Wed 18 Nov, 14:20';
+const PEOPLE = {
+  mara:  { name: 'Mara Lindqvist', short: 'Mara',  gh: 'mara-l',   hue: 28 },
+  jonas: { name: 'Jonas Reuter',   short: 'Jonas', gh: 'jonas-r',  hue: 205 },
+  ines:  { name: 'Ines Calderón',  short: 'Ines',  gh: 'inescal',  hue: 285 },
+};
+const PRS = [
+  { n: 482, title: 'billing: prorate plan changes mid-cycle', by: 'jonas', agent: 'Claude Code', topic: 'Billing v2',
+    cat: 'decide', lane: 'needs', askKind: 'peer', ask: 'Sign as peer', stage: 'waiting', waits: ['mara'],
+    add: 312, del: 88, files: 9, checks: [14, 14, 'pass'], sha: '9f3c2ab', patch: 'e41b7c0d', age: '2h', ageH: 2.1,
+    facts: [
+      { k: 'module-tier', fact: 'modules/billing is tier 3', effect: 'needs another human', raise: 1 },
+      { k: 'touches-core', fact: 'no files under core/', effect: 'no change' },
+      { k: 'diff-size', fact: '+312 −88 in 9 files (limit 600)', effect: 'no change' },
+    ],
+    policy: 'tier3-module-change', req: 'Another human (not the prompter)',
+    slots: [{ role: 'Peer', who: 'anyone but Jonas', state: 'missing' }],
+    brief: { what: 'Adds day-based proration when a tenant switches plan mid-cycle; credit note for downgrades, immediate charge for upgrades.',
+      why: 'Epic #431 Billing v2. Support currently fixes these invoices by hand (about 12 a week).',
+      risk: 'Money math. Rounding happens per invoice line; leap-day and DST cycle boundaries are the edge cases.', riskLvl: 2,
+      verified: '41 new unit tests incl. property test on "credit + charge = price difference"; replayed 300 real plan changes from staging.',
+      look: ['modules/billing/proration.ts', 'modules/billing/proration.test.ts'] } },
+  { n: 485, title: 'billing: add invoices.currency_code with backfill', by: 'jonas', agent: 'Claude Code', topic: 'Billing v2',
+    cat: 'decide', lane: 'needs', askKind: 'peer', ask: 'Sign as peer', stage: 'waiting', waits: ['mara', 'jonas'],
+    add: 96, del: 4, files: 5, checks: [14, 14, 'pass'], sha: '8c1f5d0', patch: '19d0aa62', age: '3h', ageH: 3.2, moved: { from: '41aa9e7', commits: 2 },
+    facts: [
+      { k: 'migration', fact: 'adds db/migrations/0147_invoice_currency.sql', effect: 'needs prompter + another human', raise: 1 },
+      { k: 'module-tier', fact: 'modules/billing is tier 3', effect: 'needs another human', raise: 1 },
+      { k: 'agent-intent', fact: 'agent declared: "backfill locks invoices for ~20s"', effect: 'risk raised to high', raise: 1 },
+    ],
+    policy: 'schema-migration', req: 'Prompter self-attest + another human',
+    slots: [{ role: 'Prompter', who: 'jonas', state: 'missing' }, { role: 'Peer', who: 'anyone but Jonas', state: 'missing' }],
+    brief: { what: 'New nullable column invoices.currency_code, backfilled from tenant default in batches of 5,000 rows.',
+      why: 'Proration (#482) needs the invoice currency; today it is read from the tenant, which is wrong for old invoices.',
+      risk: 'Schema migration on a 2.1M row table. Backfill is batched, but the first ALTER takes a short lock.', riskLvl: 3,
+      verified: 'Ran against a staging snapshot: 2m 40s total, longest lock 180 ms. Down migration tested.',
+      look: ['db/migrations/0147_invoice_currency.sql', 'modules/billing/backfill/currency.ts'] } },
+  { n: 476, title: 'auth: rotate session tokens on privilege change', by: 'jonas', agent: 'Claude Code', topic: 'Auth hardening',
+    cat: 'decide', lane: 'needs', askKind: 'named', ask: 'Sign as owner', stage: 'waiting', waits: ['mara'],
+    add: 148, del: 61, files: 7, checks: [14, 14, 'pass'], sha: 'd2c47fa', patch: '3fa9c1e7', age: '5h', ageH: 5.3,
+    facts: [
+      { k: 'touches-core', fact: '3 files under core/auth/', effect: 'needs prompter + named owner', raise: 1 },
+      { k: 'owner', fact: 'core/auth/** is owned by Mara', effect: 'named person: Mara' },
+      { k: 'llm-risk', fact: 'LLM check: "changes token invalidation order"', effect: 'tagged security-sensitive', raise: 1 },
+      { k: 'fyi-rule', fact: 'core/auth change', effect: 'FYI to the whole team' },
+    ],
+    policy: 'core-change', req: 'Prompter self-attest + named owner (Mara)',
+    slots: [
+      { role: 'Prompter', who: 'jonas', state: 'ok', sha: '5e0a91c', via: 'patch_id', when: 'yesterday 16:12', level: 'self' },
+      { role: 'Owner of core/auth', who: 'mara', state: 'missing' },
+    ],
+    fyi: { why: 'policy: core/auth change', acks: ['ines'], pending: [] },
+    brief: { what: 'When a user\'s role changes, all their sessions get a fresh token and the old ones are revoked within one request.',
+      why: 'Pen-test finding F-07: a demoted admin kept admin rights until the token expired (up to 12h).',
+      risk: 'Touches core/auth/session.ts. A bug here logs users out or, worse, keeps old tokens alive.', riskLvl: 3,
+      verified: 'New integration test for demote/promote; manual check on staging with two browsers. No load test.',
+      look: ['core/auth/session.ts', 'core/auth/revocation.ts', 'core/auth/session.int.test.ts'] },
+    filesList: [
+      ['core/auth/session.ts', 64, 38, 'core'], ['core/auth/revocation.ts', 41, 12, 'core'], ['core/auth/session.int.test.ts', 29, 0, 'core · test'],
+      ['modules/admin/roles/update.ts', 8, 9, 'tier 2'], ['modules/admin/roles/update.test.ts', 4, 0, 'tier 2 · test'],
+      ['docs/security/sessions.md', 2, 1, 'docs'], ['CHANGELOG.md', 0, 1, 'docs'],
+    ] },
+  { n: 488, title: 'inventory: release stock when a reservation times out', by: 'mara', agent: 'Claude Code', topic: 'Inventory',
+    cat: 'decide', lane: 'needs', askKind: 'self', ask: 'Self-attest', stage: 'waiting', waits: ['mara'],
+    add: 121, del: 17, files: 4, checks: [14, 14, 'pass'], sha: '2b7e440', patch: 'a07f3d91', age: '1h', ageH: 1.2,
+    facts: [
+      { k: 'module-tier', fact: 'modules/inventory is tier 2', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'pure-module', fact: 'pure module update, no core, no schema', effect: 'no change' },
+    ],
+    policy: 'tier2-module-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'mara', state: 'missing' }],
+    brief: { what: 'A job releases reserved stock 15 minutes after an abandoned checkout.',
+      why: 'Issue #455: stock stayed reserved forever when the browser tab was closed.',
+      risk: 'Low. Worst case stock is released too early and a checkout fails with "out of stock".', riskLvl: 1,
+      verified: 'Unit tests with a fake clock; ran the job against staging data (released 37 stale reservations).',
+      look: ['modules/inventory/jobs/release-reservations.ts'] } },
+  { n: 490, title: 'notifications: batch digest emails per tenant', by: 'mara', agent: 'Codex', topic: 'Notifications',
+    cat: 'decide', lane: 'needs', askKind: 'self', ask: 'Self-attest', stage: 'waiting', waits: ['mara'],
+    add: 203, del: 140, files: 8, checks: [14, 14, 'pass'], sha: '77d1c3e', patch: 'c5521b08', age: '50m', ageH: 0.8,
+    facts: [
+      { k: 'module-tier', fact: 'modules/notifications is tier 2', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'pure-module', fact: 'pure module update, no core, no schema', effect: 'no change' },
+    ],
+    policy: 'tier2-module-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'mara', state: 'missing' }],
+    brief: { what: 'Digest mails are built once per tenant instead of once per user; one SMTP connection per batch.',
+      why: 'Digest run took 40 minutes for the largest tenant and hit the provider rate limit.',
+      risk: 'Low to medium. A wrong grouping key would send one user\'s digest to another.', riskLvl: 2,
+      verified: 'Snapshot tests on rendered mails for 3 tenants; dry-run on staging compared recipients 1:1 with the old path.',
+      look: ['modules/notifications/digest/build.ts', 'modules/notifications/digest/send.ts'] } },
+  { n: 491, title: 'search: fix facet counts when items are archived', by: 'mara', agent: 'Claude Code', topic: 'Search',
+    cat: 'decide', lane: 'needs', askKind: 'reattest', ask: 'Re-attest', stage: 'waiting', waits: ['mara'],
+    add: 58, del: 22, files: 3, checks: [14, 14, 'pass'], sha: 'e90b1f6', patch: '6d3e88f2', age: '25m', ageH: 0.4,
+    facts: [
+      { k: 'module-tier', fact: 'modules/search is tier 2', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'attestation', fact: 'signed patch-id 51c0… no longer matches (content changed)', effect: 'attestation dropped', raise: 1 },
+    ],
+    policy: 'tier2-module-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'mara', state: 'stale', sha: '0c4d7aa', when: 'today 11:02', level: 'self' }],
+    brief: { what: 'Facet counts no longer include archived items. Since your signature: +14 −3 in facets.ts to also cover soft-deleted items.',
+      why: 'Bug #468. The follow-up commit answers Ines\' review comment.',
+      risk: 'Low. Read path only.', riskLvl: 1,
+      verified: 'Two new test cases; counts compared with SQL on staging.',
+      look: ['modules/search/facets.ts (changed since you signed)'] } },
+  { n: 479, title: 'core: typed channels for the event bus', by: 'mara', agent: 'Claude Code', topic: 'Core event bus',
+    cat: 'decide', lane: 'bg', stage: 'waiting', waits: ['ines'],
+    add: 684, del: 402, files: 31, checks: [14, 14, 'pass'], sha: 'b61a0d3', patch: 'f2281c4a', age: '1d', ageH: 22,
+    facts: [
+      { k: 'touches-core', fact: '12 files under core/events/', effect: 'needs prompter + named owner', raise: 1 },
+      { k: 'owner', fact: 'core/events/** is owned by Ines', effect: 'named person: Ines' },
+      { k: 'diff-size', fact: '+684 −402 in 31 files (limit 600)', effect: 'risk raised to high', raise: 1 },
+    ],
+    policy: 'core-change', req: 'Prompter self-attest + named owner (Ines)',
+    slots: [
+      { role: 'Prompter', who: 'mara', state: 'ok', sha: '4ac19e2', via: 'patch_id', when: 'yesterday 15:30', level: 'self' },
+      { role: 'Owner of core/events', who: 'ines', state: 'missing' },
+    ],
+    brief: { what: 'Event bus channels get a typed payload schema; 19 modules migrated mechanically.',
+      why: 'Three production bugs this quarter came from mistyped event payloads.',
+      risk: 'Large core change. Mostly mechanical, but publish() ordering changed for batched events.', riskLvl: 3,
+      verified: 'Full suite green; type-level tests; canary on staging for 24h without dropped events.',
+      look: ['core/events/bus.ts', 'core/events/channel.ts'] } },
+  { n: 492, title: 'deps: drizzle-orm 0.36.4 → 0.37.0', by: 'jonas', agent: 'Renovate + Claude Code', topic: 'Housekeeping',
+    cat: 'decide', lane: 'bg', stage: 'waiting', waits: ['jonas'],
+    add: 44, del: 31, files: 6, checks: [14, 14, 'pass'], sha: '6ad00e1', patch: '0be7719c', age: '4h', ageH: 4.1,
+    facts: [
+      { k: 'deps', fact: 'minor bump of a database library', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'lockfile', fact: 'lockfile + 4 call sites changed', effect: 'no change' },
+    ],
+    policy: 'dep-minor-db', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'jonas', state: 'missing' }],
+    brief: { what: 'Minor bump; 4 call sites adapted to the renamed `onConflictDoUpdate` option.',
+      why: 'Needed for the batched backfill helper used in #485.', risk: 'Medium. Database library.', riskLvl: 2,
+      verified: 'Full suite green, migration dry-run unchanged.', look: ['package.json', 'modules/billing/repo.ts'] } },
+  { n: 483, title: 'billing: round tax per line item, not per invoice', by: 'jonas', agent: 'Claude Code', topic: 'Billing v2',
+    cat: 'decide', lane: 'bg', stage: 'merging', waits: ['ci'],
+    add: 77, del: 49, files: 4, checks: [12, 14, 'run'], sha: 'c77e0f1', patch: '7be2d403', age: '6h', ageH: 6,
+    facts: [{ k: 'module-tier', fact: 'modules/billing is tier 3', effect: 'needs another human', raise: 1 }],
+    policy: 'tier3-module-change', req: 'Another human (not the prompter)',
+    slots: [{ role: 'Peer', who: 'mara', state: 'ok', sha: 'a1d94e2', via: 'patch_id', when: 'today 09:48', level: 'peer' }],
+    brief: { what: 'Tax is rounded per line, matching what the accounting export expects.', why: 'Epic #431. 1-cent differences against the ledger.',
+      risk: 'Money math, small diff.', riskLvl: 2, verified: 'Golden-file test with 1,200 historical invoices.', look: ['modules/billing/tax.ts'] } },
+  { n: 478, title: 'ci: run vitest in workspace mode (tests 3× faster)', by: 'ines', agent: 'Claude Code', topic: 'Housekeeping',
+    cat: 'fyi', lane: 'know', stage: 'merging', waits: ['ci'],
+    add: 139, del: 212, files: 14, checks: [13, 14, 'run'], sha: '31f8b2c', patch: 'd9a04e55', age: '3h', ageH: 3,
+    facts: [
+      { k: 'paths', fact: 'only .github/, vitest.*.ts, package.json scripts', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'author-fyi', fact: 'author declared FYI: "test commands change"', effect: 'FYI to the whole team' },
+    ],
+    policy: 'tooling-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'ines', state: 'ok', sha: '31f8b2c', via: 'head_sha', when: 'today 11:40', level: 'self' }],
+    fyi: { why: 'declared by author', acks: ['jonas'], pending: ['mara'] },
+    brief: { what: 'One vitest workspace instead of 23 per-module configs. `pnpm test` is now `pnpm test --project <module>`.',
+      why: 'CI test stage went from 9m to 3m.', risk: 'None for production. Your local test command changes.', riskLvl: 0,
+      verified: 'Same 4,812 tests discovered before and after.', look: ['vitest.workspace.ts', 'docs/dev/testing.md'] } },
+  { n: 487, title: 'docs: ADR-014 module tiers and review requirements', by: 'ines', agent: 'Claude Code', topic: 'Housekeeping',
+    cat: 'fyi', lane: 'know', stage: 'merged', waits: [], mergedAt: '1h ago',
+    add: 164, del: 0, files: 2, checks: [6, 6, 'pass'], sha: '0d92e7b', patch: '88c13fa0', age: '1h', ageH: 1,
+    facts: [
+      { k: 'docs-only', fact: 'only files under docs/', effect: 'auto-merge' },
+      { k: 'author-fyi', fact: 'author declared FYI: "changes how we review"', effect: 'FYI to the whole team' },
+    ],
+    policy: 'docs-only', req: 'None (auto-merge)', slots: [],
+    fyi: { why: 'declared by author', acks: ['jonas'], pending: ['mara'] },
+    brief: { what: 'Writes down which module is tier 1, 2 or 3 and what each tier requires. Moves `calendar` from tier 2 to tier 1.',
+      why: 'The tiers so far lived only in the policy file.', risk: 'None. But it is the reference for the policy config.', riskLvl: 0,
+      verified: 'n/a (docs).', look: ['docs/adr/014-module-tiers.md'] } },
+  { n: 480, title: 'core: deprecate ctx.legacyDb in the module SDK', by: 'ines', agent: 'Claude Code', topic: 'Core event bus',
+    cat: 'fyi', lane: 'know', stage: 'merged', waits: [], mergedAt: 'yesterday 18:31',
+    add: 52, del: 9, files: 5, checks: [14, 14, 'pass'], sha: 'ab30c19', patch: '2e6f0d71', age: '20h', ageH: 20,
+    facts: [
+      { k: 'touches-core', fact: '2 files under core/sdk/', effect: 'needs prompter + named owner', raise: 1 },
+      { k: 'fyi-rule', fact: 'public module SDK surface changed', effect: 'FYI to the whole team' },
+    ],
+    policy: 'core-change', req: 'Prompter self-attest + named owner (Ines)',
+    slots: [{ role: 'Prompter + owner', who: 'ines', state: 'ok', sha: 'ab30c19', via: 'head_sha', when: 'yesterday 18:20', level: 'self' }],
+    fyi: { why: 'policy: module SDK surface changed', acks: [], pending: ['mara', 'jonas'] },
+    brief: { what: '`ctx.legacyDb` now logs a deprecation warning; removal planned for 1 Dec.',
+      why: 'Last step before modules can only reach the DB through repositories.', risk: 'None now. Agents writing modules must stop using it.', riskLvl: 0,
+      verified: 'Warning appears once per process in tests.', look: ['core/sdk/context.ts', 'docs/modules/sdk.md'] } },
+  { n: 493, title: 'notes: keyboard shortcut to toggle checklist items', by: 'mara', agent: 'Claude Code', topic: 'Notes',
+    cat: 'auto', lane: 'bg', stage: 'checks', waits: ['agent'],
+    add: 37, del: 2, files: 3, checks: [13, 14, 'fail'], sha: '5f0e2d8', patch: 'b7c9e014', age: '15m', ageH: 0.25,
+    facts: [{ k: 'module-tier', fact: 'modules/notes is tier 1, pure module update', effect: 'auto-merge' }],
+    policy: 'tier1-pure-module', req: 'None (auto-merge)', slots: [],
+    brief: { what: 'Cmd+Enter toggles a checklist item.', why: 'Issue #470.', risk: 'None.', riskLvl: 0, verified: 'e2e test failing on Firefox; agent is fixing.', look: [] } },
+  { n: 481, title: 'calendar: ICS export honours the tenant timezone', by: 'ines', agent: 'Claude Code', topic: 'Calendar',
+    cat: 'auto', lane: 'bg', stage: 'checks', waits: ['ci'],
+    add: 45, del: 12, files: 3, checks: [9, 14, 'run'], sha: '13c9a7e', patch: '40ad81b3', age: '12m', ageH: 0.2,
+    facts: [{ k: 'module-tier', fact: 'modules/calendar is tier 1, pure module update', effect: 'auto-merge' }],
+    policy: 'tier1-pure-module', req: 'None (auto-merge)', slots: [],
+    brief: { what: 'ICS export uses the tenant timezone instead of UTC.', why: 'Bug #472.', risk: 'None.', riskLvl: 0, verified: 'Unit tests for 4 timezones.', look: [] } },
+  { n: 489, title: 'deps: zod 3.24.1 → 3.24.2', by: 'jonas', agent: 'Renovate', topic: 'Housekeeping',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: '35m ago',
+    add: 6, del: 6, files: 2, checks: [14, 14, 'pass'], sha: 'f41d6b9', patch: '9912ce07', age: '35m', ageH: 0.6,
+    facts: [{ k: 'deps', fact: 'patch bump, lockfile only', effect: 'auto-merge' }],
+    policy: 'dep-patch', req: 'None (auto-merge)', slots: [], brief: { what: 'Patch bump.', why: 'Renovate.', risk: 'None.', riskLvl: 0, verified: 'Suite green.', look: [] } },
+  { n: 486, title: 'notes: fix pasting markdown tables', by: 'mara', agent: 'Claude Code', topic: 'Notes',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: '2h ago',
+    add: 64, del: 19, files: 3, checks: [14, 14, 'pass'], sha: '7a3e15c', patch: '5d08f6aa', age: '2h', ageH: 2,
+    facts: [{ k: 'module-tier', fact: 'modules/notes is tier 1, pure module update', effect: 'auto-merge' }],
+    policy: 'tier1-pure-module', req: 'None (auto-merge)', slots: [], brief: { what: 'Pasted tables keep their columns.', why: 'Bug #466.', risk: 'None.', riskLvl: 0, verified: '6 paste fixtures.', look: [] } },
+  { n: 484, title: 'deps: @types/node 22.9.0 → 22.9.1', by: 'jonas', agent: 'Renovate', topic: 'Housekeeping',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: 'today 08:12',
+    add: 4, del: 4, files: 2, checks: [14, 14, 'pass'], sha: 'c0b8d22', patch: '1f6a7e30', age: '6h', ageH: 6,
+    facts: [{ k: 'deps', fact: 'patch bump of a dev dependency', effect: 'auto-merge' }],
+    policy: 'dep-patch', req: 'None (auto-merge)', slots: [], brief: { what: 'Patch bump.', why: 'Renovate.', risk: 'None.', riskLvl: 0, verified: 'Suite green.', look: [] } },
+  { n: 477, title: 'docs: fix typos in the module authoring guide', by: 'jonas', agent: 'Claude Code', topic: 'Housekeeping',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: 'yesterday 19:05',
+    add: 11, del: 11, files: 1, checks: [6, 6, 'pass'], sha: '92e4f0a', patch: 'e3b15c88', age: '19h', ageH: 19,
+    facts: [{ k: 'docs-only', fact: 'only files under docs/', effect: 'auto-merge' }],
+    policy: 'docs-only', req: 'None (auto-merge)', slots: [], brief: { what: 'Typos.', why: '', risk: 'None.', riskLvl: 0, verified: 'n/a', look: [] } },
+];
+PRS.forEach(p => { for (const k of ['what','why','risk','verified']) p.brief[k] = p.brief[k].replace(/`([^`]+)`/g, '<code>$1</code>'); });
+const PR = n => PRS.find(p => p.n === n);
+const BATCH = [482, 485, 488, 490, 491];      // selected on the dashboard
+const LINK = [482, 485, 476];                 // deep link batch (posted by Jonas' agent on #482)
+const KIND = { peer: 'peer', self: 'self', named: 'owner', reattest: 'self (re-attest)' };
+// what happens after I sign
+const AFTER = { 482: ['ok', 'Requirement met → agent auto-merges'], 485: ['wait', 'Still waits on Jonas (prompter)'], 488: ['ok', 'Requirement met → agent auto-merges'],
+  490: ['ok', 'Requirement met → agent auto-merges'], 491: ['ok', 'Requirement met → agent auto-merges'], 476: ['ok', 'Requirement met → agent auto-merges'] };
+const KEYFP = 'SHA256:Qx7fT0m…k2Vd9 (ed25519)';
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const av = (p, cls = '') => p in PEOPLE ? `<span class="av ${cls}" style="--h:${PEOPLE[p].hue}" title="${PEOPLE[p].name}">${PEOPLE[p].short[0]}</span>` : '';
+const route = () => (location.hash || '#dashboard').slice(1);
+const payload = n => { const p = PR(n); return `{"repo":"${REPO}","pr":${n},"head_sha":"${p.sha}…","patch_id":"${p.patch}…","verdict":"approve","level":"${p.askKind === 'peer' ? 'peer' : p.askKind === 'named' ? 'owner' : 'self'}","reviewer":"mara-l"}`; };
+if (new URLSearchParams(location.search).get('theme')) document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme');
+</script>
+<script>
+const LOCK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const OPEN = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7"/></svg>';
+const topbar = open => `<div class="top"><div class="logo">Countersign</div><div class="repo">${REPO}</div>
+  <div class="nav"><a class="on" href="#dashboard">Briefing</a><a>All pull requests</a><a>Signed by me</a><a>Policy</a></div><div class="sp"></div>
+  ${open ? `<div class="lock open">${OPEN}<span>Signing unlocked</span><b>${open}</b><a>Lock now</a></div>` : `<div class="lock">${LOCK}<span>Signing locked</span></div>`}${av('mara')}</div>`;
+const d = p => `<span class="d"><span class="a">+${p.add}</span> <span class="x">−${p.del}</span> · ${p.files} files</span>`;
+const checks = p => p.checks[2] === 'pass' ? `checks ${p.checks[0]}/${p.checks[1]}` : p.checks[2] === 'run' ? `checks running ${p.checks[0]}/${p.checks[1]}` : `1 check failing`;
+const reasons = p => p.facts.filter(f => f.raise || f.k.includes('fyi')).map(f => `<span class="rs ${f.k.includes('fyi') ? 'bl' : 'up'}">${f.fact.replace(/^adds /, '').replace(/^agent declared: /, 'agent: ').replace(/^author declared FYI: /, 'author: ')} <b>→ ${f.effect}</b></span>`).join('');
+const item = (p, st = {}) => { const inTray = st.tray?.includes(p.n), fy = p.lane === 'know', acked = st.acked?.includes(p.n);
+  return `<article class="item ${fy ? 'k' : ''}"><div class="gut">#${p.n}<b>${fy ? (p.stage === 'merged' ? 'FYI · merged' : 'FYI') : p.ask}</b></div><div>
+  <h4><a href="#detail">${esc(p.title.replace(/^[a-z]+: /, m => m))}</a></h4>
+  <p>${p.brief.what} <span class="why">${p.brief.why}</span></p>
+  <dl class="facts"><dt>Risk</dt><dd>${p.brief.risk}<div style="margin-top:5px">${reasons(p)}</div></dd>
+  ${fy ? '' : `<dt>Verified</dt><dd>${p.brief.verified}</dd>`}${p.brief.look.length ? `<dt>Look at</dt><dd>${p.brief.look.map(f => `<code>${f}</code>`).join(' ')}</dd>` : ''}</dl>
+  ${st.moved && p.moved ? `<div class="warn"><b>Changed since the link was posted.</b> Head moved <span class="mono">${p.moved.from} → ${p.sha}</span>, ${p.moved.commits} new commits. Not put on the tray for you.</div>` : ''}
+  <div class="by">${av(p.by)} ${p.by === ME ? 'your agent' : `${PEOPLE[p.by].short}'s agent`} (${p.agent})<span>${d(p)}</span><span>${checks(p)}</span><span>${p.stage === 'merged' ? `merged ${p.mergedAt}` : `open ${p.age}`}</span>
+    ${fy && p.fyi.acks.length ? `<span>acked by ${p.fyi.acks.map(a => PEOPLE[a].short).join(', ')}</span>` : ''}</div></div>
+  <div class="act">${fy ? (acked ? `<a class="btn acked">✓ Got it</a>` : `<a class="btn">Got it</a>`) : (inTray ? `<a class="btn in">✓ On the tray</a>` : `<a class="btn">Add to tray</a>`)}<a class="btn txt" href="#detail">Read more</a><a class="btn txt">GitHub ↗</a></div></article>`; };
+const tray = (ns, opts = {}) => `<div class="tray"><header><h3>Signing tray</h3><span>${ns.length} pull request${ns.length === 1 ? '' : 's'}</span></header>
+  ${ns.length ? ns.map(n => `<div class="tr"><span class="mono">#${n}</span><div>${esc(PR(n).title)}<small>as ${KIND[PR(n).askKind]} · <span class="mono">${PR(n).sha}</span></small></div><span class="x">×</span></div>`).join('') : `<div class="tr" style="grid-template-columns:1fr"><span class="note">Empty. Add pull requests while you read; sign them all with one unlock.</span></div>`}
+  <footer>${ns.length ? `<a class="btn pri big" style="width:100%" href="#batch">Review &amp; sign ${ns.length}</a>` : `<a class="btn big" style="width:100%;opacity:.5">Review &amp; sign</a>`}
+  <p class="note" style="margin:10px 0 0">${opts.note || 'You will see exactly what you sign before the passphrase is asked.'}</p></footer></div>`;
+const pulse = () => `<div class="pulse"><h6>Waiting on others</h6>
+  <div class="pl">${av('ines')} Ines · #479 event bus<b>1 day</b></div><div class="pl">${av('jonas')} Jonas · #492 drizzle, #485 self-attest<b>4h</b></div>
+  <h6 style="margin-top:18px">You are waiting for</h6><div class="pl">Nobody. Your agents are blocked only by you.</div></div>`;
+
+function dashboard(st) {
+  return topbar(st.open) + `<div class="page"><main>
+  <div class="kicker">Briefing · ${NOW} · since you last looked, yesterday 17:42</div>
+  <h1><em>Six pull requests</em> wait for you. Two of them hold up Billing v2.</h1>
+  <p class="lede">Eighteen pull requests moved in the last 21 hours. <b>Five merged without anyone</b> (docs, patch bumps, tier 1 modules). <b>Three are worth knowing</b>, among them a deprecation in the module SDK. Everything below is taken from the PR briefs and the policy result; nothing is merged or signed from this page without you.</p>
+  <div class="stats"><div class="n"><b>6</b><span>need you</span></div><div class="k"><b>3</b><span>worth knowing</span></div><div><b>5</b><span>merged on their own</span></div><div><b>2</b><span>in flight (CI, agents)</span></div><div><b>2</b><span>wait on Jonas or Ines</span></div></div>
+
+  <h2 class="n">Needs you <span>longest wait: 5 hours (#476)</span></h2>
+  <div class="topic"><h3>Billing v2</h3><p>Epic #431 · Jonas · two of three open PRs need a second person</p></div>
+  ${item(PR(482), st)}${item(PR(485), st)}
+  <div class="also">Also in this epic: <b>#483</b> tax rounding per line item. You signed it at 09:48; it was rebased since, the signature still holds, and it merges when checks pass.</div>
+  <div class="topic"><h3>Auth hardening</h3><p>Pen-test follow-ups · you own <code>core/auth</code></p></div>
+  ${item(PR(476), st)}
+  <div class="topic"><h3>Your own agents</h3><p>Three tier 2 changes you prompted · self-attest is enough</p></div>
+  ${item(PR(488), st)}${item(PR(490), st)}${item(PR(491), st)}
+
+  <h2 class="k">Worth knowing <span>no input wanted · an ack tells the others you saw it</span></h2>
+  ${item(PR(480), st)}${item(PR(487), st)}${item(PR(478), st)}
+
+  <h2>Happened without you <span>nothing to do</span></h2>
+  <div class="sub">Merged on their own</div>
+  ${[489, 486, 484, 477].map(n => `<div class="line"><span class="mono" style="color:var(--ink3)">#${n}</span><span class="t">${esc(PR(n).title)}</span><span class="s">${PR(n).facts[0].fact} · merged ${PR(n).mergedAt}</span></div>`).join('')}
+  <div class="sub">In flight</div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#481</span><span class="t">${PR(481).title}</span><span class="s">tier 1 · checks running 9/14</span></div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#493</span><span class="t">${PR(493).title}</span><span class="s">tier 1 · one check failed, your agent is fixing it</span></div>
+  <div class="sub">Waiting on someone else</div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#479</span><span class="t">${PR(479).title}</span><span class="s">your PR · you signed · waits on Ines for 1 day · <u>nudge</u></span></div>
+  <div class="line"><span class="mono" style="color:var(--ink3)">#492</span><span class="t">${PR(492).title}</span><span class="s">waits on Jonas (self-attest)</span></div>
+  </main><aside class="rail">${tray(st.tray || [])}${pulse()}</aside></div>`;
+}
+const sheetRows = (ns, signed) => ns.map(n => { const p = PR(n); return `<tr><td class="mono">#${n}</td><td><div class="ti">${esc(p.title)}</div><small>${p.by === ME ? 'your agent' : `${PEOPLE[p.by].short}'s agent`} · +${p.add} −${p.del} · ${p.facts.filter(f => f.raise).map(f => f.effect === 'attestation dropped' ? 'content changed since last signature' : f.fact.replace(/^adds /, '')).join(' · ')}</small></td>
+  <td>${KIND[p.askKind]}</td><td class="mono">${p.sha}<br><span style="color:var(--ink3)">${p.patch}</span></td><td><span class="out ${AFTER[n][0]}">${signed ? (AFTER[n][0] === 'ok' ? (n === 491 ? 'Verifier is checking' : 'Check green · agent may merge') : 'Posted · waits on Jonas') : AFTER[n][1].replace('Requirement met → agent auto-merges', 'Complete → agent merges')}</span>${signed ? `<small><u>comment ↗</u></small>` : ''}</td></tr>`; }).join('');
+function sheet(step) {
+  const signed = step === 'signed';
+  return topbar(signed ? '14:48' : null) + `<div class="sheet">${signed ? `<div class="stamp">Signed<small>mara-l · 18 Nov 14:21</small></div>` : ''}
+  <div class="kicker"><a href="#dashboard">← Briefing</a> · Signing sheet</div>
+  <h1>${signed ? 'Five pull requests signed.' : 'You are signing five pull requests.'}</h1>
+  <p class="lede">${signed ? 'One attestation comment was posted on each. Agents merge four of them on their own; one still needs Jonas.' : 'Each signature covers the exact content named below (head commit and patch-id). A rebase keeps it valid, a content change does not. Two are Jonas\' pull requests and count as peer review; three are your own.'}</p>
+  <table><tr><th></th><th>Pull request</th><th>You sign as</th><th>Head · patch-id</th><th>${signed ? 'Result' : 'After you sign'}</th></tr>${sheetRows(BATCH, signed)}</table>
+  ${signed ? `<div class="sig"><div class="note">Signatures stay valid across rebases. If an agent changes the content, the pull request comes back to your briefing as "Re-attest". You can revoke a signature from <u>Signed by me</u>.</div>
+      <div><a class="btn big in" style="width:100%" href="#dashboard">Back to the briefing · 1 left</a><p class="note" style="margin:10px 0 0;text-align:center">Signing stays unlocked for 14:48 · <u>lock now</u></p></div></div>` :
+  step === 'unlock' ? `<div class="pay mono">${payload(482)}<br>… and 4 more, one per pull request · verdict approve</div>
+    <div class="sig"><div><div class="sigline">Signed with ${KEYFP} · verified against github.com/mara-l.keys<br>The key stays inside this app (not ssh-agent) and only this browser tab can ask for signatures.</div></div>
+    <div><div class="note" style="margin-bottom:6px">Passphrase for ~/.ssh/id_ed25519_sign</div><div class="field">••••••••••••</div><div class="note" style="margin-top:12px">Keep unlocked for</div><div class="opt"><span>this sheet only</span><span class="on">15 min</span><span>1 hour</span></div>
+      <a class="btn pri big" style="width:100%" href="#signed">Sign 5 pull requests</a></div></div>` :
+  `<div class="pay mono">${payload(482)}<br>… and 4 more, one per pull request · verdict approve</div>
+    <div class="sig"><div><div class="sigline">Will be signed with ${KEYFP} · verified against github.com/mara-l.keys</div></div>
+    <div><a class="btn pri big" style="width:100%" href="#unlock">${LOCK.replace('<svg', '<svg width="16" height="16"')} Unlock &amp; sign 5</a><p class="note" style="margin:10px 0 0;text-align:center">Signing is locked. Next step asks for your passphrase.</p></div></div>`}
+  </div>`;
+}
+function detail() {
+  const p = PR(476);
+  return topbar() + `<div class="page"><main>
+  <div class="kicker"><a href="#dashboard">← Briefing</a> · Auth hardening · #476 · open 5 hours</div>
+  <h1 style="font-size:38px">Rotate session tokens on privilege change</h1>
+  <div class="by" style="margin:0 0 24px;font-size:13.5px">${av('jonas')} Jonas's agent (Claude Code)<span class="mono">agent/auth-rotate → main</span><span>${d(p)}</span><span>checks 14/14</span><a><u>GitHub ↗</u></a></div>
+  <div class="prose"><p><b>What</b>${p.brief.what}</p><p><b>Why</b>${p.brief.why}</p><p><b>Risk</b>${p.brief.risk}</p><p><b>Verified</b>${p.brief.verified}</p>
+    <p><b>Look at</b>${p.brief.look.map(f => `<code>${f}</code>`).join(' ')}</p></div>
+  <p class="note">Brief taken from the PR body, written by the agent. The classification below does not depend on it.</p>
+
+  <h2>Why it needs you <span>policy file at main · rule <span class="mono">core-change</span></span></h2>
+  <ol class="trace">${p.facts.map(f => `<li><div>${f.fact}<small>${f.k}</small></div><span class="e ${f.raise ? 'up' : ''}">${f.raise ? '↑ ' : ''}${f.effect}</span></li>`).join('')}</ol>
+  <p class="lede" style="font-size:17px;margin-top:14px">Result: category <b>decide</b>. It needs the prompter's own signature and one from the owner of <code>core/auth</code>, which is you.</p>
+
+  <h2>Signatures <span>check <span class="mono">human-attestation</span>: pending, 1 of 2</span></h2>
+  <table class="led"><tr><th>Slot</th><th>Who</th><th>Signed</th><th>Still valid?</th><th></th></tr>
+    <tr><td>Prompter</td><td style="white-space:nowrap">${av('jonas')} Jonas</td><td class="mono">5e0a91c<small>yesterday 16:12 · level self</small></td><td>Yes, by patch-id<small>head is now <span class="mono">d2c47fa</span> after a rebase onto main; patch-id <span class="mono">3fa9c1e7</span> is unchanged</small></td><td><span class="pill ok">valid</span></td></tr>
+    <tr><td>Owner of core/auth</td><td>${av('mara')} You</td><td>—</td><td>—</td><td><span class="pill miss">missing</span></td></tr></table>
+
+  <h2 class="k">FYI acks <span>policy: core/auth change · unsigned, never blocks</span></h2>
+  <table class="led"><tr><td>${av('ines')} Ines</td><td>reacted <span class="mono">:eyes:</span> on the verifier comment, today 10:30</td><td><span class="pill ok">acked</span></td></tr>
+    <tr><td>${av('mara')} You</td><td>your signature will count as ack</td><td><span class="pill no">open</span></td></tr></table>
+
+  <h2>Files <span>7 changed</span></h2>
+  ${p.filesList.map(f => `<div class="line" style="grid-template-columns:1fr 110px 80px"><span class="mono">${f[0]}</span><span class="s">${f[3]}</span><span class="d" style="text-align:right"><span class="a">+${f[1]}</span> <span class="x">−${f[2]}</span></span></div>`).join('')}
+  </main><aside class="rail"><div class="tray"><header><h3>Your signature</h3><span>missing</span></header>
+    <div class="tr" style="grid-template-columns:1fr"><div>As <b>owner of core/auth</b><small>head <span class="mono">d2c47fa</span> · patch-id <span class="mono">3fa9c1e7</span></small></div></div>
+    <div class="tr" style="grid-template-columns:1fr"><div>After you sign<small>requirement complete → check green → Jonas's agent may merge</small></div></div>
+    <footer><a class="btn pri big" style="width:100%" href="#unlock">${LOCK.replace('<svg', '<svg width="16" height="16"')} Sign this one</a><a class="btn big" style="width:100%;margin-top:8px">Add to tray (5 waiting)</a>
+    <p class="note" style="margin:10px 0 0">Not convinced? <u>Ask Jonas's agent a question</u> posts a PR comment and leaves this unsigned.</p></footer></div></aside></div>`;
+}
+function link() {
+  const st = { tray: [482, 476], moved: true };
+  return topbar() + `<div class="page"><main>
+  <div class="kicker">Opened from a link · comment on #482 · 38 minutes ago</div>
+  <h1>Jonas's agent asks you to look at <em>three pull requests</em>.</h1>
+  <div class="callout">${av('jonas')} <b>jonas-r</b> via Claude Code wrote on GitHub:<q>Billing v2 and the auth fix are ready for a second pair of eyes. Review &amp; approve these 3 PRs.</q>
+    <span class="note">The link only opened this page. Nothing is signed until you unlock your key and sign. One of the three changed after the request.</span></div>
+  <h2 class="n">The request <span>2 of 3 are on your tray</span></h2>
+  ${LINK.map(n => item(PR(n), st)).join('')}
+  <div class="also" style="padding-left:0"><a href="#dashboard"><u>Go to the full briefing</u></a> · 3 more pull requests wait for you there.</div>
+  </main><aside class="rail">${tray(st.tray, { note: '#485 was left off: it changed after the request. Add it once you have looked at the new commits.' })}${pulse()}</aside></div>`;
+}
+function render() {
+  const r = route();
+  document.getElementById('root').innerHTML = r === 'detail' ? detail() : r === 'link' ? link() : r === 'batch' ? sheet('review') : r === 'unlock' ? sheet('unlock') : r === 'signed' ? sheet('signed') :
+    dashboard({ tray: r === 'empty' ? [] : BATCH, acked: [487] });
+  scrollTo(0, 0);
+}
+addEventListener('hashchange', render); render();
+</script>
+</body>
+</html>

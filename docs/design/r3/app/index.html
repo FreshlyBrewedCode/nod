@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Countersign</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d0f13; --panel:#13161c; --panel2:#191d25; --line:#20252f; --line2:#2e3542;
+  --tx:#e7e9ee; --tx2:#a3abba; --tx3:#6c7586;
+  --need:#f2b24a; --need-bg:#f2b24a17; --know:#74a9ff; --know-bg:#74a9ff17; --bgl:#7f8898;
+  --ok:#4cc38a; --ok-bg:#4cc38a17; --bad:#f0685d; --bad-bg:#f0685d1a; --focus:#171c27; --shadow:0 24px 70px #000b;
+}
+:root[data-theme=light]{
+  --bg:#f6f6f4; --panel:#fff; --panel2:#f0f0ed; --line:#e6e6e1; --line2:#d2d2cb;
+  --tx:#1b1d22; --tx2:#555b68; --tx3:#8a909c;
+  --need:#b5720a; --need-bg:#f2b24a2a; --know:#2a62c9; --know-bg:#2a62c917; --bgl:#7a808c;
+  --ok:#1f8a58; --ok-bg:#1f8a5817; --bad:#c93a30; --bad-bg:#c93a3017; --focus:#eff1f6; --shadow:0 24px 70px #0003;
+}
+*{box-sizing:border-box}
+html,body,#root{min-height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:14px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:12px}
+a{color:inherit;text-decoration:none}
+kbd{display:inline-block;min-width:18px;padding:0 5px;height:18px;line-height:17px;text-align:center;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;color:var(--tx2);background:var(--panel2);font:10.5px "JetBrains Mono",monospace}
+.av{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;color:#fff;background:hsl(var(--h) 45% 45%);flex:none}
+.av.lg{width:26px;height:26px;font-size:12px}
+.sp{flex:1}
+/* top bar */
+.top{position:sticky;top:0;z-index:3;height:52px;display:flex;align-items:center;gap:20px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--bg)}
+.logo{font-weight:700;display:flex;align-items:center;gap:8px;font-size:14px}
+.logo i{width:18px;height:18px;border-radius:5px;background:var(--need);display:grid;place-items:center;color:#111;font-style:normal;font-size:12px;font-weight:800}
+.repo{color:var(--tx3);font-size:13px}
+.seg{display:flex;padding:2px;border-radius:8px;background:var(--panel2);border:1px solid var(--line)}
+.seg a{padding:3px 12px;border-radius:6px;color:var(--tx2);font-size:13px} .seg a.on{background:var(--bg);color:var(--tx);font-weight:600;box-shadow:0 0 0 1px var(--line2)}
+.lock{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;color:var(--tx2);font-size:13px}
+.lock svg{width:14px;height:14px}
+.lock.open{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)} .lock.open b{font-family:"JetBrains Mono",monospace;font-weight:500}
+.lock.open a{color:var(--tx2);border-left:1px solid var(--line2);padding-left:8px}
+.noteb{max-width:920px;margin:20px auto 0;padding:10px 14px;border:1px dashed var(--line2);border-radius:10px;color:var(--tx2);font-size:13px}
+.noteb b{color:var(--tx)} .noteb.wide{max-width:none;margin:14px 20px 0}
+/* list */
+.col{max-width:920px;margin:0 auto;padding:30px 24px 110px}
+.col.wide{max-width:1120px}
+.since{color:var(--tx3);font-size:13px;margin:0 0 22px;display:flex;gap:10px;align-items:center}
+.since .g{margin-left:auto;display:flex;gap:6px;align-items:center}
+.pillb{height:26px;padding:0 10px;border-radius:99px;border:1px solid var(--line2);color:var(--tx2);display:inline-flex;align-items:center;gap:6px;font-size:12.5px}
+.pillb.on{border-color:var(--need);color:var(--need);background:var(--need-bg)}
+.lane{margin-bottom:34px}
+.lh{display:flex;align-items:baseline;gap:10px;padding:0 4px 10px}
+.lh h2{margin:0;font-size:15px;font-weight:600} .lh .c{color:var(--tx3)} .lh .hint{margin-left:auto;color:var(--tx3);font-size:12.5px}
+.dot{width:8px;height:8px;border-radius:2px;flex:none;align-self:center} .d-need{background:var(--need)} .d-know{background:var(--know)} .d-bg{background:var(--bgl)}
+.rows{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+.row{display:grid;grid-template-columns:20px 1fr auto 104px;gap:14px;align-items:center;padding:13px 18px;border-top:1px solid var(--line);position:relative}
+.rows>.row:first-child,.rows>.gh:first-child+.row{border-top:0}
+.row.focus{background:var(--focus)} .row.focus::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--need)}
+.row.sel{background:var(--need-bg)}
+.cb{width:16px;height:16px;border:1.5px solid var(--line2);border-radius:5px;display:grid;place-items:center}
+.sel>.cb,.cb.on{background:var(--need);border-color:var(--need)} .sel>.cb::after,.cb.on::after{content:"";width:8px;height:4px;border:2px solid #111;border-top:0;border-right:0;transform:rotate(-45deg) translateY(-1px)}
+.t{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s{display:flex;align-items:center;gap:7px;margin-top:3px;color:var(--tx3);font-size:12.5px}
+.tag{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:5px;background:var(--panel2);color:var(--tx2);font-size:11.5px;white-space:nowrap}
+.tag.bad{color:var(--bad);background:var(--bad-bg)} .tag.know{color:var(--know);background:var(--know-bg)} .tag.ok{color:var(--ok);background:var(--ok-bg)} .tag.need{color:var(--need);background:var(--need-bg)}
+.risk{display:inline-flex;gap:2px;align-items:flex-end} .risk i{width:4px;height:11px;border-radius:1px;background:var(--line2)} .risk i.on{background:var(--need)} .risk.r3 i.on{background:var(--bad)} .risk.r0{visibility:hidden}
+.ask{font-weight:600;color:var(--need);text-align:right;font-size:13px;white-space:nowrap} .ask.know{color:var(--know)} .ask.done{color:var(--ok);font-weight:500}
+.hintx{color:var(--tx3);font-size:12.5px}
+.gh{padding:9px 18px 7px;border-top:1px solid var(--line);background:var(--bg);color:var(--tx2);font-size:12.5px;display:flex;gap:10px;align-items:center}
+.gh b{color:var(--tx);font-weight:600} .gh .src{margin-left:auto;color:var(--tx3)}
+.rows>.gh:first-child{border-top:0}
+.prog{display:inline-flex;height:6px;width:120px;border-radius:3px;overflow:hidden;background:var(--line2);gap:1px} .prog i{display:block}
+.p-done{background:var(--ok)} .p-merging{background:#4cc38a77} .p-you{background:var(--need)} .p-mate{background:var(--know)} .p-todo{background:var(--line2)}
+/* peek */
+.peek{padding:4px 18px 18px 52px;background:var(--focus);position:relative;display:grid;grid-template-columns:1fr 250px;gap:0 28px}
+.peek::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--need)}
+.peek p{margin:0 0 8px;color:var(--tx);display:grid;grid-template-columns:64px 1fr} .peek p span{color:var(--tx3)}
+.peek .more{color:var(--tx3);font-size:12.5px;display:flex;flex-direction:column;gap:5px;border-left:1px solid var(--line2);padding-left:18px}
+.peek .more b{color:var(--tx2);font-weight:500}
+.acts{display:flex;gap:8px;margin-top:14px;grid-column:1/-1}
+.btn{white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 14px;border-radius:8px;border:1px solid var(--line2);background:var(--panel2);color:var(--tx);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn.pri{background:var(--need);border-color:var(--need);color:#15120a} .btn.pri kbd{background:#0002;border-color:#0003;color:#15120a}
+.btn.ghost{background:transparent;border-color:transparent;font-weight:500;color:var(--tx2)} .btn.big{height:42px;padding:0 20px;font-size:14px}
+.btn svg{width:15px;height:15px}
+/* background summary */
+.bgsum{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.bgsum div{padding:14px 18px} .bgsum div+div{border-left:1px solid var(--line)} .bgsum b{display:block;font-weight:500} .bgsum span{color:var(--tx3);font-size:12.5px}
+/* compact */
+.compact .row{grid-template-columns:20px 1fr auto auto 46px 100px;padding:7px 16px;gap:12px} .compact .t{font-weight:400} .compact .t .mono{color:var(--tx3);margin-right:8px}
+.compact .lane{margin-bottom:24px} .compact .age{color:var(--tx3);font-size:12.5px;text-align:right}
+.compact .row.bgr{grid-template-columns:20px 1fr auto 46px} .compact .row.bgr .t{color:var(--tx2)}
+.selbar{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;display:flex;align-items:center;gap:16px;padding:8px 8px 8px 18px;border-radius:12px;background:var(--panel2);border:1px solid var(--line2);box-shadow:var(--shadow);z-index:2}
+.help{color:var(--tx3);font-size:12.5px;display:flex;gap:6px;align-items:center}
+/* board */
+.bar2{display:flex;align-items:center;gap:12px;padding:16px 20px 4px;color:var(--tx3);font-size:13px}
+.board{display:grid;gap:12px;padding:12px 20px 24px;align-items:start}
+.colm{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0 8px 8px;min-height:120px}
+.colm.you{border-color:#f2b24a55}
+.ch{display:flex;align-items:center;gap:8px;padding:12px 6px 10px} .ch h3{margin:0;font-size:13px;font-weight:600} .ch .c{color:var(--tx3)} .ch .r{margin-left:auto;color:var(--tx3);font-size:12px}
+.card{display:block;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:6px}
+.card .ct{font-size:13px;font-weight:500;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .cf{display:flex;align-items:center;gap:7px;margin-top:7px;color:var(--tx3);font-size:12px}
+.card.slim{background:transparent;border-color:transparent;padding:4px 6px;margin:0;color:var(--tx3);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card.new{border-color:var(--ok)}
+.pips{display:flex;gap:3px;margin-left:auto}
+.pip{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;border:1.5px dashed var(--line2);color:var(--tx3)}
+.pip.ok{border:0;background:var(--ok);color:#06140d} .pip.me{border:1.5px solid var(--need);color:var(--need)} .pip.stale{border:1.5px solid var(--bad);color:var(--bad)}
+.swim{display:grid;grid-template-columns:250px repeat(4,1fr);margin:12px 20px 24px;border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+.swim>div{padding:12px;border-top:1px solid var(--line);border-left:1px solid var(--line);min-width:0} .swim>div:nth-child(5n+1){border-left:0}
+.swim>.hd{border-top:0;font-size:13px;font-weight:600;padding:12px} .swim>.hd span{color:var(--tx3);font-weight:400}
+.swim .eh b{display:block;font-size:14px} .swim .eh small{display:block;color:var(--tx3);font-size:12px;margin-top:6px;line-height:1.5}
+.swim .eh .prog{width:100%;margin-top:10px}
+.mini{display:flex;gap:8px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin-bottom:5px;font-size:12.5px}
+.mini span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.swim .you{background:#f2b24a08}
+/* epics page */
+.epic{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:14px;overflow:hidden}
+.eh2{display:grid;grid-template-columns:1fr 260px 230px;gap:24px;align-items:center;padding:16px 20px}
+.eh2 h3{margin:0;font-size:16px} .eh2 h3 span{color:var(--tx3);font-weight:400;font-size:13px;margin-left:6px} .eh2 .prog{width:100%;height:8px}
+.eh2 small{color:var(--tx3);font-size:12.5px} .eh2 .blk{color:var(--tx2);font-size:13px;text-align:right}
+.iss{display:grid;grid-template-columns:52px 1fr 150px 250px 110px;gap:14px;align-items:center;padding:10px 20px;border-top:1px solid var(--line);font-size:13.5px}
+.iss .mono{color:var(--tx3)} .iss.todo,.iss.done{color:var(--tx3)} .iss .pr{color:var(--tx3);font-size:12.5px}
+.st{display:inline-flex;align-items:center;gap:7px;font-size:12.5px} .st::before{content:"";width:8px;height:8px;border-radius:2px}
+.st.done::before{background:var(--ok)} .st.merging::before{background:#4cc38a77} .st.you::before{background:var(--need)} .st.mate::before{background:var(--know)} .st.todo::before{background:var(--line2)}
+.st.you{color:var(--need);font-weight:600}
+/* dialog */
+.scrim{position:fixed;inset:0;background:#05070bd0;display:grid;place-items:center;z-index:10}
+:root[data-theme=light] .scrim{background:#2a2c3266}
+.dlg{width:680px;background:var(--panel);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+.dh{padding:26px 30px 6px} .dh h2{margin:0;font-size:20px;letter-spacing:-.01em} .dh p{margin:6px 0 0;color:var(--tx2)}
+.dbody{padding:10px 30px 8px}
+.dg{margin-top:16px;color:var(--tx3);font-size:12.5px;padding-bottom:6px}
+.dr{display:grid;grid-template-columns:20px 1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.dr .o{display:flex;gap:7px;align-items:center;color:var(--tx2);font-size:13px;white-space:nowrap} .dr .o::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)} .dr .o.wait::before{background:var(--need)}
+.dr small{display:block;color:var(--tx3);font-size:12px;font-family:"JetBrains Mono",monospace;margin-top:2px}
+.disc{margin:14px 0 4px;color:var(--tx3);font-size:13px;display:flex;gap:8px;align-items:center}
+.dfoot{display:flex;align-items:center;gap:10px;padding:18px 30px 24px}
+.unl{margin:16px 30px 0;padding:18px;border:1px solid var(--line2);border-radius:12px;background:var(--bg)}
+.field{display:flex;align-items:center;height:42px;border:1px solid var(--need);border-radius:8px;padding:0 12px;background:var(--panel);font-size:18px;letter-spacing:3px;box-shadow:0 0 0 3px var(--need-bg)}
+.field::after{content:"";width:1px;height:18px;background:var(--tx);margin-left:2px}
+.opt{display:flex;gap:6px;align-items:center;margin-top:12px;color:var(--tx3);font-size:13px} .opt span{padding:4px 10px;border:1px solid var(--line);border-radius:6px;color:var(--tx2)} .opt span.on{border-color:var(--need);color:var(--need);background:var(--need-bg)}
+.okc{width:44px;height:44px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:grid;place-items:center;font-size:22px;margin-bottom:14px}
+.note{color:var(--tx3);font-size:12.5px;line-height:1.55}
+/* detail */
+.dcol{max-width:1080px;margin:0 auto;padding:28px 24px 100px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:48px}
+.crumb{color:var(--tx3);font-size:13px;display:flex;gap:8px;grid-column:1/-1;margin-bottom:-24px}
+.dcol h1{font-size:24px;line-height:1.25;letter-spacing:-.02em;margin:0 0 8px}
+.brief{display:grid;grid-template-columns:76px 1fr;gap:12px 14px;margin:26px 0 0;font-size:15px} .brief dt{color:var(--tx3);font-size:13px;padding-top:2px} .brief dd{margin:0}
+.brief code,.mono.f{color:var(--tx2)}
+.needc{position:sticky;top:76px;align-self:start;border:1px solid #f2b24a55;border-radius:14px;background:var(--panel);padding:20px}
+.needc h6,.sect h6{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx3);font-weight:600}
+.needc b.big{display:block;font-size:17px;margin-bottom:4px}
+.jr{display:grid;grid-template-columns:repeat(7,1fr);margin:34px 0 8px;position:relative}
+.jr::before{content:"";position:absolute;left:7%;right:7%;top:6px;height:2px;background:var(--line2)}
+.jr div{position:relative;text-align:center;font-size:12px;color:var(--tx2);padding:20px 4px 0;line-height:1.35} .jr div small{display:block;color:var(--tx3);font-size:11.5px}
+.jr div::before{content:"";position:absolute;left:50%;top:0;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--ok);border:3px solid var(--bg)}
+.jr div.now{color:var(--need);font-weight:600} .jr div.now::before{background:var(--need);box-shadow:0 0 0 4px var(--need-bg)}
+.jr div.fut{color:var(--tx3)} .jr div.fut::before{background:var(--bg);border:2px dashed var(--line2)}
+.fold{border-top:1px solid var(--line);padding:14px 0} .fold:last-child{border-bottom:1px solid var(--line)}
+.fold>.fh{display:flex;gap:10px;align-items:center} .fold>.fh b{font-weight:600} .fold>.fh span{color:var(--tx3);font-size:13px} .fold>.fh i{margin-left:auto;color:var(--tx3);font-style:normal;font-size:12px}
+.fold .fb{padding:12px 0 2px}
+.fact{display:grid;grid-template-columns:1fr auto;gap:10px;padding:6px 0;font-size:13.5px} .fact span:last-child{color:var(--tx3)} .fact span.up{color:var(--need)}
+.led{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:7px 0;font-size:13.5px} .led small{display:block;color:var(--tx3);font-size:12.5px}
+.sl{width:18px;height:18px;border-radius:50%;border:1.5px dashed var(--line2);margin-top:2px;display:grid;place-items:center;font-size:11px;font-weight:700}
+.sl.ok{border:0;background:var(--ok);color:#06140d} .sl.me{border:1.5px solid var(--need)}
+.frow{display:grid;grid-template-columns:1fr 90px 80px;gap:10px;padding:5px 0;font-size:12.5px;color:var(--tx2)} .frow .a{color:var(--ok)} .frow .d{color:var(--bad)}
+/* link */
+.lcol{max-width:1000px;margin:0 auto;padding:28px 24px 100px;display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:40px}
+.banner{grid-column:1/-1;padding:16px 20px;border:1px solid #74a9ff44;background:var(--know-bg);border-radius:12px}
+.banner b{color:var(--know)} .banner q{quotes:'“' '”';display:block;font-size:16px;margin:4px 0 6px;color:var(--tx)}
+.lcard{display:grid;grid-template-columns:20px 1fr;gap:14px;padding:18px 20px;border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:10px}
+.lcard h3{margin:0 0 4px;font-size:15px} .lcard p{margin:6px 0 0;color:var(--tx2)}
+.warn{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bad-bg);font-size:13px} .warn b{color:var(--bad)}
+/* ---------- round 3 */
+.sub{display:flex;align-items:center;gap:14px;max-width:1000px;margin:0 auto;padding:22px 24px 0;color:var(--tx3);font-size:13px}
+.pbtn{display:inline-flex;gap:7px;align-items:center;height:28px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;color:var(--tx2)} .pbtn.on{color:var(--tx);background:var(--panel2)}
+.pbtn i{width:14px;height:11px;border:1.5px solid currentColor;border-radius:2px;position:relative} .pbtn i::after{content:"";position:absolute;right:3px;top:0;bottom:0;width:1.5px;background:currentColor}
+.col.r3{max-width:1000px;padding-top:22px}
+.r3 .row,.r3 .clu{display:grid;grid-template-columns:20px minmax(0,1fr) 124px 16px 108px;gap:14px;align-items:center}
+.r3.chrono .row,.r3.chrono .clu{grid-template-columns:40px 20px minmax(0,1fr) 124px 16px 108px}
+.when{color:var(--tx3);font-size:12px;font-variant-numeric:tabular-nums}
+.row.t1{padding:15px 18px} .row.t1 .t{font-weight:600;font-size:14.5px}
+.ex{color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.row.t3,.row.t4,.clu{padding:8px 18px} .row.t3 .t,.row.t4 .t,.clu .t{font-weight:400;display:flex;gap:10px;align-items:center}
+.row.t3 .tt,.row.t4 .tt{overflow:hidden;text-overflow:ellipsis;min-width:0;white-space:nowrap} .row.t3 .tt{color:var(--tx)} .row.t4 .tt{color:var(--tx3)}
+.row .m,.clu .m{color:var(--tx3);font-size:12.5px;flex:0 1000 auto;min-width:70px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block} .row .m .av{vertical-align:middle;margin:-2px 6px 0 0} .row .m .tag{margin-left:6px}
+.row.t3 .cb,.row.t4 .cb{visibility:hidden} .row.t3 .ask,.row.t4 .ask{font-size:12.5px}
+.row.t4 .df{opacity:.55}
+.clu{border-top:1px solid var(--line);color:var(--tx2)} .rows>.clu:first-child{border-top:0} .clu b{font-weight:500;color:var(--tx2)}
+.clu .chev{color:var(--tx3);font-size:11px;text-align:center} .clu.open{background:var(--bg)} .row.in{background:var(--bg)}
+.st3{color:var(--tx3);font-size:12.5px;text-align:right;white-space:nowrap}
+.df{display:grid;grid-template-columns:1fr 38px;gap:8px;align-items:center;font-size:12px;font-variant-numeric:tabular-nums;color:var(--tx3);white-space:nowrap}
+.df span{text-align:right} .df .a{color:color-mix(in srgb,var(--ok) 75%,var(--tx3))} .df .d{color:color-mix(in srgb,var(--bad) 75%,var(--tx3))}
+.df i{display:flex;height:3px;border-radius:2px;background:var(--line2);overflow:hidden} .df i b{background:var(--ok);opacity:.8} .df i u{background:var(--bad);opacity:.8}
+.df.dm{display:inline-flex;gap:5px}
+.day{padding:16px 6px 8px;color:var(--tx3);font-size:12px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;display:flex;gap:10px} .day span{text-transform:none;letter-spacing:0;font-weight:400}
+.ph0{padding:22px 18px;color:var(--tx3);border:1px dashed var(--line2);border-radius:12px}
+/* split + panel */
+.split{display:flex;height:calc(100vh - 52px)} .lw{flex:1;min-width:0;overflow:auto}
+.handle{width:12px;flex:none;cursor:col-resize;display:grid;place-items:center;background:var(--bg);border-left:1px solid var(--line);border-right:1px solid var(--line)}
+.handle i{width:4px;height:44px;border-radius:2px;background:var(--line2)} .handle.act{background:var(--need-bg);border-color:#f2b24a66} .handle.act i{background:var(--need)}
+.panel{flex:none;overflow:auto;background:var(--panel)}
+.ph{position:sticky;top:0;display:flex;align-items:center;gap:8px;padding:12px 16px 12px 24px;background:var(--panel);border-bottom:1px solid var(--line);z-index:1}
+.ib{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--tx2);border:1px solid var(--line)}
+.pb{padding:20px 24px 40px} .pb h1{font-size:19px;line-height:1.3;letter-spacing:-.01em;margin:0 0 6px}
+.pb .needc{position:static;display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:16px 18px;margin:18px 0 0;background:var(--bg)} .pb .needc .nb{display:flex;gap:8px;margin-left:auto}
+.pb .needc b.big{font-size:15.5px;margin:0} .pb .brief{font-size:14px;gap:10px 14px;grid-template-columns:64px 1fr;margin-top:22px}
+.jv{margin:24px 0 6px;padding:0;list-style:none;position:relative} .jv::before{content:"";position:absolute;left:5px;top:8px;bottom:8px;width:2px;background:var(--line2)}
+.jv li{position:relative;padding:3px 0 3px 24px;font-size:13px;color:var(--tx2);display:flex;gap:8px} .jv li small{color:var(--tx3);margin-left:auto;font-size:12px}
+.jv li::before{content:"";position:absolute;left:0;top:7px;width:12px;height:12px;border-radius:50%;background:var(--ok);border:2px solid var(--panel)}
+.jv li.now{color:var(--need);font-weight:600} .jv li.now::before{background:var(--need)} .jv li.fut{color:var(--tx3)} .jv li.fut::before{background:var(--panel);border:2px dashed var(--line2)} .jv li.bad::before{background:var(--bad)}
+.jr div.bad::before{background:var(--bad)}
+.rsz{position:absolute;top:64px;transform:translateX(-50%);background:var(--need);color:#15120a;font:500 11px "JetBrains Mono",monospace;padding:2px 7px;border-radius:5px;white-space:nowrap;z-index:4}
+.drawer{position:fixed;top:52px;right:0;bottom:0;width:540px;background:var(--panel);border-left:1px solid var(--line2);box-shadow:var(--shadow);overflow:auto;z-index:5}
+.dscrim{position:fixed;inset:52px 0 0;background:#05070b88;z-index:4}
+/* board tiers */
+.card.t1{border-color:var(--line2)} .card .cx{color:var(--tx2);font-size:12.5px;margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.colm{min-width:0} .card.t3,.card.t4{min-width:0;overflow:hidden;display:flex;gap:8px;align-items:center;padding:6px 10px;font-size:12.5px} .card.t3 span:first-child,.card.t4 span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.card.t4{background:transparent;color:var(--tx3)} .card.cl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:transparent;border-style:dashed;color:var(--tx3);font-size:12.5px;padding:7px 10px}
+.card.focus{border-color:var(--need)}
+/* onboarding */
+.ob{max-width:940px;margin:48px auto;display:grid;grid-template-columns:230px 1fr;gap:44px;padding:0 24px}
+.steps{list-style:none;margin:6px 0 0;padding:0} .steps li{display:flex;gap:12px;align-items:center;padding:9px 0;color:var(--tx3)}
+.steps li i{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line2);display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;flex:none}
+.steps li.done{color:var(--tx2)} .steps li.done i{background:var(--ok);border-color:var(--ok);color:#06140d} .steps li.on{color:var(--tx);font-weight:600} .steps li.on i{border-color:var(--need);color:var(--need)}
+.obc{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px 36px} .obc h1{font-size:22px;margin:0 0 6px;letter-spacing:-.01em} .obc>p{color:var(--tx2);margin:0 0 22px}
+.chk{display:grid;grid-template-columns:24px 1fr auto;gap:12px;padding:12px 0;border-top:1px solid var(--line);align-items:start} .chk small{display:block;color:var(--tx3);font-size:12.5px;margin-top:2px}
+.ci{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:1px} .ci.ok{background:var(--ok);color:#06140d} .ci.no{border:1.5px dashed var(--line2);color:var(--tx3)} .ci.wait{border:1.5px solid var(--need);color:var(--need)}
+.opt2{display:grid;grid-template-columns:20px 1fr;gap:12px;padding:14px 16px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px} .opt2.on{border-color:var(--need);background:var(--need-bg)}
+.rad{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line2);margin-top:2px} .on>.rad{border:5px solid var(--need)}
+.inp{height:38px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);padding:0 12px;display:flex;align-items:center;color:var(--tx2);letter-spacing:2px}
+.cmd{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:8px;background:var(--bg);border:1px solid var(--line);font:12.5px "JetBrains Mono",monospace;color:var(--tx);margin:8px 0}
+.cmd span{margin-left:auto;color:var(--tx3);font-family:Inter,sans-serif}
+.obf{display:flex;gap:10px;align-items:center;margin-top:26px}
+.legend{border:1px solid var(--line2);border-radius:12px;background:var(--panel);padding:20px 22px;margin-bottom:30px}
+.legend h3{margin:0 0 4px;font-size:15px} .lgr{display:grid;grid-template-columns:150px 1fr 1fr;gap:16px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px;color:var(--tx2)} .lgr b{color:var(--tx);font-weight:600}
+.sk{border:1px solid var(--line);border-radius:7px;background:var(--bg);padding:6px 9px;display:grid;gap:4px} .sk i{display:block;height:5px;border-radius:3px;background:var(--line2)} .sk i.h{background:var(--tx3);width:55%} .sk i.s{width:80%} .sk i.x{width:35%}
+.sk.one{grid-template-columns:55% 1fr;align-items:center} .sk.fold{border-style:dashed}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// Shared fake data for all three mockups. Repo: tallyho/fieldbook. Viewer: Mara.
+const REPO = 'tallyho/fieldbook';
+const ME = 'mara';
+const NOW = 'Wed 18 Nov, 14:20';
+const PEOPLE = {
+  mara:  { name: 'Mara Lindqvist', short: 'Mara',  gh: 'mara-l',   hue: 28 },
+  jonas: { name: 'Jonas Reuter',   short: 'Jonas', gh: 'jonas-r',  hue: 205 },
+  ines:  { name: 'Ines Calderón',  short: 'Ines',  gh: 'inescal',  hue: 285 },
+};
+const PRS = [
+  { n: 482, title: 'billing: prorate plan changes mid-cycle', by: 'jonas', agent: 'Claude Code', topic: 'Billing v2',
+    cat: 'decide', lane: 'needs', askKind: 'peer', ask: 'Sign as peer', stage: 'waiting', waits: ['mara'],
+    add: 312, del: 88, files: 9, checks: [14, 14, 'pass'], sha: '9f3c2ab', patch: 'e41b7c0d', age: '2h', ageH: 2.1,
+    facts: [
+      { k: 'module-tier', fact: 'modules/billing is tier 3', effect: 'needs another human', raise: 1 },
+      { k: 'touches-core', fact: 'no files under core/', effect: 'no change' },
+      { k: 'diff-size', fact: '+312 −88 in 9 files (limit 600)', effect: 'no change' },
+    ],
+    policy: 'tier3-module-change', req: 'Another human (not the prompter)',
+    slots: [{ role: 'Peer', who: 'anyone but Jonas', state: 'missing' }],
+    brief: { what: 'Adds day-based proration when a tenant switches plan mid-cycle; credit note for downgrades, immediate charge for upgrades.',
+      why: 'Epic #431 Billing v2. Support currently fixes these invoices by hand (about 12 a week).',
+      risk: 'Money math. Rounding happens per invoice line; leap-day and DST cycle boundaries are the edge cases.', riskLvl: 2,
+      verified: '41 new unit tests incl. property test on "credit + charge = price difference"; replayed 300 real plan changes from staging.',
+      look: ['modules/billing/proration.ts', 'modules/billing/proration.test.ts'] } },
+  { n: 485, title: 'billing: add invoices.currency_code with backfill', by: 'jonas', agent: 'Claude Code', topic: 'Billing v2',
+    cat: 'decide', lane: 'needs', askKind: 'peer', ask: 'Sign as peer', stage: 'waiting', waits: ['mara', 'jonas'],
+    add: 96, del: 4, files: 5, checks: [14, 14, 'pass'], sha: '8c1f5d0', patch: '19d0aa62', age: '3h', ageH: 3.2, moved: { from: '41aa9e7', commits: 2 },
+    facts: [
+      { k: 'migration', fact: 'adds db/migrations/0147_invoice_currency.sql', effect: 'needs prompter + another human', raise: 1 },
+      { k: 'module-tier', fact: 'modules/billing is tier 3', effect: 'needs another human', raise: 1 },
+      { k: 'agent-intent', fact: 'agent declared: "backfill locks invoices for ~20s"', effect: 'risk raised to high', raise: 1 },
+    ],
+    policy: 'schema-migration', req: 'Prompter self-attest + another human',
+    slots: [{ role: 'Prompter', who: 'jonas', state: 'missing' }, { role: 'Peer', who: 'anyone but Jonas', state: 'missing' }],
+    brief: { what: 'New nullable column invoices.currency_code, backfilled from tenant default in batches of 5,000 rows.',
+      why: 'Proration (#482) needs the invoice currency; today it is read from the tenant, which is wrong for old invoices.',
+      risk: 'Schema migration on a 2.1M row table. Backfill is batched, but the first ALTER takes a short lock.', riskLvl: 3,
+      verified: 'Ran against a staging snapshot: 2m 40s total, longest lock 180 ms. Down migration tested.',
+      look: ['db/migrations/0147_invoice_currency.sql', 'modules/billing/backfill/currency.ts'] } },
+  { n: 476, title: 'auth: rotate session tokens on privilege change', by: 'jonas', agent: 'Claude Code', topic: 'Auth hardening',
+    cat: 'decide', lane: 'needs', askKind: 'named', ask: 'Sign as owner', stage: 'waiting', waits: ['mara'],
+    add: 148, del: 61, files: 7, checks: [14, 14, 'pass'], sha: 'd2c47fa', patch: '3fa9c1e7', age: '5h', ageH: 5.3,
+    facts: [
+      { k: 'touches-core', fact: '3 files under core/auth/', effect: 'needs prompter + named owner', raise: 1 },
+      { k: 'owner', fact: 'core/auth/** is owned by Mara', effect: 'named person: Mara' },
+      { k: 'llm-risk', fact: 'LLM check: "changes token invalidation order"', effect: 'tagged security-sensitive', raise: 1 },
+      { k: 'fyi-rule', fact: 'core/auth change', effect: 'FYI to the whole team' },
+    ],
+    policy: 'core-change', req: 'Prompter self-attest + named owner (Mara)',
+    slots: [
+      { role: 'Prompter', who: 'jonas', state: 'ok', sha: '5e0a91c', via: 'patch_id', when: 'yesterday 16:12', level: 'self' },
+      { role: 'Owner of core/auth', who: 'mara', state: 'missing' },
+    ],
+    fyi: { why: 'policy: core/auth change', acks: ['ines'], pending: [] },
+    brief: { what: 'When a user\'s role changes, all their sessions get a fresh token and the old ones are revoked within one request.',
+      why: 'Pen-test finding F-07: a demoted admin kept admin rights until the token expired (up to 12h).',
+      risk: 'Touches core/auth/session.ts. A bug here logs users out or, worse, keeps old tokens alive.', riskLvl: 3,
+      verified: 'New integration test for demote/promote; manual check on staging with two browsers. No load test.',
+      look: ['core/auth/session.ts', 'core/auth/revocation.ts', 'core/auth/session.int.test.ts'] },
+    filesList: [
+      ['core/auth/session.ts', 64, 38, 'core'], ['core/auth/revocation.ts', 41, 12, 'core'], ['core/auth/session.int.test.ts', 29, 0, 'core · test'],
+      ['modules/admin/roles/update.ts', 8, 9, 'tier 2'], ['modules/admin/roles/update.test.ts', 4, 0, 'tier 2 · test'],
+      ['docs/security/sessions.md', 2, 1, 'docs'], ['CHANGELOG.md', 0, 1, 'docs'],
+    ] },
+  { n: 488, title: 'inventory: release stock when a reservation times out', by: 'mara', agent: 'Claude Code', topic: 'Inventory',
+    cat: 'decide', lane: 'needs', askKind: 'self', ask: 'Self-attest', stage: 'waiting', waits: ['mara'],
+    add: 121, del: 17, files: 4, checks: [14, 14, 'pass'], sha: '2b7e440', patch: 'a07f3d91', age: '1h', ageH: 1.2,
+    facts: [
+      { k: 'module-tier', fact: 'modules/inventory is tier 2', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'pure-module', fact: 'pure module update, no core, no schema', effect: 'no change' },
+    ],
+    policy: 'tier2-module-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'mara', state: 'missing' }],
+    brief: { what: 'A job releases reserved stock 15 minutes after an abandoned checkout.',
+      why: 'Issue #455: stock stayed reserved forever when the browser tab was closed.',
+      risk: 'Low. Worst case stock is released too early and a checkout fails with "out of stock".', riskLvl: 1,
+      verified: 'Unit tests with a fake clock; ran the job against staging data (released 37 stale reservations).',
+      look: ['modules/inventory/jobs/release-reservations.ts'] } },
+  { n: 490, title: 'notifications: batch digest emails per tenant', by: 'mara', agent: 'Codex', topic: 'Notifications',
+    cat: 'decide', lane: 'needs', askKind: 'self', ask: 'Self-attest', stage: 'waiting', waits: ['mara'],
+    add: 203, del: 140, files: 8, checks: [14, 14, 'pass'], sha: '77d1c3e', patch: 'c5521b08', age: '50m', ageH: 0.8,
+    facts: [
+      { k: 'module-tier', fact: 'modules/notifications is tier 2', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'pure-module', fact: 'pure module update, no core, no schema', effect: 'no change' },
+    ],
+    policy: 'tier2-module-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'mara', state: 'missing' }],
+    brief: { what: 'Digest mails are built once per tenant instead of once per user; one SMTP connection per batch.',
+      why: 'Digest run took 40 minutes for the largest tenant and hit the provider rate limit.',
+      risk: 'Low to medium. A wrong grouping key would send one user\'s digest to another.', riskLvl: 2,
+      verified: 'Snapshot tests on rendered mails for 3 tenants; dry-run on staging compared recipients 1:1 with the old path.',
+      look: ['modules/notifications/digest/build.ts', 'modules/notifications/digest/send.ts'] } },
+  { n: 491, title: 'search: fix facet counts when items are archived', by: 'mara', agent: 'Claude Code', topic: 'Search',
+    cat: 'decide', lane: 'needs', askKind: 'reattest', ask: 'Re-attest', stage: 'waiting', waits: ['mara'],
+    add: 58, del: 22, files: 3, checks: [14, 14, 'pass'], sha: 'e90b1f6', patch: '6d3e88f2', age: '25m', ageH: 0.4,
+    facts: [
+      { k: 'module-tier', fact: 'modules/search is tier 2', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'attestation', fact: 'signed patch-id 51c0… no longer matches (content changed)', effect: 'attestation dropped', raise: 1 },
+    ],
+    policy: 'tier2-module-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'mara', state: 'stale', sha: '0c4d7aa', when: 'today 11:02', level: 'self' }],
+    brief: { what: 'Facet counts no longer include archived items. Since your signature: +14 −3 in facets.ts to also cover soft-deleted items.',
+      why: 'Bug #468. The follow-up commit answers Ines\' review comment.',
+      risk: 'Low. Read path only.', riskLvl: 1,
+      verified: 'Two new test cases; counts compared with SQL on staging.',
+      look: ['modules/search/facets.ts (changed since you signed)'] } },
+  { n: 479, title: 'core: typed channels for the event bus', by: 'mara', agent: 'Claude Code', topic: 'Core event bus',
+    cat: 'decide', lane: 'bg', stage: 'waiting', waits: ['ines'],
+    add: 684, del: 402, files: 31, checks: [14, 14, 'pass'], sha: 'b61a0d3', patch: 'f2281c4a', age: '1d', ageH: 22,
+    facts: [
+      { k: 'touches-core', fact: '12 files under core/events/', effect: 'needs prompter + named owner', raise: 1 },
+      { k: 'owner', fact: 'core/events/** is owned by Ines', effect: 'named person: Ines' },
+      { k: 'diff-size', fact: '+684 −402 in 31 files (limit 600)', effect: 'risk raised to high', raise: 1 },
+    ],
+    policy: 'core-change', req: 'Prompter self-attest + named owner (Ines)',
+    slots: [
+      { role: 'Prompter', who: 'mara', state: 'ok', sha: '4ac19e2', via: 'patch_id', when: 'yesterday 15:30', level: 'self' },
+      { role: 'Owner of core/events', who: 'ines', state: 'missing' },
+    ],
+    brief: { what: 'Event bus channels get a typed payload schema; 19 modules migrated mechanically.',
+      why: 'Three production bugs this quarter came from mistyped event payloads.',
+      risk: 'Large core change. Mostly mechanical, but publish() ordering changed for batched events.', riskLvl: 3,
+      verified: 'Full suite green; type-level tests; canary on staging for 24h without dropped events.',
+      look: ['core/events/bus.ts', 'core/events/channel.ts'] } },
+  { n: 492, title: 'deps: drizzle-orm 0.36.4 → 0.37.0', by: 'jonas', agent: 'Renovate + Claude Code', topic: 'Housekeeping',
+    cat: 'decide', lane: 'bg', stage: 'waiting', waits: ['jonas'],
+    add: 44, del: 31, files: 6, checks: [14, 14, 'pass'], sha: '6ad00e1', patch: '0be7719c', age: '4h', ageH: 4.1,
+    facts: [
+      { k: 'deps', fact: 'minor bump of a database library', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'lockfile', fact: 'lockfile + 4 call sites changed', effect: 'no change' },
+    ],
+    policy: 'dep-minor-db', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'jonas', state: 'missing' }],
+    brief: { what: 'Minor bump; 4 call sites adapted to the renamed `onConflictDoUpdate` option.',
+      why: 'Needed for the batched backfill helper used in #485.', risk: 'Medium. Database library.', riskLvl: 2,
+      verified: 'Full suite green, migration dry-run unchanged.', look: ['package.json', 'modules/billing/repo.ts'] } },
+  { n: 483, title: 'billing: round tax per line item, not per invoice', by: 'jonas', agent: 'Claude Code', topic: 'Billing v2',
+    cat: 'decide', lane: 'bg', stage: 'merging', waits: ['ci'],
+    add: 77, del: 49, files: 4, checks: [12, 14, 'run'], sha: 'c77e0f1', patch: '7be2d403', age: '6h', ageH: 6,
+    facts: [{ k: 'module-tier', fact: 'modules/billing is tier 3', effect: 'needs another human', raise: 1 }],
+    policy: 'tier3-module-change', req: 'Another human (not the prompter)',
+    slots: [{ role: 'Peer', who: 'mara', state: 'ok', sha: 'a1d94e2', via: 'patch_id', when: 'today 09:48', level: 'peer' }],
+    brief: { what: 'Tax is rounded per line, matching what the accounting export expects.', why: 'Epic #431. 1-cent differences against the ledger.',
+      risk: 'Money math, small diff.', riskLvl: 2, verified: 'Golden-file test with 1,200 historical invoices.', look: ['modules/billing/tax.ts'] } },
+  { n: 478, title: 'ci: run vitest in workspace mode (tests 3× faster)', by: 'ines', agent: 'Claude Code', topic: 'Housekeeping',
+    cat: 'fyi', lane: 'know', stage: 'merging', waits: ['ci'],
+    add: 139, del: 212, files: 14, checks: [13, 14, 'run'], sha: '31f8b2c', patch: 'd9a04e55', age: '3h', ageH: 3,
+    facts: [
+      { k: 'paths', fact: 'only .github/, vitest.*.ts, package.json scripts', effect: 'needs prompter self-attest', raise: 1 },
+      { k: 'author-fyi', fact: 'author declared FYI: "test commands change"', effect: 'FYI to the whole team' },
+    ],
+    policy: 'tooling-change', req: 'Prompter self-attest',
+    slots: [{ role: 'Prompter', who: 'ines', state: 'ok', sha: '31f8b2c', via: 'head_sha', when: 'today 11:40', level: 'self' }],
+    fyi: { why: 'declared by author', acks: ['jonas'], pending: ['mara'] },
+    brief: { what: 'One vitest workspace instead of 23 per-module configs. `pnpm test` is now `pnpm test --project <module>`.',
+      why: 'CI test stage went from 9m to 3m.', risk: 'None for production. Your local test command changes.', riskLvl: 0,
+      verified: 'Same 4,812 tests discovered before and after.', look: ['vitest.workspace.ts', 'docs/dev/testing.md'] } },
+  { n: 487, title: 'docs: ADR-014 module tiers and review requirements', by: 'ines', agent: 'Claude Code', topic: 'Housekeeping',
+    cat: 'fyi', lane: 'know', stage: 'merged', waits: [], mergedAt: '1h ago',
+    add: 164, del: 0, files: 2, checks: [6, 6, 'pass'], sha: '0d92e7b', patch: '88c13fa0', age: '1h', ageH: 1,
+    facts: [
+      { k: 'docs-only', fact: 'only files under docs/', effect: 'auto-merge' },
+      { k: 'author-fyi', fact: 'author declared FYI: "changes how we review"', effect: 'FYI to the whole team' },
+    ],
+    policy: 'docs-only', req: 'None (auto-merge)', slots: [],
+    fyi: { why: 'declared by author', acks: ['jonas'], pending: ['mara'] },
+    brief: { what: 'Writes down which module is tier 1, 2 or 3 and what each tier requires. Moves `calendar` from tier 2 to tier 1.',
+      why: 'The tiers so far lived only in the policy file.', risk: 'None. But it is the reference for the policy config.', riskLvl: 0,
+      verified: 'n/a (docs).', look: ['docs/adr/014-module-tiers.md'] } },
+  { n: 480, title: 'core: deprecate ctx.legacyDb in the module SDK', by: 'ines', agent: 'Claude Code', topic: 'Core event bus',
+    cat: 'fyi', lane: 'know', stage: 'merged', waits: [], mergedAt: 'yesterday 18:31',
+    add: 52, del: 9, files: 5, checks: [14, 14, 'pass'], sha: 'ab30c19', patch: '2e6f0d71', age: '20h', ageH: 20,
+    facts: [
+      { k: 'touches-core', fact: '2 files under core/sdk/', effect: 'needs prompter + named owner', raise: 1 },
+      { k: 'fyi-rule', fact: 'public module SDK surface changed', effect: 'FYI to the whole team' },
+    ],
+    policy: 'core-change', req: 'Prompter self-attest + named owner (Ines)',
+    slots: [{ role: 'Prompter + owner', who: 'ines', state: 'ok', sha: 'ab30c19', via: 'head_sha', when: 'yesterday 18:20', level: 'self' }],
+    fyi: { why: 'policy: module SDK surface changed', acks: [], pending: ['mara', 'jonas'] },
+    brief: { what: '`ctx.legacyDb` now logs a deprecation warning; removal planned for 1 Dec.',
+      why: 'Last step before modules can only reach the DB through repositories.', risk: 'None now. Agents writing modules must stop using it.', riskLvl: 0,
+      verified: 'Warning appears once per process in tests.', look: ['core/sdk/context.ts', 'docs/modules/sdk.md'] } },
+  { n: 493, title: 'notes: keyboard shortcut to toggle checklist items', by: 'mara', agent: 'Claude Code', topic: 'Notes',
+    cat: 'auto', lane: 'bg', stage: 'checks', waits: ['agent'],
+    add: 37, del: 2, files: 3, checks: [13, 14, 'fail'], sha: '5f0e2d8', patch: 'b7c9e014', age: '15m', ageH: 0.25,
+    facts: [{ k: 'module-tier', fact: 'modules/notes is tier 1, pure module update', effect: 'auto-merge' }],
+    policy: 'tier1-pure-module', req: 'None (auto-merge)', slots: [],
+    brief: { what: 'Cmd+Enter toggles a checklist item.', why: 'Issue #470.', risk: 'None.', riskLvl: 0, verified: 'e2e test failing on Firefox; agent is fixing.', look: [] } },
+  { n: 481, title: 'calendar: ICS export honours the tenant timezone', by: 'ines', agent: 'Claude Code', topic: 'Calendar',
+    cat: 'auto', lane: 'bg', stage: 'checks', waits: ['ci'],
+    add: 45, del: 12, files: 3, checks: [9, 14, 'run'], sha: '13c9a7e', patch: '40ad81b3', age: '12m', ageH: 0.2,
+    facts: [{ k: 'module-tier', fact: 'modules/calendar is tier 1, pure module update', effect: 'auto-merge' }],
+    policy: 'tier1-pure-module', req: 'None (auto-merge)', slots: [],
+    brief: { what: 'ICS export uses the tenant timezone instead of UTC.', why: 'Bug #472.', risk: 'None.', riskLvl: 0, verified: 'Unit tests for 4 timezones.', look: [] } },
+  { n: 489, title: 'deps: zod 3.24.1 → 3.24.2', by: 'jonas', agent: 'Renovate', topic: 'Housekeeping',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: '35m ago',
+    add: 6, del: 6, files: 2, checks: [14, 14, 'pass'], sha: 'f41d6b9', patch: '9912ce07', age: '35m', ageH: 0.6,
+    facts: [{ k: 'deps', fact: 'patch bump, lockfile only', effect: 'auto-merge' }],
+    policy: 'dep-patch', req: 'None (auto-merge)', slots: [], brief: { what: 'Patch bump.', why: 'Renovate.', risk: 'None.', riskLvl: 0, verified: 'Suite green.', look: [] } },
+  { n: 486, title: 'notes: fix pasting markdown tables', by: 'mara', agent: 'Claude Code', topic: 'Notes',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: '2h ago',
+    add: 64, del: 19, files: 3, checks: [14, 14, 'pass'], sha: '7a3e15c', patch: '5d08f6aa', age: '2h', ageH: 2,
+    facts: [{ k: 'module-tier', fact: 'modules/notes is tier 1, pure module update', effect: 'auto-merge' }],
+    policy: 'tier1-pure-module', req: 'None (auto-merge)', slots: [], brief: { what: 'Pasted tables keep their columns.', why: 'Bug #466.', risk: 'None.', riskLvl: 0, verified: '6 paste fixtures.', look: [] } },
+  { n: 484, title: 'deps: @types/node 22.9.0 → 22.9.1', by: 'jonas', agent: 'Renovate', topic: 'Housekeeping',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: 'today 08:12',
+    add: 4, del: 4, files: 2, checks: [14, 14, 'pass'], sha: 'c0b8d22', patch: '1f6a7e30', age: '6h', ageH: 6,
+    facts: [{ k: 'deps', fact: 'patch bump of a dev dependency', effect: 'auto-merge' }],
+    policy: 'dep-patch', req: 'None (auto-merge)', slots: [], brief: { what: 'Patch bump.', why: 'Renovate.', risk: 'None.', riskLvl: 0, verified: 'Suite green.', look: [] } },
+  { n: 477, title: 'docs: fix typos in the module authoring guide', by: 'jonas', agent: 'Claude Code', topic: 'Housekeeping',
+    cat: 'auto', lane: 'bg', stage: 'merged', waits: [], mergedAt: 'yesterday 19:05',
+    add: 11, del: 11, files: 1, checks: [6, 6, 'pass'], sha: '92e4f0a', patch: 'e3b15c88', age: '19h', ageH: 19,
+    facts: [{ k: 'docs-only', fact: 'only files under docs/', effect: 'auto-merge' }],
+    policy: 'docs-only', req: 'None (auto-merge)', slots: [], brief: { what: 'Typos.', why: '', risk: 'None.', riskLvl: 0, verified: 'n/a', look: [] } },
+];
+PRS.forEach(p => { for (const k of ['what','why','risk','verified']) p.brief[k] = p.brief[k].replace(/`([^`]+)`/g, '<code>$1</code>'); });
+const PR = n => PRS.find(p => p.n === n);
+const BATCH = [482, 485, 488, 490, 491];      // selected on the dashboard
+const LINK = [482, 485, 476];                 // deep link batch (posted by Jonas' agent on #482)
+const KIND = { peer: 'peer', self: 'self', named: 'owner', reattest: 'self (re-attest)' };
+// what happens after I sign
+const AFTER = { 482: ['ok', 'Requirement met → agent auto-merges'], 485: ['wait', 'Still waits on Jonas (prompter)'], 488: ['ok', 'Requirement met → agent auto-merges'],
+  490: ['ok', 'Requirement met → agent auto-merges'], 491: ['ok', 'Requirement met → agent auto-merges'], 476: ['ok', 'Requirement met → agent auto-merges'] };
+const KEYFP = 'SHA256:Qx7fT0m…k2Vd9 (ed25519)';
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const av = (p, cls = '') => p in PEOPLE ? `<span class="av ${cls}" style="--h:${PEOPLE[p].hue}" title="${PEOPLE[p].name}">${PEOPLE[p].short[0]}</span>` : '';
+const route = () => (location.hash || '#dashboard').slice(1);
+const payload = n => { const p = PR(n); return `{"repo":"${REPO}","pr":${n},"head_sha":"${p.sha}…","patch_id":"${p.patch}…","verdict":"approve","level":"${p.askKind === 'peer' ? 'peer' : p.askKind === 'named' ? 'owner' : 'self'}","reviewer":"mara-l"}`; };
+if (new URLSearchParams(location.search).get('theme')) document.documentElement.dataset.theme = new URLSearchParams(location.search).get('theme');
+// Round 2 additions: epics, issues (GitHub sub-issues), dependencies.
+const EPICS = [
+  { n: 431, title: 'Billing v2', issues: [
+    { n: 435, t: 'Credit note PDFs', s: 'done' }, { n: 438, t: 'Multi-currency price lists', s: 'done' },
+    { n: 432, t: 'Round tax per line item', s: 'merging', pr: 483 }, { n: 433, t: 'Prorate plan changes mid-cycle', s: 'you', pr: 482 },
+    { n: 434, t: 'Store the currency on each invoice', s: 'you', pr: 485, also: 'jonas' }, { n: 436, t: 'Dunning emails', s: 'todo' }, { n: 437, t: 'Accounting export v2', s: 'todo' } ] },
+  { n: 440, title: 'Auth hardening', issues: [
+    { n: 442, t: 'Rate-limit login attempts', s: 'done' }, { n: 443, t: 'CSP headers', s: 'done' }, { n: 441, t: 'Rotate tokens on privilege change', s: 'you', pr: 476 }, { n: 444, t: 'Audit log for role changes', s: 'todo' } ] },
+  { n: 450, title: 'Typed event bus', issues: [
+    { n: 452, t: 'Deprecate ctx.legacyDb', s: 'done', pr: 480 }, { n: 451, t: 'Typed channels', s: 'mate', pr: 479, who: 'ines' }, { n: 453, t: 'Remove ctx.legacyDb', s: 'todo' } ] },
+];
+const EPIC_OF = { 482: 431, 485: 431, 483: 431, 476: 440, 479: 450, 480: 450 };
+const DEPENDS = { 482: 485, 485: 492 };   // "Depends on #n" in the brief / stacked base branch
+const SLABEL = { done: 'Done', merging: 'Merging', you: 'Needs you', mate: 'Needs a teammate', todo: 'Not started' };
+// Round 3: last activity per PR [minutes ago, what happened, clock time for yesterday]
+const ACT = { 493: [6, 'fix pushed for the failing check'], 481: [12, 'opened'], 491: [25, 'new commit · your signature dropped'], 489: [35, 'merged'],
+  490: [50, 'opened by your agent'], 487: [60, 'merged'], 488: [70, 'checks turned green'], 482: [100, 'Jonas’s agent asked you to review'], 486: [120, 'merged'],
+  485: [140, '2 new commits'], 478: [180, 'Ines signed'], 492: [240, 'opened'], 483: [270, 'you signed · checks running'], 476: [315, 'rebased · Jonas’s signature held'],
+  484: [368, 'merged'], 477: [1155, 'merged', '19:05'], 480: [1189, 'merged', '18:31'], 479: [1370, 'you signed · waits on Ines', '15:30'] };
+</script>
+<script>
+const LOCK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const OPENL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 4.9-.7"/></svg>';
+const topbar = (view, open) => `<div class="top"><div class="logo"><i>✓</i>Countersign</div><div class="repo">${REPO}</div>
+  <div class="seg"><a class="${view === 'list' ? 'on' : ''}" href="#list">List</a><a class="${view === 'board' ? 'on' : ''}" href="#board">Board</a>${view === 'epics' ? '<a class="on" href="#epics">Epics</a>' : ''}</div>
+  <div class="sp"></div><div class="help"><kbd>?</kbd> shortcuts</div>${open ? `<div class="lock open">${OPENL}<span>Unlocked</span><b>${open}</b><a>Lock</a></div>` : `<div class="lock">${LOCK}<span>Locked</span></div>`}${av('mara', 'lg')}</div>`;
+const who = p => p.by === ME ? 'you' : PEOPLE[p.by].short;
+const risk = l => `<span class="risk r${l}" title="risk ${['none', 'low', 'medium', 'high'][l]}">${[1, 2, 3].map(i => `<i class="${i <= l ? 'on' : ''}"></i>`).join('')}</span>`;
+// one tag per row: the single most telling classifier fact
+const tag1 = p => { const f = k => p.facts.find(x => x.k === k);
+  if (f('attestation')) return '<span class="tag bad">changed since you signed</span>';
+  if (f('migration')) return '<span class="tag">migration</span>';
+  if (f('touches-core')?.raise) return '<span class="tag">core</span>';
+  if (f('module-tier')) return `<span class="tag">${f('module-tier').fact.match(/tier \d/)[0]}</span>`;
+  if (f('deps')) return '<span class="tag">dependency</span>'; if (f('docs-only')) return '<span class="tag">docs</span>'; if (f('paths')) return '<span class="tag">tooling</span>'; return ''; };
+const badChecks = p => p.checks[2] === 'fail' ? '<span class="tag bad">1 check failing</span>' : p.checks[2] === 'run' ? '<span class="tag">checks running</span>' : '';
+const fyiWhy = p => { const f = p.facts.find(x => x.k.includes('fyi')); return f.k === 'author-fyi' ? f.fact.replace('author declared FYI: ', '').replace(/"/g, '') : f.fact; };
+const askOf = (p, st) => st.signed?.[p.n] ? `<span class="ask done">${st.signed[p.n]}</span>` : p.lane === 'know' ? `<span class="ask know">Got it</span>` : `<span class="ask">${p.ask}</span>`;
+const dep = p => DEPENDS[p.n] ? (PR(DEPENDS[p.n]).waits.includes('jonas') && DEPENDS[p.n] === 492 ? `needs #492 first (Jonas)` : `needs #${DEPENDS[p.n]} first`) : '';
+const unblocks = p => { const k = Object.keys(DEPENDS).find(k => DEPENDS[k] === p.n); return k ? `unblocks #${k}` : ''; };
+// ---------- board
+const pips = p => p.slots.map(s => { const init = s.who in PEOPLE ? PEOPLE[s.who].short[0] : '+1';
+  return `<span class="pip ${s.state === 'ok' ? 'ok' : s.state === 'stale' ? 'stale' : (s.who === ME || s.role === 'Peer') && p.lane === 'needs' ? 'me' : ''}" title="${s.role}">${s.state === 'stale' ? '!' : init}</span>`; }).join('');
+// ---------- epics overview (option B)
+function epics() {
+  return topbar('epics') + `<div class="noteb"><b>Option B · GitHub issues.</b> PRs link to issues with “Closes #n”; issues are sub-issues of an epic. The epic shows what blocks it, including work that has no PR yet.</div>
+  <main class="col wide">${EPICS.map((e, x) => { const n = s => e.issues.filter(i => i.s === s).length;
+    return `<div class="epic"><div class="eh2"><h3>${e.title}<span>#${e.n}</span></h3><div>${progress(e)}<small>${n('done')} done${n('merging') ? ` · ${n('merging')} merging` : ''} · ${n('you') + n('mate')} wait on a human · ${n('todo')} not started</small></div>
+      <div class="blk">${n('you') ? `Blocked by <b style="color:var(--need)">you (${n('you')})</b>` : `Blocked by <b>Ines (1)</b>`}${x === 0 ? ' and Jonas (1)' : ''}</div></div>
+    ${x === 0 ? e.issues.map(i => `<div class="iss ${i.s}"><span class="mono">#${i.n}</span><span>${i.t}</span><span class="st ${i.s}">${SLABEL[i.s]}</span><span class="pr">${i.pr ? `PR #${i.pr}${i.also ? ' · then Jonas (prompter)' : i.s === 'merging' ? ' · you signed, checks running' : ''}` : i.s === 'todo' ? 'no PR yet' : ''}</span>
+      <span style="text-align:right">${i.s === 'you' ? `<a class="ask" href="#list-panel">Sign as peer</a>` : ''}</span></div>`).join('') : ''}</div>`; }).join('')}
+  <p class="note" style="margin-top:18px">Not in an epic: 12 pull requests (single issues, dependency bumps, docs). They only show in the list and on the board.</p></main>`;
+}
+// ---------- batch dialog
+function dialog(step) {
+  const r = n => { const p = PR(n), ok = AFTER[n][0] === 'ok';
+    return `<div class="dr">${step === 'signed' ? '<span style="color:var(--ok);font-weight:700">✓</span>' : '<span class="cb on"></span>'}<div>${esc(p.title)}${step === 'open' ? `<small>#${n} · ${p.sha} · patch ${p.patch}</small>` : ''}</div><span class="o ${ok ? '' : 'wait'}">${step === 'signed' ? (ok ? 'agent can merge' : 'waits on Jonas') : ok ? 'then merges' : 'then waits on Jonas'}</span></div>`; };
+  if (step === 'signed') return `<div class="scrim"><div class="dlg"><div class="dh"><div class="okc">✓</div><h2>5 pull requests signed</h2><p>Four are with their agents now. One still waits on Jonas.</p></div>
+    <div class="dbody">${BATCH.map(r).join('')}</div>
+    <div class="dfoot"><span class="note">Signing stays unlocked for 14:48.</span><span class="sp"></span><a class="btn ghost">Undo…</a><a class="btn pri big" href="#signed-list">Done <kbd>↵</kbd></a></div></div></div>`;
+  return `<div class="scrim"><div class="dlg"><div class="dh"><h2>Sign 5 pull requests</h2><p>Four will be merged by their agents. One still waits on Jonas afterwards.</p></div>
+    <div class="dbody"><div class="dg">Jonas’s work · you sign as peer</div>${[482, 485].map(r).join('')}<div class="dg">Your work · you sign as prompter</div>${[488, 490, 491].map(r).join('')}
+    ${step === 'unlock' ? '' : `<div class="disc">${step === 'open' ? '▾ Each signature covers the head commit and patch-id shown above. A rebase keeps it valid; a content change does not.' : '▸ Show exactly what is signed'}</div>`}</div>
+    ${step === 'unlock' ? `<div class="unl"><div class="note" style="margin-bottom:8px">Passphrase for your signing key</div><div class="field">••••••••••••</div>
+        <div class="opt">Stay unlocked <span>this batch</span><span class="on">15 min</span><span>1 hour</span></div></div>
+      <div class="dfoot"><span class="note">The key never leaves this app.</span><span class="sp"></span><a class="btn ghost" href="#batch">Back</a><a class="btn pri big" href="#signed">Sign 5 <kbd>↵</kbd></a></div>` :
+      `<div class="dfoot"><span class="sp"></span><a class="btn ghost" href="#list">Cancel</a><a class="btn pri big" href="#unlock">${LOCK} Unlock &amp; sign 5 <kbd>↵</kbd></a></div>`}</div></div>`;
+}
+// ---------- deep link
+function link() {
+  return topbar('list') + `<div class="lcol"><div class="banner"><b>Opened from a link</b> · Jonas’s agent, in a comment on #482, 38 minutes ago<q>Billing v2 and the auth fix are ready for a second pair of eyes.</q><span class="note">Nothing is signed yet. A link only opens this view.</span></div>
+  <main>${LINK.map(n => { const p = PR(n), mv = p.moved; return `<div class="lcard"><span class="cb ${mv ? '' : 'on'}" style="margin-top:3px"></span><div>
+    <h3>${esc(p.title)}</h3><div class="s">${tag1(p)}${risk(p.brief.riskLvl)}<span class="sp"></span><span class="ask" style="font-size:12.5px">${p.ask}</span></div>
+    <p>${p.brief.what}</p>${mv ? `<div class="warn"><b>Changed after the request.</b> ${mv.commits} new commits since the link was posted, so it is not selected. <a><u>See what changed</u></a></div>` : ''}
+    <div class="s" style="margin-top:10px"><a href="#list-panel"><u>Open</u></a><span>·</span><a><u>Diff on GitHub ↗</u></a></div></div></div>`; }).join('')}
+  <p class="note" style="margin:16px 4px"><a href="#list"><u>Go to the full list</u></a> · 3 more pull requests wait for you there.</p></main>
+  <aside class="needc"><h6>Requested</h6><b class="big">Sign 2 of 3</b><p class="note" style="margin:0 0 16px">#482 as peer, #476 as owner. Both can merge afterwards. #485 is left out.</p>
+    <a class="btn pri big" style="width:100%" href="#batch">${LOCK} Review &amp; sign 2</a><p class="note" style="margin:14px 0 0">You see what you sign and enter your passphrase before anything is posted.</p></aside></div>`;
+}
+
+// ---------- round 3: attention tiers
+// tier 1 prominent · 2 normal · 3 compact one-liner · 4 folded into a cluster
+const stuck = p => p.checks[2] === 'fail' || (p.stage === 'waiting' && p.ageH >= 12);
+const tier = p => { const needsMe = p.lane === 'needs', mine = p.by === ME, r = p.brief.riskLvl;
+  if (needsMe) return r >= 3 || !mine ? 1 : 2;
+  if (p.fyi?.pending.includes(ME)) return 3;
+  if (p.stage !== 'merged' && ((mine && stuck(p)) || r >= 3)) return 3;
+  return 4; };
+const kindOf = p => p.facts.some(f => f.k === 'deps') ? 'deps' : p.facts.some(f => f.k === 'docs-only') ? 'docs' : /tier 1/.test(p.facts[0].fact) ? 'tier 1' : 'signed by you';
+const when = p => { const [m, , c] = ACT[p.n]; return c || (m < 60 ? m + 'm' : Math.round(m / 60) + 'h'); };
+const diffb = (p, add = p.add, del = p.del) => { const t = add + del, w = Math.min(100, Math.log10(t + 1) / 3 * 100), g = add / t;
+  return `<span class="df"><span><span class="a">+${add}</span> <span class="d">−${del}</span></span><i><b style="width:${w * g}%"></b><u style="width:${w * (1 - g)}%"></u></i></span>`; };
+const bgStatus = p => p.stage === 'merged' ? 'merged' : p.waits[0] === 'agent' ? 'agent is fixing it' : p.stage === 'merging' ? 'merging' : p.waits[0] === 'ci' ? 'checks running' : `waits on ${p.waits.map(w => PEOPLE[w].short).join(', ')}`;
+const progress = (e, cls = '') => `<span class="prog ${cls}">${['done', 'merging', 'you', 'mate', 'todo'].map(s => { const n = e.issues.filter(i => i.s === s).length; return n ? `<i class="p-${s}" style="flex:${n}"></i>` : ''; }).join('')}</span>`;
+const row3 = (p, st, t = tier(p), inn = '') => { const fy = p.lane === 'know', needs = p.lane === 'needs' && !st.signed?.[p.n];
+  const cls = `row t${t} ${inn} ${st.focus === p.n ? 'focus' : ''} ${st.sel?.includes(p.n) ? 'sel' : ''}`, tm = st.chrono ? `<span class="when">${when(p)}</span>` : '';
+  const right = needs || st.signed?.[p.n] ? askOf(p, st) : fy ? `<span class="ask know">Got it</span>` : `<span class="st3">${bgStatus(p)}</span>`;
+  const metaTxt = st.chrono ? ACT[p.n][1] : fy ? fyiWhy(p) : `${who(p)} · ${p.age}`;
+  if (t >= 3) return `<a class="${cls}" href="#list-panel">${tm}<span class="cb"></span><div class="t"><span class="tt">${esc(p.title)}</span><span class="m">${av(p.by)}${metaTxt}${t === 3 ? badChecks(p) : ''}</span></div>${diffb(p)}${risk(p.brief.riskLvl)}${right}</a>`;
+  return `<a class="${cls}" href="#list-panel">${tm}<span class="cb"></span><div style="min-width:0"><div class="t">${esc(p.title)}</div>${t === 1 ? `<div class="ex">${p.brief.what}</div>` : ''}
+    <div class="s">${av(p.by)}<span>${st.chrono ? `${who(p)} · ${metaTxt}` : metaTxt}</span>${tag1(p)}</div></div>${diffb(p)}${risk(p.brief.riskLvl)}${right}</a>`; };
+const cluster = (ps, st, o = {}) => { if (ps.length === 1 && !o.force) return row3(ps[0], st, 4);
+  const k = {}; ps.forEach(p => k[kindOf(p)] = (k[kindOf(p)] || 0) + 1); const mg = ps.filter(p => p.stage === 'merged').length, rest = ps.length - mg;
+  return `<a class="clu ${o.open ? 'open' : ''}" href="#chrono-open">${st.chrono ? `<span class="when">${o.when || when(ps[0])}</span>` : ''}<span class="chev">${o.open ? '▾' : '▸'}</span>
+    <div class="t"><b>${o.label || `${ps.length} low-risk changes`}</b><span class="m">${o.sub || Object.entries(k).map(([a, b]) => `${b} ${a}`).join(' · ')}</span></div>
+    ${diffb(null, ps.reduce((a, p) => a + p.add, 0), ps.reduce((a, p) => a + p.del, 0))}<span></span><span class="st3">${[mg ? `${mg} merged` : '', rest ? `${rest} open` : ''].filter(Boolean).join(' · ')}</span></a>` + (o.open ? ps.map(p => row3(p, st, 4, 'in')).join('') : ''); };
+const subbar = st => `<div class="sub"><div class="seg"><a class="${st.chrono ? '' : 'on'}" href="#list">By attention</a><a class="${st.chrono ? 'on' : ''}" href="#chrono">Chronological</a></div>
+  ${st.chrono ? `<span style="margin-left:14px">Fold low-risk by</span><div class="seg"><a class="${st.mode === 'buckets' ? 'on' : ''}" href="#chrono">Time bucket</a><a class="${st.mode === 'runs' ? 'on' : ''}" href="#chrono-runs">Consecutive run</a><a class="${st.mode === 'kind' ? 'on' : ''}" href="#chrono-kind">Kind</a></div>` : ''}
+  <span class="sp"></span><a class="pbtn ${st.panel ? 'on' : ''}" href="${st.panel ? '#list' : '#list-panel'}"><i></i>Details</a></div>`;
+const legend = () => `<div class="legend"><h3>How to read this</h3><span class="note">The more attention a change deserves, the more room it gets. Three things decide: its risk, whether it needs you, and whether it is your own work or a teammate’s.</span>
+  <div class="lgr" style="margin-top:12px"><div class="sk"><i class="h"></i><i class="s"></i><i class="x"></i></div><span><b>Prominent</b> · with a line of the brief</span><span>needs you, and is high risk or a teammate’s work</span></div>
+  <div class="lgr"><div class="sk"><i class="h"></i><i class="x"></i></div><span><b>Normal</b></span><span>needs you, your own work, low or medium risk</span></div>
+  <div class="lgr"><div class="sk one"><i class="h" style="width:100%"></i><i></i></div><span><b>One line</b></span><span>worth knowing, or yours and stuck</span></div>
+  <div class="lgr"><div class="sk one fold"><i style="width:60%"></i><i></i></div><span><b>Folded</b> · “4 low-risk changes”</span><span>low risk and nothing for you to do</span></div>
+  <div class="obf" style="margin-top:14px"><span class="note">Lanes: <b style="color:var(--need)">Needs you</b> waits for your signature · <b style="color:var(--know)">Worth knowing</b> wants no input · Background takes care of itself.</span><span class="sp"></span><a class="btn">Got it</a></div></div>`;
+function list(st = {}) {
+  const sg = st.signed || {}, T = n => PRS.filter(p => tier(p) === n);
+  let body;
+  if (st.empty === 'first') body = `${legend()}<div class="noteb" style="margin:0 0 26px;max-width:none"><b>Your key is pending.</b> Setup PR #494 adds the policy, the verifier and your public key. Until it merges nothing is gated and your signatures do not count yet. <a><u>Open #494</u></a></div>
+    ${[['d-need', 'Needs you', 'Pull requests that wait for your signature appear here, the riskiest on top.'], ['d-know', 'Worth knowing', 'Changes a teammate or the policy wants you to notice. No input wanted.'], ['d-bg', 'Background', 'Everything that merges on its own or waits on someone else, folded.']].map(([d, t, x]) =>
+      `<section class="lane"><div class="lh"><span class="dot ${d}"></span><h2>${t}</h2><span class="c">0</span></div><div class="ph0">${x}</div></section>`).join('')}
+    <p class="note">7 open pull requests in ${REPO} are not classified yet. They show up once the verifier has run on them.</p>`;
+  else if (st.chrono) { const all = [...PRS].sort((a, b) => ACT[a.n][0] - ACT[b.n][0]), day = (t, s) => `<div class="day">${t}<span>${s || ''}</span></div>`;
+    const wrap = rows => `<div class="rows">${rows}</div>`;
+    if (st.mode === 'buckets') body = [['Last hour', 0, 60], ['Earlier today', 60, 860], ['Yesterday', 860, 1e4]].map(([t, a, b]) => { const ps = all.filter(p => ACT[p.n][0] >= a && ACT[p.n][0] < b), low = ps.filter(p => tier(p) === 4);
+        return day(t, `${ps.length} changes`) + wrap(low.length === 1 ? ps.map(p => row3(p, st)).join('') : ps.filter(p => tier(p) < 4).map(p => row3(p, st)).join('') + (low.length ? cluster(low, st, { open: st.openClu && a === 60, when: ' ' }) : '')); }).join('');
+    else if (st.mode === 'runs') { let out = day('Today'), rows = '', run = [], flush = () => { if (run.length) rows += cluster(run, st); run = []; };
+      all.forEach((p, i) => { if (ACT[p.n][0] >= 860 && (i === 0 || ACT[all[i - 1].n][0] < 860)) { flush(); out += wrap(rows) + day('Yesterday'); rows = ''; } if (tier(p) === 4) run.push(p); else { flush(); rows += row3(p, st); } });
+      flush(); body = out + wrap(rows); }
+    else { const hi = all.filter(p => tier(p) < 4), low = all.filter(p => tier(p) === 4), ks = ['deps', 'tier 1', 'docs', 'signed by you'];
+      body = day('Today') + wrap(hi.filter(p => ACT[p.n][0] < 860).map(p => row3(p, st)).join('')) + day('Yesterday') + wrap(hi.filter(p => ACT[p.n][0] >= 860).map(p => row3(p, st)).join('')) +
+        day('Low risk, by kind', 'not in time order') + wrap(ks.map(k => { const ps = low.filter(p => kindOf(p) === k); return cluster(ps, st, { force: 1, when: ' ', label: { deps: 'Dependency bumps', 'tier 1': 'Tier 1 modules', docs: 'Docs', 'signed by you': 'Signed by you, merging' }[k], sub: `${ps.length}` }); }).join('')); }
+  } else { const needs = PRS.filter(p => p.lane === 'needs' && !sg[p.n]).sort((a, b) => tier(a) - tier(b) || b.brief.riskLvl - a.brief.riskLvl), know = PRS.filter(p => p.lane === 'know'), bg = PRS.filter(p => p.lane === 'bg');
+    const signed = PRS.filter(p => sg[p.n]);
+    body = `<section class="lane"><div class="lh"><span class="dot d-need"></span><h2>Needs you</h2><span class="c">${st.empty ? 0 : needs.length}</span><span class="hint">${st.empty ? '' : needs.length > 1 ? 'oldest waits 5 hours' : 'one left'}</span></div>
+      ${st.empty ? `<div class="ph0"><b style="color:var(--tx)">Nothing needs you.</b> No agent is waiting on your signature.</div>` : `<div class="rows">${needs.map(p => row3(p, st)).join('')}</div>`}</section>
+    ${st.empty ? '' : `<section class="lane"><div class="lh"><span class="dot d-know"></span><h2>Worth knowing</h2><span class="c">${know.length}</span><span class="hint">no input wanted</span></div><div class="rows">${know.map(p => row3(p, st)).join('')}</div></section>`}
+    <section class="lane"><div class="lh"><span class="dot d-bg"></span><h2>Background</h2><span class="c">${bg.length + signed.length}</span><span class="hint">nothing to do</span></div>
+      <div class="rows">${signed.map(p => row3(p, st, 3)).join('')}${bg.filter(p => tier(p) === 3).map(p => row3(p, st)).join('')}${cluster(bg.filter(p => tier(p) === 4), st)}</div></section>`; }
+  const main = `${st.empty === 'first' ? '' : subbar(st)}<main class="col r3 ${st.chrono ? 'chrono' : ''}">${st.empty || st.chrono ? '' : `<p class="since">Since yesterday 17:42: 5 merged on their own.</p>`}${body}</main>`;
+  const pw = st.pw || 500;
+  return `<div ${st.over || st.panel ? 'style="height:100vh;overflow:hidden"' : ''}>${topbar('list', st.open)}${st.panel ? `<div class="split"><div class="lw">${main}</div><div class="handle ${st.pw ? 'act' : ''}" id="handle"><i></i></div>
+    <aside class="panel" id="panel" style="width:${pw}px">${st.pw ? `<span class="rsz" style="right:${pw - 20}px">${pw} px</span>` : ''}${panelBody(PR(st.panel), { w: pw, close: '#list' })}</aside></div>` : main}
+    ${st.sel ? `<div class="selbar"><b>${st.sel.length} selected</b><a class="btn ghost">Clear</a><a class="btn pri" href="#batch">Review &amp; sign ${st.sel.length} <kbd>s</kbd></a></div>` : ''}${st.over || ''}</div>`;
+}
+// ---------- detail as a panel (list: resizable side panel · board: overlay drawer)
+const journey = p => { const s = [['Opened', ''], ['Classified', p.slots.length > 1 ? 'needs 2 people' : 'needs 1 signature']];
+  p.slots.filter(x => x.state === 'ok').forEach(x => s.push([`${PEOPLE[x.who].short} signed`, x.when.replace(/^(yesterday|today) /, '')]));
+  if (p.slots.some(x => x.via === 'patch_id')) s.push(['Rebased', 'signature held']);
+  if (p.slots.some(x => x.state === 'stale')) s.push(['Content changed', 'signature dropped', 'bad']);
+  if (p.moved) s.push(['2 new commits', 'after the request']);
+  s.push(['Waiting on you', p.age, 'now']); if (p.n === 485) s.push(['Jonas signs', '', 'fut']);
+  return [...s, ['Check green', '', 'fut'], ['Agent merges', '', 'fut']]; };
+function panelBody(p, o = {}) {
+  const wide = (o.w || 500) >= 620, needs = p.lane === 'needs', js = journey(p), ok = p.slots.filter(s => s.state === 'ok').length;
+  const fold = (t, sum, body, open) => `<div class="fold"><div class="fh"><b>${t}</b><span>${sum}</span><i>${open ? '▾' : '▸'}</i></div>${open ? `<div class="fb">${body}</div>` : ''}</div>`;
+  const need = { peer: 'Sign as peer', named: 'Sign as owner of core/auth', self: 'Self-attest', reattest: 'Sign again, content changed' }[p.askKind];
+  return `<div class="ph"><span class="note">#${p.n} · ${p.topic}</span><span class="sp"></span><a class="note">GitHub ↗</a><a class="ib" title="Open as page"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9.5 2.5h4v4M13.5 2.5l-5 5M6.5 13.5h-4v-4M2.5 13.5l5-5"/></svg></a><a class="ib" href="${o.close}" title="Close (esc)">✕</a></div>
+  <div class="pb"><h1>${esc(p.title)}</h1><div class="s" style="font-size:13px">${av(p.by)}<span>${PEOPLE[p.by].short} · open ${p.age}</span><span class="df dm"><span class="a">+${p.add}</span><span class="d">−${p.del}</span></span><span>${p.files} files</span>${badChecks(p)}</div>
+  ${needs ? `<div class="needc"><div><h6>Needed from you</h6><b class="big">${need}</b><div class="note">${AFTER[p.n][0] === 'ok' ? 'Then the check turns green and the agent merges.' : 'Then it still waits on Jonas.'}</div></div>
+    <div class="nb"><a class="btn pri" href="#unlock">${LOCK} Sign <kbd>s</kbd></a><a class="btn">Add to batch <kbd>x</kbd></a></div></div>` : ''}
+  <dl class="brief"><dt>What</dt><dd>${p.brief.what}</dd><dt>Why</dt><dd>${p.brief.why}</dd><dt>Risk</dt><dd>${risk(p.brief.riskLvl)}&nbsp; ${p.brief.risk}</dd><dt>Verified</dt><dd>${p.brief.verified}</dd>
+    ${wide ? `<dt>Look at</dt><dd class="mono f">${p.brief.look.join('<br>')}</dd>` : ''}</dl>
+  ${wide ? `<div class="jr" style="grid-template-columns:repeat(${js.length},1fr)">${js.map(([a, b, c]) => `<div class="${c || ''}">${a}<small>${b}</small></div>`).join('')}</div>` : `<ul class="jv">${js.map(([a, b, c]) => `<li class="${c || ''}">${a}<small>${b}</small></li>`).join('')}</ul>`}
+  <div style="margin-top:22px">
+  ${fold('Why this needs you', (n => `${n} reason${n === 1 ? '' : 's'}`)(p.facts.filter(f => f.raise).length), p.facts.map(f => `<div class="fact"><span>${f.fact}</span><span class="${f.raise ? 'up' : ''}">${f.raise ? '↑ ' : ''}${f.effect}</span></div>`).join('') + `<p class="note" style="margin:8px 0 0">Policy rule <span class="mono">${p.policy}</span>, read from main.</p>`, wide)}
+  ${fold('Signatures', `${ok} of ${p.slots.length}`, p.slots.map(s => `<div class="led"><span class="sl ${s.state === 'ok' ? 'ok' : 'me'}">${s.state === 'ok' ? '✓' : ''}</span><div>${s.who in PEOPLE ? (s.who === ME ? 'You' : PEOPLE[s.who].short) : 'Anyone but Jonas'}, as ${s.role.toLowerCase()}<small>${s.state === 'ok' ? `signed <span class="mono">${s.sha}</span> ${s.when}${s.via === 'patch_id' ? '. Rebased since; the patch-id is unchanged, so it still counts.' : ''}` : s.state === 'stale' ? 'signed before, but the content changed' : 'missing'}</small></div></div>`).join(''), wide)}
+  ${p.fyi ? fold('FYI', p.fyi.acks.length ? `${p.fyi.acks.map(a => PEOPLE[a].short).join(', ')} has seen it` : 'nobody yet', '') : ''}
+  ${fold('Files', `${p.files} changed · checks ${p.checks[2] === 'pass' ? 'green' : 'not green'}`, '')}</div></div>`;
+}
+// ---------- board with tiers
+const card3 = (p, st = {}, t = tier(p)) => t >= 3 ? `<a class="card t${t}" href="#board-drawer"><span>${esc(p.title)}</span><span class="pips">${p.fyi?.pending.includes(ME) ? '<span class="tag know">FYI</span>' : badChecks(p) || pips(p)}</span></a>` :
+  `<a class="card t${t} ${st.focus === p.n ? 'focus' : ''}" href="#board-drawer"><div class="ct">${esc(p.title)}</div>${t === 1 ? `<div class="cx">${p.brief.what}</div>` : ''}
+  <div class="cf">${av(p.by)}<span>${p.age}</span><span class="df dm"><span class="a">+${p.add}</span><span class="d">−${p.del}</span></span>${p.askKind === 'reattest' ? '<span class="tag bad">changed</span>' : ''}<span class="pips">${risk(p.brief.riskLvl)}&nbsp;${pips(p)}</span></div></a>`;
+const ccl = ps => { const k = {}; ps.forEach(p => k[kindOf(p)] = (k[kindOf(p)] || 0) + 1); return ps.length < 2 ? ps.map(p => card3(p, {}, 4)).join('') : `<a class="card cl">▸ ${ps.length} low-risk · ${Object.keys(k).join(', ')}</a>`; };
+function board(st = {}) {
+  const by = ns => ns.map(PR), mine = PRS.filter(p => p.lane === 'needs').sort((a, b) => tier(a) - tier(b) || b.ageH - a.ageH), merged = PRS.filter(p => p.stage === 'merged');
+  const col = (t, n, inner, o = {}) => `<section class="colm ${o.you ? 'you' : ''}"><div class="ch"><h3>${t}</h3><span class="c">${n}</span><span class="r">${o.r || ''}</span></div>${inner}</section>`;
+  const split = ps => ps.filter(p => tier(p) < 4).map(p => card3(p, st)).join('') + ccl(ps.filter(p => tier(p) === 4));
+  return topbar('board') + `<div class="bar2">Group by <div class="seg"><a class="on">Waiting on</a><a>State</a><a>Epic</a></div><span class="sp"></span><span>card size follows attention · pips = signatures needed</span></div>
+  <div class="board" style="grid-template-columns:minmax(0,1.35fr) repeat(4,minmax(0,1fr))">${col('You', 6, split(mine), { you: 1, r: '<a class="btn pri" style="height:26px;padding:0 10px;font-size:12px" href="#batch">Sign…</a>' })}
+    ${col('Jonas', 1, split(by([492])) + '<div class="hintx" style="padding:4px 6px">also #485, after you</div>')}${col('Ines', 1, split(by([479])), { r: '1 day' })}${col('Agents &amp; CI', 4, split(by([493, 478, 481, 483])))}${col('Merged', merged.length, split(merged), { r: 'last 24h' })}</div>
+  ${st.drawer ? `<div class="dscrim"></div><aside class="drawer">${panelBody(PR(st.drawer), { w: 540, close: '#board' })}</aside>` : ''}`;
+}
+// ---------- onboarding
+function onboard(step, variant) {
+  const names = ['GitHub and repository', 'Repository setup', 'Your signing key', 'Test signature', 'Done'];
+  const chk = (s, t, sub, r = '') => `<div class="chk"><span class="ci ${s}">${s === 'ok' ? '✓' : s === 'wait' ? '…' : ''}</span><div>${t}<small>${sub}</small></div><span class="note">${r}</span></div>`;
+  const S = [
+    `<h1>Connect to GitHub</h1><p>Countersign runs on this machine and uses the GitHub login you already have. Nothing is stored on a server.</p>
+     ${chk('ok', 'Signed in as <b>mara-l</b>', 'found through <span class="mono">gh auth status</span> · scopes repo, read:org, workflow', 'no new permission')}
+     <div style="margin-top:20px"><div class="note" style="margin-bottom:8px">Repository</div>
+     <div class="opt2 on"><span class="rad"></span><div><b>tallyho/fieldbook</b><div class="note">the repo of your current folder · you have write access</div></div></div>
+     <div class="opt2"><span class="rad"></span><div>tallyho/fieldbook-docs<div class="note">last pushed 3 days ago</div></div></div>
+     <div class="opt2"><span class="rad"></span><div class="note">Another repository…</div></div></div>
+     <div class="obf"><span class="note">One repository per window in this version.</span><span class="sp"></span><a class="btn pri big" href="#ob-2">Continue</a></div>`,
+    `<h1>Set up tallyho/fieldbook</h1><p>This repository has not been set up yet. Setup happens once, through a pull request, and everything it adds lives in the repo.</p>
+     ${chk('no', 'Policy file', '<span class="mono">.countersign/policy.ts</span> · which changes need whom. Starts with a default you can edit.', 'missing')}
+     ${chk('no', 'Verifier workflow', '<span class="mono">.github/workflows/countersign.yml</span> · classifies each PR and checks signatures. Never runs PR code.', 'missing')}
+     ${chk('no', 'Allowed signers', '<span class="mono">.countersign/allowed_signers</span> · the public keys that may sign. Yours goes in first.', 'missing')}
+     ${chk('no', 'Required check on main', '<span class="mono">human-attestation</span> becomes required; required approvals go from 1 to 0. Needs a repo admin (you are one).', 'after merge')}
+     <div class="obf"><span class="note">The PR is yours to read and merge the usual way. Nothing is gated before it merges.</span><span class="sp"></span><a class="btn ghost">Preview the PR</a><a class="btn pri big" href="#ob-3">Continue</a></div>`,
+    variant === 'join' ? `<h1>Your signing key</h1><p>Your public key has to be in the repository’s list of allowed signers. Adding it is a small pull request that a teammate signs off.</p>
+     ${chk('ok', 'Key created', '<span class="mono">~/.ssh/countersign_ed25519</span> · SHA256:Qx7fT0m…k2Vd9 · protected by your passphrase')}
+     ${chk('wait', 'Enrolment PR #501 is open', 'adds one line to <span class="mono">.countersign/allowed_signers</span>. The policy treats changes there as highest risk: Jonas or Ines has to sign it.', 'pending')}
+     ${chk('no', 'Key active', 'once #501 merges. Until then you can read everything, and your signatures do not count.')}
+     <div class="obf"><span class="note">No extra GitHub permission is needed for this.</span><span class="sp"></span><a class="btn ghost">Ask Jonas and Ines</a><a class="btn pri big" href="#ob-4">Continue</a></div>` :
+    `<h1>Your signing key</h1><p>Signatures are made with an SSH key that only this app can unlock. The public half goes into the repository, in <span class="mono">.countersign/allowed_signers</span>.</p>
+     <div class="opt2 on"><span class="rad"></span><div><b>Create a new key</b> <span class="note">recommended</span><div class="note">ed25519, stored at ~/.ssh/countersign_ed25519, used for nothing else</div>
+       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px"><div><div class="note" style="margin-bottom:5px">Passphrase</div><div class="inp">••••••••••••••</div></div><div><div class="note" style="margin-bottom:5px">Repeat</div><div class="inp">••••••••••••••</div></div></div></div></div>
+     <div class="opt2"><span class="rad"></span><div>Use an existing key<div class="note">pick a private key file; it must have a passphrase</div></div></div>
+     <div class="noteb" style="margin:16px 0 0;max-width:none"><b>How your key gets enrolled.</b> You are setting up this repository, so your public key is part of the setup PR. Teammates who join later get a one-line enrolment PR each, which one of you signs.</div>
+     <div class="obf"><span class="note">Nothing is registered on your GitHub account and no extra permission is asked for.</span><span class="sp"></span><a class="btn pri big" href="#ob-4">Create key</a></div>`,
+    `<h1>Test signature</h1><p>A round trip with a harmless test message, to see that signing works on this machine.</p>
+     ${chk('ok', 'Unlocked the key with your passphrase', 'the key stays inside this app, not in ssh-agent')}
+     ${chk('ok', 'Signed a test message', '<span class="mono">ssh-keygen -Y sign</span> · namespace countersign')}
+     ${chk('ok', 'Verified against your public key', 'locally, the same way the verifier will do it', 'verified ✓')}
+     ${chk('wait', 'Enrolled in tallyho/fieldbook', 'pending: setup PR #494 is open. Your signatures count once it merges.', 'pending')}
+     <div class="obf"><span class="note">You can start reading now. Signing is switched on when #494 merges.</span><span class="sp"></span><a class="btn ghost">Open #494</a><a class="btn pri big" href="#first-run">Go to the dashboard</a></div>` ];
+  return `<div class="top"><div class="logo"><i>✓</i>Countersign</div><div class="sp"></div><span class="note">Setup · step ${step} of 4</span></div>
+  <div class="ob"><ol class="steps">${names.map((n, i) => `<li class="${i + 1 < step ? 'done' : i + 1 === step ? 'on' : ''}"><i>${i + 1 < step ? '✓' : i + 1}</i>${n}</li>`).join('')}</ol><div class="obc">${S[step - 1]}</div></div>`;
+}
+function render() {
+  const r = route(), SG = { 482: 'merging', 485: 'waits on Jonas', 488: 'merging', 490: 'merging', 491: 'merging' };
+  const V = { list: () => list({}), 'list-panel': () => list({ focus: 476, panel: 476 }), 'list-panel-wide': () => list({ focus: 476, panel: 476, pw: 700 }),
+    chrono: () => list({ chrono: 1, mode: 'buckets' }), 'chrono-open': () => list({ chrono: 1, mode: 'buckets', openClu: 1 }), 'chrono-runs': () => list({ chrono: 1, mode: 'runs' }), 'chrono-kind': () => list({ chrono: 1, mode: 'kind' }),
+    'chrono-panel': () => list({ chrono: 1, mode: 'buckets', focus: 485, panel: 485 }),
+    board: () => board(), 'board-drawer': () => board({ drawer: 482, focus: 482 }), epics,
+    batch: () => list({ sel: BATCH, over: dialog('review') }), unlock: () => list({ sel: BATCH, over: dialog('unlock') }), signed: () => list({ signed: SG, open: '14:48', over: dialog('signed') }), 'signed-list': () => list({ signed: SG, open: '14:47' }),
+    'ob-1': () => onboard(1), 'ob-2': () => onboard(2), 'ob-3': () => onboard(3), 'ob-3-join': () => onboard(3, 'join'), 'ob-4': () => onboard(4), 'first-run': () => list({ empty: 'first' }), clear: () => list({ empty: 'clear' }), link };
+  document.getElementById('root').innerHTML = (V[r] || V.list)(); scrollTo(0, 0);
+  const h = document.getElementById('handle'), pn = document.getElementById('panel');   // drag to resize the side panel
+  if (h) h.onmousedown = e => { e.preventDefault(); h.classList.add('act'); const mv = ev => pn.style.width = Math.max(380, Math.min(900, innerWidth - ev.clientX - 6)) + 'px';
+    const up = () => { h.classList.remove('act'); removeEventListener('mousemove', mv); removeEventListener('mouseup', up); }; addEventListener('mousemove', mv); addEventListener('mouseup', up); };
+}
+addEventListener('hashchange', render); render();
+</script>
+</body>
+</html>
