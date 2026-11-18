@@ -108,9 +108,9 @@ test("no key: nothing unlocks until one is created", async () => {
   expect(await code(signer.unlock("pass"))).toBe("no-key");
   expect(await code(signer.sign("line"))).toBe("no-key");
   expect(await code(signer.createKey("short"))).toBe("weak-passphrase");
-  expect(await signer.createKey("long enough")).toEqual(FAKE_KEY);
+  expect(await signer.createKey("a long passphrase")).toEqual(FAKE_KEY);
   expect(signer.status().state).toBe("locked");
-  expect(await code(signer.createKey("long enough"))).toBe("key-exists");
+  expect(await code(signer.createKey("a long passphrase"))).toBe("key-exists");
 });
 
 test("errors never carry the passphrase", async () => {
