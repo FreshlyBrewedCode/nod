@@ -327,7 +327,7 @@ Notes:
   - spawn processes with argument arrays and no shell;
   - write payload and signature to temp files;
   - parse the JSON only **after** the signature verified, then check `repo`, `verdict`, `entries[].pr` and `base`.
-- Permissions: `permissions: {}` at workflow level. The verify job gets `checks: write, contents: read, pull-requests: read, issues: read`. A sticky comment would add `issues: write`. Use `persist-credentials: false`.
+- Permissions: `permissions: {}` at workflow level. The verify job gets `checks: write, contents: read, pull-requests: read, issues: read`. A sticky comment adds `pull-requests: write`; `issues: write` is not enough for comments on a PR ([finding 02](02-repo-owned-setup.md)). Use `persist-credentials: false`.
 - Take the policy's file list from git, never from the files API (3000-file cap).
 - Conclude only `success` or `failure`; `neutral` and `skipped` pass required checks.
 - Name the job anything but `nod`.
