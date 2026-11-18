@@ -18,63 +18,53 @@
     "Liberation Mono", "Courier New", monospace;
 }
 
-/* Status colours are defined per theme rather than shared, so contrast holds in
-   both. They are the one palette the UI owns: every other colour is
-   shadcn's. */
+/* The r3 palette (docs/design/r3), dark only for now. Achromatic-ish chrome;
+   colour means something: amber = needs you, blue = worth knowing, green and
+   red = added/removed, ok/bad. The shadcn names below map onto it so the
+   primitives in components/ui fit in. */
 :root {
   --radius: 0.75rem;
 
-  --background: oklch(0.96 0 0);
-  --foreground: oklch(0.21 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0 0);
-  --primary: oklch(0.86 0.176 89.2);
-  --primary-foreground: oklch(0.2 0 0);
-  --secondary: oklch(0.958 0 0);
-  --secondary-foreground: oklch(0.28 0 0);
-  --muted: oklch(0.958 0 0);
-  --muted-foreground: oklch(0.52 0 0);
-  --accent: oklch(0.945 0 0);
-  --accent-foreground: oklch(0.28 0 0);
-  --destructive: oklch(0.58 0.21 27);
-  --border: oklch(0.9 0 0);
-  --input: oklch(0.9 0 0);
-  --ring: oklch(0.86 0.176 89.2);
+  --bg: #0d0f13;
+  --panel: #13161c;
+  --panel2: #191d25;
+  --line: #20252f;
+  --line2: #2e3542;
+  --tx: #e7e9ee;
+  --tx2: #a3abba;
+  --tx3: #6c7586;
+  --need: #f2b24a;
+  --need-bg: #f2b24a17;
+  --need-line: #f2b24a55;
+  --know: #74a9ff;
+  --know-bg: #74a9ff17;
+  --bgl: #7f8898;
+  --ok: #4cc38a;
+  --ok-bg: #4cc38a17;
+  --bad: #f0685d;
+  --bad-bg: #f0685d1a;
+  --focus: #171c27;
+  --on-need: #15120a;
+  --shadow: 0 24px 70px #000b;
 
-  --status-complete: oklch(0.58 0.14 158);
-  --status-ready: oklch(0.58 0.13 70);
-  --status-pending: oklch(0.55 0.17 262);
-  --status-blocked: oklch(0.56 0.2 25);
-  --status-cancelled: oklch(0.6 0.02 258);
-}
-
-.dark {
-  --background: oklch(0.16 0 0);
-  --foreground: oklch(0.93 0 0);
-  --card: oklch(0.23 0 0);
-  --card-foreground: oklch(0.93 0 0);
-  --popover: oklch(0.24 0 0);
-  --popover-foreground: oklch(0.93 0 0);
-  --primary: oklch(0.86 0.176 89.2);
-  --primary-foreground: oklch(0.2 0 0);
-  --secondary: oklch(0.27 0 0);
-  --secondary-foreground: oklch(0.93 0 0);
-  --muted: oklch(0.27 0 0);
-  --muted-foreground: oklch(0.71 0 0);
-  --accent: oklch(0.3 0 0);
-  --accent-foreground: oklch(0.93 0 0);
-  --destructive: oklch(0.68 0.18 22);
-  --border: oklch(0.32 0 0);
-  --input: oklch(0.34 0 0);
-  --ring: oklch(0.86 0.176 89.2);
-
-  --status-complete: oklch(0.81 0.16 163);
-  --status-ready: oklch(0.84 0.13 80);
-  --status-pending: oklch(0.75 0.13 265);
-  --status-blocked: oklch(0.73 0.15 22);
-  --status-cancelled: oklch(0.6 0.02 258);
+  --background: var(--bg);
+  --foreground: var(--tx);
+  --card: var(--panel);
+  --card-foreground: var(--tx);
+  --popover: var(--panel2);
+  --popover-foreground: var(--tx);
+  --primary: var(--need);
+  --primary-foreground: var(--on-need);
+  --secondary: var(--panel2);
+  --secondary-foreground: var(--tx);
+  --muted: var(--panel2);
+  --muted-foreground: var(--tx3);
+  --accent: var(--panel2);
+  --accent-foreground: var(--tx);
+  --destructive: var(--bad);
+  --border: var(--line);
+  --input: var(--line2);
+  --ring: var(--need);
 }
 
 @theme inline {
@@ -82,6 +72,27 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel2);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-tx: var(--tx);
+  --color-tx2: var(--tx2);
+  --color-tx3: var(--tx3);
+  --color-need: var(--need);
+  --color-need-bg: var(--need-bg);
+  --color-need-line: var(--need-line);
+  --color-know: var(--know);
+  --color-know-bg: var(--know-bg);
+  --color-bgl: var(--bgl);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-bad: var(--bad);
+  --color-bad-bg: var(--bad-bg);
+  --color-focus: var(--focus);
+  --color-on-need: var(--on-need);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -102,11 +113,7 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --color-status-complete: var(--status-complete);
-  --color-status-ready: var(--status-ready);
-  --color-status-pending: var(--status-pending);
-  --color-status-blocked: var(--status-blocked);
-  --color-status-cancelled: var(--status-cancelled);
+  --shadow-float: var(--shadow);
 }
 
 @layer base {
@@ -121,39 +128,38 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-bg text-tx font-sans;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
     overscroll-behavior-y: none;
     -webkit-text-size-adjust: 100%;
+  }
+
+  button {
+    cursor: pointer;
   }
 }
 
 @layer components {
-  /* Fixed to the viewport (not the pannable canvas) so the grid reads as the
-     surface the graph sits on rather than something drawn into world space. */
-  .bg-dot-grid {
-    background-image: radial-gradient(
-      circle,
-      color-mix(in oklab, var(--foreground) 16%, transparent) 1px,
-      transparent 1px
-    );
-    background-size: 22px 22px;
+  /* The journey: a vertical list with a rail (narrow panel)… */
+  .journey-v::before {
+    content: "";
+    position: absolute;
+    left: 5px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: var(--line2);
   }
-
-  /* `--status` is set per element from the display status, so a card, a pill and
-     a graph edge can all tint themselves from one variable. */
-  [data-status="complete"] {
-    --status: var(--status-complete);
-  }
-  [data-status="ready"] {
-    --status: var(--status-ready);
-  }
-  [data-status="pending"] {
-    --status: var(--status-pending);
-  }
-  [data-status="blocked"] {
-    --status: var(--status-blocked);
-  }
-  [data-status="cancelled"] {
-    --status: var(--status-cancelled);
+  /* …or a horizontal track (from 620 px). */
+  .journey-h::before {
+    content: "";
+    position: absolute;
+    left: 7%;
+    right: 7%;
+    top: 6px;
+    height: 2px;
+    background: var(--line2);
   }
 }
