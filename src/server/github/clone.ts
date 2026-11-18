@@ -79,7 +79,7 @@ export function resolveClone(dir: string, repo: string | null): Clone {
 
 /** Computes a PR's patch-id. The seam the tests replace. */
 export interface PatchIds {
-  /** `baseTip` is only a cache key: the fetch reads the branch's tip as it is now. */
+  /** Fetches the base branch (as it is now) and the head into the clone, then diffs. */
   compute(input: { readonly base: string; readonly headSha: string }): Promise<string>;
 }
 

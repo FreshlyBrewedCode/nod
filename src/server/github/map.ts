@@ -591,7 +591,8 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
   if (state === "closed" && closedAt !== null) journey.push(event("closed", "Closed", closedAt));
   journey.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
 
-  const last = journey[journey.length - 1]!;
+  // A verifier re-run is not news for the chronological view; what made it run is.
+  const last = journey.filter((e) => e.kind !== "classified").at(-1) ?? journey.at(-1)!;
   const lastActivity = { at: last.at ?? openedAt, text: activityText(last, mine) };
 
   // -- links ------------------------------------------------------------------

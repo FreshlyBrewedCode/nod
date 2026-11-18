@@ -67,8 +67,8 @@ export class GitHubApi {
   private readonly now: () => number;
   /** The GraphQL budget after the last query that asked for `rateLimit`. */
   budget: Budget | null = null;
-  /** GraphQL queries and REST calls sent, for the findings' "cost per poll". */
-  calls = { graphql: 0, rest: 0 };
+  /** GraphQL queries and REST calls sent, and the GraphQL points spent (`NOD_DEBUG=1`). */
+  calls = { graphql: 0, rest: 0, cost: 0 };
 
   constructor(private readonly options: GitHubApiOptions) {
     this.doFetch = options.fetch ?? fetch;
@@ -95,6 +95,7 @@ export class GitHubApi {
         this.scrub(errors.map((e) => e.message ?? "GraphQL error").join("; ") || "no data"),
       );
     const rl = json.data.rateLimit;
+    if (rl) this.calls.cost += rl.cost;
     if (rl)
       this.budget = {
         cost: rl.cost,

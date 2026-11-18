@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { GitHubApi, GitHubApiError, RateLimited } from "./api";
 
-const TOKEN = "ghp_secretsecretsecret";
+const TOKEN = "fake-token-for-tests-only";
 
 function api(answer: (url: string, init: RequestInit) => Response, now = 1_000_000) {
   const seen: Array<{ url: string; init: RequestInit }> = [];
@@ -39,7 +39,7 @@ test("GraphQL: the token rides in the header only, and the budget is kept", asyn
     limit: 5000,
     resetAt: Date.parse("2026-11-18T13:00:00Z"),
   });
-  expect(gh.calls).toEqual({ graphql: 1, rest: 0 });
+  expect(gh.calls).toEqual({ graphql: 1, rest: 0, cost: 3 });
 });
 
 test("errors never carry the token", async () => {

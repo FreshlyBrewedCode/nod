@@ -108,6 +108,8 @@ export interface GitHubSourceOptions {
   /** Opens the setup PR (`nod init`); resolves to its URL. */
   readonly openSetupPr?: (input: { login: string; publicKey: string }) => Promise<string>;
   readonly log?: (line: string) => void;
+  /** Log one line per poll: queries, REST calls, GraphQL cost, time (`NOD_DEBUG=1`). */
+  readonly debug?: boolean;
 }
 
 export class GitHubSource implements Source {
@@ -469,8 +471,15 @@ export class GitHubSource implements Source {
     this.timer = null;
     const run = (async () => {
       let delay: number;
+      const started = { at: Date.now(), ...this.api!.calls };
       try {
         await this.read();
+        if (this.options.debug) {
+          const { graphql, rest, cost } = this.api!.calls;
+          this.log(
+            `nod serve: poll: ${graphql - started.graphql} GraphQL (cost ${cost - started.cost}, ${this.api!.budget?.remaining ?? "?"} left), ${rest - started.rest} REST, ${Date.now() - started.at} ms, ${this.open.length} open`,
+          );
+        }
         this.failures = 0;
         this.sync = { at: this.clock.now(), error: null };
         delay = this.clock.now() < this.fastUntil ? this.fastMs : this.pollMs;
@@ -893,6 +902,7 @@ export function githubSource(setup: GithubSourceSetup): GitHubSource {
     ...(setup.myKey && { myKey: setup.myKey }),
     ...(setup.pollMs !== undefined && { pollMs: setup.pollMs }),
     identity: gitIdentity(clone.dir),
+    debug: process.env.NOD_DEBUG === "1",
     openSetupPr: ({ login, publicKey }) =>
       openSetupPrWithInit({
         dir: clone.dir,
