@@ -84,6 +84,13 @@ test("the checklist: unknown before the first read, missing, pending in the setu
     state: "missing",
     note: "run nod init --ruleset",
   });
+  // a private repo on GitHub Free: no rulesets on this plan, said plainly
+  const free = setupStatusOf({ ...base, files: all, requiresNod: null, rulesRefused: true });
+  expect(free.checks.find((c) => c.id === "required-check")).toMatchObject({
+    state: "missing",
+    note: "needs a paid plan",
+    detail: expect.stringContaining("GitHub Pro, Team or Enterprise"),
+  });
 });
 
 test("the enrolment PR's brief names the fingerprint and why a teammate must nod", () => {

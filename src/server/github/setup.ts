@@ -27,6 +27,11 @@ export interface SetupFacts {
   } | null;
   /** An active rule on the default branch requires the `nod` check; null: unknown. */
   readonly requiresNod: boolean | null;
+  /**
+   * GitHub refused to read the rules because the plan has none (a private
+   * repo on GitHub Free): the required check cannot be turned on there.
+   */
+  readonly rulesRefused?: boolean;
   readonly autoMerge: boolean | null;
   readonly setupPr: PrLink | null;
 }
@@ -50,20 +55,29 @@ export function setupStatusOf(f: SetupFacts): SetupStatus {
     file("verifier", "Verifier", ".nod/verify.ts", files?.verifier),
     file("workflow", "Verifier workflow", ".github/workflows/nod.yml", files?.workflow),
     file("allowed-signers", "Allowed signers", SIGNERS_PATH, files?.signers),
-    {
-      id: "required-check",
-      label: `Required check on ${branch}`,
-      detail: "a ruleset requires the nod check (required approvals 0)",
-      state: f.requiresNod === null ? "unknown" : f.requiresNod ? "ok" : "missing",
-      note:
-        f.requiresNod === null
-          ? null
-          : f.requiresNod
-            ? null
-            : ready
-              ? "run nod init --ruleset"
-              : "after merge",
-    },
+    f.rulesRefused
+      ? {
+          id: "required-check",
+          label: `Required check on ${branch}`,
+          detail:
+            "rulesets on private repositories need GitHub Pro, Team or Enterprise; this plan has none",
+          state: "missing",
+          note: "needs a paid plan",
+        }
+      : {
+          id: "required-check",
+          label: `Required check on ${branch}`,
+          detail: "a ruleset requires the nod check (required approvals 0)",
+          state: f.requiresNod === null ? "unknown" : f.requiresNod ? "ok" : "missing",
+          note:
+            f.requiresNod === null
+              ? null
+              : f.requiresNod
+                ? null
+                : ready
+                  ? "run nod init --ruleset"
+                  : "after merge",
+        },
     {
       id: "auto-merge",
       label: "Auto-merge allowed",

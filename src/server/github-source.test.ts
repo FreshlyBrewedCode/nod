@@ -502,6 +502,20 @@ describe("setup and enrolment", () => {
     expect(t.gh.rests().map((c) => c.path)).toContain(`/repos/${REPO}/rules/branches/main`);
   });
 
+  test("a plan without rulesets (private repo on Free): the required check says so", async () => {
+    const t = setup();
+    t.gh.rulesError = {
+      status: 403,
+      message: "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+    };
+    t.source.start();
+    const status = await t.source.setup();
+    expect(status.checks.find((c) => c.id === "required-check")).toMatchObject({
+      state: "missing",
+      note: "needs a paid plan",
+    });
+  });
+
   test("not set up, with the setup PR open: pending in that PR; the ruleset after the merge", async () => {
     const t = setup({ withTeam: false });
     t.gh.files = { policy: false, verifier: false, workflow: false };

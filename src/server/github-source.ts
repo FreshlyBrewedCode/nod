@@ -60,6 +60,7 @@ import {
   setupStatusOf,
 } from "./github/setup";
 import { openSetupPrWithInit } from "./github/setup-pr";
+import { isPlanRefusal } from "../init/ruleset.ts";
 import { publicKeyId } from "./signer/ssh-wire";
 import {
   SourceError,
@@ -144,6 +145,7 @@ export class GitHubSource implements Source {
   private unclassified: UnclassifiedPr[] = [];
   private sync: SyncStatus = { at: null, error: null };
   private requiresNod: boolean | null = null;
+  private rulesRefused = false;
   private rulesAt = -Infinity;
   private rulesRead: Promise<void> | null = null;
   private setupPrLink: PrLink | null = null;
@@ -750,6 +752,7 @@ export class GitHubSource implements Source {
           }
         : null,
       requiresNod: this.requiresNod,
+      rulesRefused: this.rulesRefused,
       autoMerge: info ? info.autoMergeAllowed : null,
       setupPr,
     });
@@ -764,8 +767,15 @@ export class GitHubSource implements Source {
     this.rulesRead = (async () => {
       try {
         this.requiresNod = await requiresNodCheck(api, this.repo(), branch);
+        this.rulesRefused = false;
         this.rulesAt = this.clock.now();
       } catch (error) {
+        // The plan has no rulesets (a private repo on Free): say so, read again later.
+        if (error instanceof GitHubApiError && isPlanRefusal(error.message)) {
+          this.rulesRefused = true;
+          this.rulesAt = this.clock.now();
+          return;
+        }
         // Unknown, not missing; tried again in a minute.
         this.rulesAt = this.clock.now() - 9 * MINUTE;
         if (!(error instanceof GitHubApiError))
