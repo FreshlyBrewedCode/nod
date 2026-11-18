@@ -11,6 +11,9 @@ nod
   2. **web app** (`src/web/`): Vite/React SPA, hosted UI later, Vite dev server locally
 - `src/shared/protocol.ts` is the wire contract of both halves; `src/kit/` is the pure helper
   kit the repo-owned verifier imports as `@frebreco/nod/kit`
+- kit: zero dependencies; nod format, patch-id and file list via `git`, SSHSIG via `ssh-keygen`
+  (argument arrays, never a shell), classifiers, policy, check summary, sticky comment, REST helpers;
+  everything exported has a doc comment; tests use real `git`/`ssh-keygen` in temp dirs, never `~/.ssh`
 
 - stack (sibling: `../canvas`)
   - bun, TypeScript, React 19, Vite, tailwind v4, shadcn-style primitives; design system in
