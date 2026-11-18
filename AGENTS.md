@@ -32,6 +32,13 @@ nod
     (`signer.ts`), `view.ts` turns a source's `PrFacts` into the user-relative view model;
     `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
     renders; the web app talks only through `useConnection` (`src/web/hooks/`)
+  - web app: `app.tsx` gates on the connection (calm full pages) and mounts
+    `components/dashboard.tsx` (list state, keyboard, resizable panel); rows in
+    `pr-row.tsx`, panel in `detail-panel.tsx`; pure helpers with tests in `src/web/lib/`
+    (route, focus, selection, panel width, time, diff bar, wording); theme tokens (the r3
+    palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). Every way to sign
+    calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`, the batch dialog's seam);
+    the board is a placeholder in `dashboard.tsx`. Screenshots of it: `docs/design/r3/impl/`
   - browser checks: `env -u LD_LIBRARY_PATH playwright-cli open --config=<json>` with a config
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)
