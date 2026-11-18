@@ -12,6 +12,8 @@ export const STORAGE_KEYS = {
   opened: "nod.opened",
   legend: "nod.legend",
   lastVisit: "nod.lastVisit",
+  /** The board's group-by: "wait" or "state". */
+  board: "nod.board",
 } as const;
 
 export function browserStorage(): KeyValue | null {

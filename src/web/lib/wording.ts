@@ -139,6 +139,45 @@ export function thenText(ask: Ask, people: People): string {
     : `Then it still waits on ${namesOf(ask.then.on, people)}.`;
 }
 
+export interface Pip {
+  /** The signer's initial, "+1" for a peer slot, "!" when the content changed since. */
+  readonly label: string;
+  /** `ok` signed · `stale` signed before the change · `me` mine to fill · `open` someone else's. */
+  readonly tone: "ok" | "stale" | "me" | "open";
+  readonly title: string;
+}
+
+/**
+ * The board card's signature pips (r2/r3): one per slot of the requirement,
+ * filled when signed, an amber ring for the slot that waits on me.
+ */
+export function signaturePips(
+  pr: Pick<PrView, "requirement" | "signatures" | "needsMe">,
+  me: string,
+  people: People,
+): ReadonlyArray<Pip> {
+  return pr.requirement.slots.map((slot) => {
+    const signer = slot.signature === null ? null : (pr.signatures[slot.signature]?.by ?? null);
+    const who = slot.who ?? signer;
+    const initial = who ? initialOf(who, people) : "+1";
+    const mineToFill =
+      pr.needsMe &&
+      slot.state !== "ok" &&
+      (slot.who === null ? !slot.except || !sameLogin(slot.except, me) : sameLogin(slot.who, me));
+    const tone =
+      slot.state === "ok" ? "ok" : slot.state === "stale" ? "stale" : mineToFill ? "me" : "open";
+    const state =
+      tone === "ok"
+        ? "signed"
+        : tone === "stale"
+          ? "signed before the content changed"
+          : tone === "me"
+            ? "waits on you"
+            : "missing";
+    return { label: tone === "stale" ? "!" : initial, tone, title: `${slot.label}: ${state}` };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // the panel's folded sections
 

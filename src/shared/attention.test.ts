@@ -16,6 +16,8 @@ import {
   oldestWaitingSince,
   selectable,
   startOfDay,
+  stateBoardView,
+  stateOf,
   tier,
   type Item,
 } from "./attention";
@@ -184,15 +186,16 @@ describe("the mockup's data", () => {
     const columns = boardView(snapshot.prs, { me: snapshot.me, people: snapshot.people });
     expect(columns.map((c) => [c.title, c.count])).toEqual([
       ["You", 6],
-      ["Ines", 1],
+      // Jonas first: #492 waits on him, and #485 after me (r3 `09`)
       ["Jonas", 1],
+      ["Ines", 1],
       ["Agents & CI", 4],
       ["Merged", 6],
     ]);
     expect(show(columns[0]!.items)).toEqual(["476/1", "485/1", "482/1", "490/2", "488/2", "491/2"]);
     // #485 waits on me first, then on Jonas: "also #485, after you"
-    expect(columns[2]!.also).toEqual([485]);
-    expect(show(columns[2]!.items)).toEqual(["492/4"]);
+    expect(columns[1]!.also).toEqual([485]);
+    expect(show(columns[1]!.items)).toEqual(["492/4"]);
     expect(show(columns[3]!.items)).toEqual([
       "478/3",
       "493/3",
@@ -203,6 +206,40 @@ describe("the mockup's data", () => {
       "480/3",
       "[4 low-risk changes · 2 deps · 1 tier 1 · 1 docs]",
     ]);
+  });
+});
+
+describe("the board by state", () => {
+  test("the mockup's team in the four State columns (r2 `05`)", () => {
+    const snapshot = mockup();
+    const columns = stateBoardView(snapshot.prs);
+    expect(columns.map((c) => [c.title, c.count, c.mine])).toEqual([
+      ["Checks running", 2, 0],
+      ["Needs a signature", 8, 6],
+      ["Signed · merging", 2, 0],
+      ["Merged", 6, 0],
+    ]);
+    expect(show(columns[1]!.items).slice(0, 3)).toEqual(["476/1", "485/1", "482/1"]);
+  });
+
+  test("a missing signature wins over running checks; drafts are with the agent", () => {
+    const open = { policy: "p", label: "Peer", slots: [], satisfied: false };
+    const pending = { state: "pending", passed: 0, total: 1, failing: [] } as const;
+    const slot = {
+      role: "peer",
+      label: "Peer",
+      who: null,
+      except: null,
+      state: "ok",
+      signature: 0,
+    } as const;
+    expect(stateOf(pr({ number: 1, requirement: open, checks: pending }))).toBe("signature");
+    expect(stateOf(pr({ number: 2, checks: pending }))).toBe("checks");
+    const signed = { policy: "p", label: "Peer", slots: [slot], satisfied: true };
+    expect(stateOf(pr({ number: 6, requirement: signed, checks: pending }))).toBe("merging");
+    expect(stateOf(pr({ number: 3, state: "draft" }))).toBe("checks");
+    expect(stateOf(pr({ number: 4 }))).toBe("merging");
+    expect(stateOf(pr({ number: 5, state: "closed" }))).toBe("done");
   });
 });
 

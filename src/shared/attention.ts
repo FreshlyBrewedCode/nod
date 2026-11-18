@@ -345,8 +345,9 @@ export function shortName(login: Login, people: ReadonlyArray<Person> = []): str
 }
 
 /**
- * Columns: You (always), one per teammate something waits on (the most PRs
- * first), Any teammate (when some PR needs a peer I cannot be), Agents & CI
+ * Columns: You (always), one per teammate something waits on (the busiest
+ * first: their own PRs plus the ones that wait on them later, as in r3),
+ * Any teammate (when some PR needs a peer I cannot be), Agents & CI
  * (always), Merged (always). In a column: cards by `compareAttention`, the
  * folded ones as one cluster at the end (merged ones newest first).
  */
@@ -380,8 +381,8 @@ export function boardView(
   }
 
   const rank: Record<ColumnKind, number> = { me: 0, person: 1, anyone: 2, automation: 3, done: 4 };
-  const order = (g: { kind: ColumnKind; prs: PrView[] }) =>
-    rank[g.kind] * 1e6 - (g.kind === "person" ? g.prs.length : 0);
+  const order = (g: { kind: ColumnKind; prs: PrView[]; also: number[] }) =>
+    rank[g.kind] * 1e6 - (g.kind === "person" ? g.prs.length + g.also.length : 0);
   const title = (kind: ColumnKind, login: Login | null) =>
     kind === "me"
       ? "You"
@@ -395,28 +396,85 @@ export function boardView(
 
   return [...groups]
     .sort(([ia, a], [ib, b]) => order(a) - order(b) || ia.localeCompare(ib))
-    .map(([id, g]): Column => {
-      const done = g.kind === "done";
-      const cards = g.prs
-        .filter((p) => tier(p) < 4)
-        .sort(done ? compareActivity : compareAttention)
-        .map(item);
-      return {
-        id,
-        kind: g.kind,
-        title: title(g.kind, g.login),
-        login: g.login,
-        count: g.prs.length,
-        items: [
-          ...cards,
-          ...folded(
-            `column:${id}`,
-            g.prs.filter((p) => tier(p) === 4),
-          ),
-        ],
-        also: g.also,
-      };
-    });
+    .map(([id, g]): Column => ({
+      id,
+      kind: g.kind,
+      title: title(g.kind, g.login),
+      login: g.login,
+      count: g.prs.length,
+      items: columnItems(id, g.prs, g.kind === "done"),
+      also: g.also,
+    }));
+}
+
+/** A column's cards by attention (or newest first), its folded PRs as one cluster at the end. */
+function columnItems(id: string, prs: ReadonlyArray<PrView>, byActivity: boolean): Item[] {
+  const cards = prs
+    .filter((p) => tier(p) < 4)
+    .sort(byActivity ? compareActivity : compareAttention)
+    .map(item);
+  return [
+    ...cards,
+    ...folded(
+      `column:${id}`,
+      prs.filter((p) => tier(p) === 4),
+    ),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// the board, grouped by state (r2 `05`)
+
+export type StateColumnId = "checks" | "signature" | "merging" | "done";
+
+export const STATE_TITLES: Readonly<Record<StateColumnId, string>> = {
+  checks: "Checks running",
+  signature: "Needs a signature",
+  merging: "Signed · merging",
+  done: "Merged",
+};
+
+/**
+ * Where a PR stands, as the board's State columns (r2 `05`): merged or
+ * closed; a signature still missing; with the agent or CI (a failing check,
+ * a draft, or running checks on a PR that needs no human); else signed, or
+ * needing nobody, and merging once its checks are done.
+ */
+export function stateOf(
+  p: Pick<PrView, "state" | "requirement" | "checks" | "needsMe">,
+): StateColumnId {
+  if (p.state === "merged" || p.state === "closed") return "done";
+  if (p.needsMe || !p.requirement.satisfied) return "signature";
+  if (p.state === "draft" || p.checks.state === "failing") return "checks";
+  if (p.checks.state === "pending" && p.requirement.slots.length === 0) return "checks";
+  return "merging";
+}
+
+export interface StateColumn {
+  readonly id: StateColumnId;
+  readonly title: string;
+  readonly count: number;
+  /** In "Needs a signature": how many of them wait on me. */
+  readonly mine: number;
+  readonly items: ReadonlyArray<Item>;
+}
+
+/**
+ * The board grouped by State: Checks running → Needs a signature → Signed ·
+ * merging → Merged, always all four. Inside a column the same cards and
+ * cluster as the Waiting-on board.
+ */
+export function stateBoardView(prs: ReadonlyArray<PrView>): ReadonlyArray<StateColumn> {
+  return (Object.keys(STATE_TITLES) as StateColumnId[]).map((id) => {
+    const inColumn = prs.filter((p) => stateOf(p) === id);
+    return {
+      id,
+      title: STATE_TITLES[id],
+      count: inColumn.length,
+      mine: inColumn.filter((p) => p.needsMe).length,
+      items: columnItems(`state:${id}`, inColumn, id === "done"),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

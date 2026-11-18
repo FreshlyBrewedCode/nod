@@ -3,12 +3,9 @@
  * the shortcuts, the signing lock chip with its countdown, and me.
  */
 
-import { Lock, LockOpen } from "lucide-react";
 import type * as React from "react";
 
-import type { Person, SignerState } from "../../shared/protocol";
-import { SECOND, useNow } from "@/hooks/use-clock";
-import { countdown } from "@/lib/time";
+import type { Person } from "../../shared/protocol";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./bits";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -40,7 +37,7 @@ export function Segmented<T extends string>({
   label,
 }: {
   value: T | null;
-  options: ReadonlyArray<{ value: T; label: string; title?: string }>;
+  options: ReadonlyArray<{ value: T; label: string; title?: string; disabled?: boolean }>;
   onChange: (value: T) => void;
   label: string;
 }) {
@@ -56,13 +53,16 @@ export function Segmented<T extends string>({
           type="button"
           role="tab"
           aria-selected={o.value === value}
+          aria-disabled={o.disabled || undefined}
           title={o.title}
-          onClick={() => onChange(o.value)}
+          onClick={() => !o.disabled && onChange(o.value)}
           className={cn(
             "rounded-md px-3 py-[3px] text-[13px]",
             o.value === value
               ? "bg-bg text-tx font-semibold shadow-[0_0_0_1px_var(--line2)]"
-              : "text-tx2 hover:text-tx",
+              : o.disabled
+                ? "text-tx2 cursor-default"
+                : "text-tx2 hover:text-tx",
           )}
         >
           {o.label}
@@ -72,45 +72,9 @@ export function Segmented<T extends string>({
   );
 }
 
-export function LockChip({ signer, onLock }: { signer: SignerState | null; onLock: () => void }) {
-  const now = useNow(SECOND);
-  const base =
-    "border-line2 text-tx2 flex h-[30px] items-center gap-2 rounded-lg border px-2.5 text-[13px]";
-  if (signer?.state === "unlocked")
-    return (
-      <div
-        className={cn(base, "border-ok bg-ok-bg text-ok")}
-        title={signer.once ? "Unlocked for one batch" : "Signing locks on its own when this ends"}
-      >
-        <LockOpen className="size-3.5" />
-        <span>Unlocked</span>
-        <b className="font-mono font-medium tabular-nums">{countdown(signer.until, now)}</b>
-        <button
-          type="button"
-          onClick={onLock}
-          className="text-tx2 hover:text-tx border-line2 border-l pl-2"
-        >
-          Lock
-        </button>
-      </div>
-    );
-  if (signer?.state === "no-key")
-    return (
-      <div className={base} title="No signing key yet">
-        <Lock className="size-3.5" />
-        <span>No key</span>
-      </div>
-    );
-  return (
-    <div className={base} title="Signing is locked. You unlock it when you sign.">
-      <Lock className="size-3.5" />
-      <span>Locked</span>
-    </div>
-  );
-}
-
 const SHORTCUTS: ReadonlyArray<readonly [string[], string]> = [
-  [["j", "k"], "next / previous row (or ↓ ↑)"],
+  [["j", "k"], "next / previous row or card (or ↓ ↑)"],
+  [["h", "l"], "board: previous / next column (or ← →)"],
   [["↵"], "open details; open or close a cluster"],
   [["esc"], "close details, then clear the selection"],
   [["x"], "select for signing"],

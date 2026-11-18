@@ -1,16 +1,72 @@
 /**
- * THE SEAM for the batch dialog (the next task). Every way to sign goes
- * through one function, `openBatch(prNumbers)`: the selection bar's "Review
- * & sign", `s`, the row's ask, the panel's "Sign". For now it opens a
- * placeholder that lists what would be signed; the real dialog (review,
- * unlock in place, signed) replaces `BatchPlaceholder` and keeps the API.
+ * The batch dialog (concept decision 14; r2 `11`–`14`, unchanged in r3).
+ * Every way to sign goes through one function, `openBatch(prNumbers)`: the
+ * selection bar's "Review & sign", `s`, the row's ask, the panel's "Sign",
+ * the board's "Sign…". One surface from review to signed:
+ *
+ * - review: one sentence, rows grouped by my role with the outcome per PR,
+ *   "not opened" marks, a row can be taken out; the exact heads and
+ *   patch-ids behind "Show exactly what is signed";
+ * - unlock, in place, when the key is locked (never a second dialog);
+ * - signed: what happens now per PR; or nothing signed (stale: what moved,
+ *   "Review again"); posting failures per PR, with a retry.
+ *
+ * The steps are the pure state machine in `lib/batch.ts`.
  */
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { Lock } from "lucide-react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
-import type { PrView } from "../../shared/protocol";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
+import type { PrView, SignerState, Snapshot } from "../../shared/protocol";
+import { SECOND, useNow } from "@/hooks/use-clock";
+import type { Actions } from "@/hooks/use-connection";
+import {
+  INITIAL_BATCH,
+  batchReducer,
+  batchRows,
+  countWord,
+  entriesOf,
+  groupByRole,
+  openModel,
+  outcomeOf,
+  outcomeSentence,
+  readiness,
+  reviewAgain,
+  staleText,
+  summarySentence,
+  toggleRow,
+  type BatchEvent,
+  type BatchRow,
+  type BatchState,
+  type Outcome,
+} from "@/lib/batch";
+import { STORAGE_KEYS, browserStorage, readJson, readOpened } from "@/lib/storage";
+import { countdown } from "@/lib/time";
+import { cn } from "@/lib/utils";
+import { whoOf, type People } from "@/lib/wording";
+import { Avatar, Kbd, RiskBars } from "./bits";
+import { DiffIndicator } from "./diff-indicator";
+import {
+  PassphraseField,
+  StayUnlocked,
+  cannotSignText,
+  failureOf,
+  takePassphrase,
+  unlockErrorText,
+} from "./unlock";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 
 export interface Batch {
   /** Open the batch dialog for these PRs (one or many). */
@@ -20,21 +76,35 @@ export interface Batch {
 const BatchContext = createContext<Batch | null>(null);
 
 export function BatchProvider({
-  prs,
+  snapshot,
+  signer,
+  actions,
   children,
 }: {
-  prs: ReadonlyArray<PrView>;
+  snapshot: Snapshot;
+  signer: SignerState | null;
+  actions: Actions;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState<ReadonlyArray<number> | null>(null);
+  // Each opening is a fresh dialog: its own model, steps and passphrase field.
+  const [open, setOpen] = useState<{ numbers: ReadonlyArray<number>; id: number } | null>(null);
   const openBatch = useCallback((prNumbers: ReadonlyArray<number>) => {
-    if (prNumbers.length) setOpen([...prNumbers]);
+    if (prNumbers.length) setOpen((o) => ({ numbers: [...prNumbers], id: (o?.id ?? 0) + 1 }));
   }, []);
   const value = useMemo(() => ({ openBatch }), [openBatch]);
   return (
     <BatchContext.Provider value={value}>
       {children}
-      <BatchPlaceholder numbers={open} prs={prs} onClose={() => setOpen(null)} />
+      {open && (
+        <BatchDialog
+          key={open.id}
+          numbers={open.numbers}
+          snapshot={snapshot}
+          signer={signer}
+          actions={actions}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </BatchContext.Provider>
   );
 }
@@ -45,46 +115,684 @@ export function useBatch(): Batch {
   return batch;
 }
 
-function BatchPlaceholder({
+// ---------------------------------------------------------------------------
+
+const BTN =
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-semibold disabled:opacity-50";
+const GHOST = cn(
+  BTN,
+  "text-tx2 hover:text-tx h-[42px] border-transparent px-4 text-[14px] font-medium",
+);
+const PRIMARY = cn(BTN, "bg-need border-need text-on-need h-[42px] px-5 text-[14px]");
+const KBD_ON_NEED = "border-[#0003] bg-[#0002] text-on-need";
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function BatchDialog({
   numbers,
-  prs,
+  snapshot,
+  signer,
+  actions,
   onClose,
 }: {
-  numbers: ReadonlyArray<number> | null;
-  prs: ReadonlyArray<PrView>;
+  numbers: ReadonlyArray<number>;
+  snapshot: Snapshot;
+  signer: SignerState | null;
+  actions: Actions;
   onClose: () => void;
 }) {
-  const rows = (numbers ?? []).map((n) => prs.find((p) => p.number === n)).filter(Boolean);
-  const count = numbers?.length ?? 0;
+  const { prs, people, repo } = snapshot;
+  const [model, setModel] = useState(() => openModel(prs, numbers));
+  // Which PRs were opened in the UI, as of now: the "not opened" mark.
+  const [opened] = useState(() => readOpened(readJson(browserStorage(), STORAGE_KEYS.opened)));
+  const [state, dispatch] = useReducer(batchReducer, INITIAL_BATCH);
+  const [details, setDetails] = useState(false);
+  const [once, setOnce] = useState(false);
+  const [filled, setFilled] = useState(false);
+  const passphrase = useRef<HTMLInputElement>(null);
+  const primary = useRef<HTMLButtonElement>(null);
+  // Each step starts on its primary button, so Enter does the obvious thing
+  // (the unlock step starts in the passphrase field instead).
+  useEffect(() => {
+    if (state.step !== "unlock") primary.current?.focus();
+  }, [state.step]);
+
+  const rows = useMemo(() => batchRows(model, prs, { opened, repo }), [model, prs, opened, repo]);
+  const included = rows.filter((r) => r.included);
+  const ready = readiness(signer);
+  const busy = state.step === "signing" || (state.step === "unlock" && state.busy);
+
+  const run = async (entries: Parameters<Actions["sign"]>[0]) => {
+    try {
+      dispatch({ t: "signed", result: await actions.sign(entries) });
+    } catch (error) {
+      const details = (error as { details?: Extract<BatchEvent, { t: "sign-failed" }>["details"] })
+        .details;
+      dispatch({ t: "sign-failed", failure: failureOf(error), ...(details && { details }) });
+    }
+  };
+
+  /** The primary button in review (and "Retry" after signing): sign, or unlock first. */
+  const sign = (event: Extract<BatchEvent, { t: "sign" }>) => {
+    const next = batchReducer(state, event);
+    dispatch(event);
+    if (next.step === "signing") void run(next.attempt.entries);
+  };
+  const signIncluded = () =>
+    sign({
+      t: "sign",
+      readiness: ready.state,
+      // In the order the dialog shows them: by role.
+      rows: groupByRole(rows, people)
+        .flatMap((g) => g.rows)
+        .filter((r) => r.included)
+        .map((r) => r.pr),
+      entries: entriesOf(rows),
+    });
+
+  const unlockAndSign = async () => {
+    if (state.step !== "unlock" || state.busy) return;
+    const secret = takePassphrase(passphrase);
+    setFilled(false);
+    if (!secret) return;
+    const { entries } = state.attempt;
+    dispatch({ t: "unlock" });
+    try {
+      await actions.unlock(secret, once ? { once: true } : {});
+    } catch (error) {
+      dispatch({ t: "unlock-failed", failure: failureOf(error) });
+      requestAnimationFrame(() => passphrase.current?.focus());
+      return;
+    }
+    dispatch({ t: "unlocked" });
+    await run(entries);
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    switch (state.step) {
+      case "review":
+        return signIncluded();
+      case "unlock":
+        return void unlockAndSign();
+      case "signed":
+        return onClose();
+      case "stale":
+        setModel((m) => reviewAgain(m, state.stale));
+        void actions.refresh().catch(() => {});
+        return dispatch({ t: "back" });
+      case "error":
+        return onClose();
+    }
+  };
+
   return (
-    <Dialog open={numbers !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent aria-describedby="batch-placeholder-note">
-        <div className="px-[30px] pt-[26px] pb-1.5">
-          <DialogTitle>
-            Sign {count} pull request{count === 1 ? "" : "s"}
-          </DialogTitle>
-          <DialogDescription id="batch-placeholder-note">
-            The batch dialog (review, unlock and sign in one place) comes next. Nothing is signed
-            here.
-          </DialogDescription>
-        </div>
-        <div className="overflow-auto px-[30px] pt-2.5 pb-2">
-          {rows.map((p) => (
-            <div
-              key={p!.number}
-              className="border-line grid grid-cols-[1fr_auto] items-center gap-3 border-t py-2.5"
-            >
-              <span className="truncate">{p!.title}</span>
-              <span className="text-tx3 font-mono text-xs">#{p!.number}</span>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-end gap-2.5 px-[30px] pt-[18px] pb-6">
-          <DialogClose className="border-line2 bg-panel2 text-tx h-8 rounded-lg border px-3.5 text-[13px] font-semibold">
-            Close
-          </DialogClose>
-        </div>
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent
+        aria-describedby="batch-summary"
+        className="max-h-[calc(100vh-48px)]"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          primary.current?.focus();
+        }}
+      >
+        <form onSubmit={onSubmit} className="flex min-h-0 flex-col">
+          {state.step === "signed" ? (
+            <Signed
+              state={state}
+              people={people}
+              signer={signer}
+              primary={primary}
+              onRetry={(failed) =>
+                sign({
+                  t: "sign",
+                  readiness: ready.state,
+                  rows: [],
+                  entries: failed.map((pr) => ({ pr, head_sha: model.heads[pr] ?? "" })),
+                })
+              }
+            />
+          ) : state.step === "stale" ? (
+            <Stale state={state} prs={prs} rows={rows} primary={primary} onCancel={onClose} />
+          ) : state.step === "error" ? (
+            <ErrorStep state={state} primary={primary} onBack={() => dispatch({ t: "back" })} />
+          ) : (
+            <Review
+              state={state}
+              rows={rows}
+              people={people}
+              repo={repo}
+              me={snapshot.me}
+              details={details}
+              onDetails={setDetails}
+              onToggle={(pr) => setModel((m) => toggleRow(m, pr))}
+            />
+          )}
+
+          {(state.step === "review" || state.step === "unlock" || state.step === "signing") && (
+            <>
+              {state.step === "unlock" && (
+                <div className="border-line2 bg-bg mx-[30px] mt-4 rounded-xl border p-[18px]">
+                  <label htmlFor="batch-passphrase" className="text-tx3 mb-2 block text-[12.5px]">
+                    Passphrase for your signing key
+                  </label>
+                  <PassphraseField
+                    id="batch-passphrase"
+                    inputRef={passphrase}
+                    error={state.error ? unlockErrorText(state.error) : null}
+                    disabled={state.busy}
+                    onFilled={setFilled}
+                  />
+                  <StayUnlocked once={once} onOnce={setOnce} />
+                </div>
+              )}
+              {state.step === "review" &&
+                ready.state !== "unlocked" &&
+                ready.state !== "locked" && (
+                  <p className="border-line2 bg-bg text-tx2 mx-[30px] mt-4 mb-0 rounded-xl border p-[18px] text-[13px] leading-[1.55]">
+                    {cannotSignText(ready)}
+                  </p>
+                )}
+              <ReviewFooter
+                state={state}
+                count={included.length}
+                ready={ready.state}
+                signer={signer}
+                filled={filled}
+                primary={primary}
+                onCancel={onClose}
+                onBack={() => dispatch({ t: "back" })}
+              />
+            </>
+          )}
+        </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// review (and unlock: the same rows, the field below)
+
+function Header({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex-none px-[30px] pt-[26px] pb-1.5">
+      <DialogTitle>{title}</DialogTitle>
+      <DialogDescription id="batch-summary" className="text-tx2 mt-1.5 mb-0 leading-[1.5]">
+        {children}
+      </DialogDescription>
+    </div>
+  );
+}
+
+function Review({
+  state,
+  rows,
+  people,
+  repo,
+  me,
+  details,
+  onDetails,
+  onToggle,
+}: {
+  state: BatchState;
+  rows: ReadonlyArray<BatchRow>;
+  people: People;
+  repo: string;
+  me: string;
+  details: boolean;
+  onDetails: (open: boolean) => void;
+  onToggle: (pr: number) => void;
+}) {
+  const included = rows.filter((r) => r.included);
+  const locked = state.step !== "review";
+  const groups = groupByRole(rows, people);
+  return (
+    <>
+      <Header title={`Sign ${plural(included.length, "pull request")}`}>
+        {summarySentence(rows)}{" "}
+        {outcomeSentence(
+          included.map((r) => r.pr),
+          people,
+          "before",
+        )}
+      </Header>
+      <div className="min-h-0 overflow-auto px-[30px] pt-2.5 pb-2">
+        {groups.map((g) => (
+          <section key={g.role ?? "none"} aria-label={g.title}>
+            <div className="text-tx3 mt-4 pb-1.5 text-[12.5px]">{g.title}</div>
+            {g.rows.map((r) => (
+              <ReviewRow
+                key={r.pr.number}
+                row={r}
+                people={people}
+                details={details && !locked}
+                disabled={locked}
+                onToggle={() => onToggle(r.pr.number)}
+              />
+            ))}
+          </section>
+        ))}
+        {state.step === "review" && (
+          <div className="text-tx3 mt-3.5 mb-1 text-[13px]">
+            <button
+              type="button"
+              aria-expanded={details}
+              onClick={() => onDetails(!details)}
+              className="hover:text-tx2 text-left"
+            >
+              {details ? "▾" : "▸"} Show exactly what is signed
+            </button>
+            {details && (
+              <div className="mt-2 leading-[1.55]">
+                <p className="m-0">
+                  One signature covers each head commit and patch-id shown above. A clean rebase
+                  keeps it valid; a content change does not.
+                </p>
+                <p className="text-tx2 m-0 mt-1.5 font-mono text-xs">
+                  {repo} · verdict approve · level review · reviewer {me}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function Dot({ tone }: { tone: Outcome["tone"] }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-[7px] flex-none rounded-full",
+        tone === "ok" ? "bg-ok" : tone === "wait" ? "bg-need" : "bg-line2",
+      )}
+    />
+  );
+}
+
+function Mark({ children, tone }: { children: ReactNode; tone: "need" | "bad" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-[18px] flex-none items-center rounded-[5px] px-1.5 text-[11.5px] whitespace-nowrap",
+        tone === "need" ? "bg-need-bg text-need" : "bg-bad-bg text-bad",
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function RowCheckbox({
+  checked,
+  disabled,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  label: string;
+  onChange: () => void;
+}) {
+  return (
+    <label
+      className="relative grid size-4 place-items-center"
+      title={checked ? "Take out of the batch" : "Put back"}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onChange={onChange}
+        className="peer border-line2 hover:border-tx3 checked:bg-need checked:border-need absolute inset-0 m-0 cursor-pointer appearance-none rounded-[5px] border-[1.5px] disabled:cursor-default"
+      />
+      <span className="pointer-events-none relative hidden h-1 w-2 translate-y-[-1px] -rotate-45 border-b-2 border-l-2 border-[#111] peer-checked:block" />
+    </label>
+  );
+}
+
+function ReviewRow({
+  row,
+  people,
+  details,
+  disabled,
+  onToggle,
+}: {
+  row: BatchRow;
+  people: People;
+  details: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const { pr } = row;
+  const outcome: Outcome = !row.included
+    ? {
+        text:
+          row.blocked === "no-ask"
+            ? "no longer needs you"
+            : row.blocked === "not-open"
+              ? `${pr.state} meanwhile`
+              : row.blocked === "no-patch-id"
+                ? "patch-id not known yet"
+                : "left out",
+        tone: "none",
+      }
+    : outcomeOf(pr, people);
+  const who = whoOf(pr, people);
+  return (
+    <div className="border-line grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-3 border-t py-2.5">
+      <RowCheckbox
+        checked={row.included}
+        disabled={disabled || row.blocked !== null}
+        label={row.included ? `Take #${pr.number} out of the batch` : `Put #${pr.number} back`}
+        onChange={onToggle}
+      />
+      <div className={cn("min-w-0", !row.included && "opacity-50")}>
+        <div className="truncate">{pr.title}</div>
+        <div className="text-tx3 mt-0.5 flex items-center gap-[7px] text-[12.5px]">
+          <Avatar login={pr.prompter} people={people} />
+          <span>{who === "you" ? "you" : who}</span>
+          <DiffIndicator inline added={pr.diff.added} removed={pr.diff.removed} />
+          <RiskBars risk={pr.risk} className={cn(pr.risk === 0 && "hidden")} />
+          {row.notOpened && row.included && (
+            <Mark tone="need">
+              <span title="You never opened its details here. Signing is still your call.">
+                not opened
+              </span>
+            </Mark>
+          )}
+          {row.moved && <Mark tone="bad">new commits since you looked</Mark>}
+          {row.changed && !row.moved && <Mark tone="need">changed: look again</Mark>}
+        </div>
+        {details && (
+          <div
+            className="text-tx3 mt-0.5 font-mono text-xs"
+            title={`head ${row.headSha}\npatch ${pr.patchId ?? "not known yet"}`}
+          >
+            #{pr.number} · {pr.base} · {row.headSha.slice(0, 7)} · patch{" "}
+            {pr.patchId?.slice(0, 8) ?? "–"}
+          </div>
+        )}
+      </div>
+      <span className="text-tx2 flex items-center gap-[7px] text-[13px] whitespace-nowrap">
+        <Dot tone={outcome.tone} />
+        {outcome.text}
+      </span>
+    </div>
+  );
+}
+
+function ReviewFooter({
+  state,
+  count,
+  ready,
+  signer,
+  filled,
+  primary,
+  onCancel,
+  onBack,
+}: {
+  state: BatchState;
+  count: number;
+  ready: ReturnType<typeof readiness>["state"];
+  signer: SignerState | null;
+  filled: boolean;
+  primary: RefObject<HTMLButtonElement | null>;
+  onCancel: () => void;
+  onBack: () => void;
+}) {
+  const now = useNow(SECOND);
+  const n = plural(count, "change");
+  const unlockStep = state.step === "unlock";
+  const signing = state.step === "signing" || (unlockStep && state.busy);
+  const note = unlockStep
+    ? "The key never leaves this machine."
+    : signer?.state === "unlocked" && ready === "unlocked"
+      ? `Signing is unlocked for ${countdown(signer.until, now)}.`
+      : null;
+  const label = signing
+    ? "Signing…"
+    : unlockStep || ready === "locked"
+      ? `Unlock and sign ${count}`
+      : `Sign ${n}`;
+  const canSign =
+    count > 0 && (unlockStep ? filled : ready === "unlocked" || ready === "locked") && !signing;
+  return (
+    <div className="flex flex-none items-center gap-2.5 px-[30px] pt-[18px] pb-6">
+      {note && <span className="text-tx3 text-[12.5px]">{note}</span>}
+      <span className="flex-1" />
+      <button
+        type="button"
+        className={GHOST}
+        onClick={unlockStep ? onBack : onCancel}
+        disabled={signing}
+      >
+        {unlockStep ? "Back" : "Cancel"}
+      </button>
+      <button ref={primary} type="submit" className={PRIMARY} disabled={!canSign}>
+        {!unlockStep && ready === "locked" && !signing && <Lock className="size-[15px]" />}
+        {label}
+        {!signing && <Kbd className={KBD_ON_NEED}>↵</Kbd>}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// signed
+
+function Signed({
+  state,
+  people,
+  signer,
+  primary,
+  onRetry,
+}: {
+  state: Extract<BatchState, { step: "signed" }>;
+  people: People;
+  signer: SignerState | null;
+  primary: RefObject<HTMLButtonElement | null>;
+  onRetry: (failed: ReadonlyArray<number>) => void;
+}) {
+  const now = useNow(SECOND);
+  const { shown, result } = state;
+  const posted = shown.filter((p) => result.posted.some((x) => x.pr === p.number));
+  const failed = result.failed;
+  const title =
+    failed.length === 0
+      ? `${plural(posted.length, "pull request")} signed`
+      : posted.length === 0
+        ? "Signed, but not posted yet"
+        : `${posted.length} of ${shown.length} pull requests posted`;
+  const note =
+    signer?.state === "unlocked"
+      ? `Signing stays unlocked for ${countdown(signer.until, now)}.`
+      : "Signing is locked again.";
+  return (
+    <>
+      <div className="flex-none px-[30px] pt-[26px] pb-1.5">
+        <div
+          className={cn(
+            "mb-3.5 grid size-11 place-items-center rounded-full text-[22px]",
+            failed.length ? "bg-need-bg text-need" : "bg-ok-bg text-ok",
+          )}
+          aria-hidden
+        >
+          {failed.length ? "!" : "✓"}
+        </div>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription id="batch-summary" className="text-tx2 mt-1.5 mb-0 leading-[1.5]">
+          {outcomeSentence(posted, people, "after")}
+          {failed.length > 0 &&
+            ` The signature is valid; posting the comment failed on ${plural(failed.length, "pull request")}.`}
+        </DialogDescription>
+      </div>
+      <div className="min-h-0 overflow-auto px-[30px] pt-2.5 pb-2">
+        {shown.map((pr) => {
+          const fail = failed.find((f) => f.pr === pr.number);
+          const url = result.posted.find((x) => x.pr === pr.number)?.url;
+          const outcome = outcomeOf(pr, people, "after");
+          return (
+            <div
+              key={pr.number}
+              className="border-line grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-3 border-t py-2.5"
+            >
+              <span className={cn("font-bold", fail ? "text-bad" : "text-ok")} aria-hidden>
+                {fail ? "✕" : "✓"}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate">{pr.title}</div>
+                {fail && <div className="text-bad mt-0.5 text-[12.5px]">{fail.message}</div>}
+              </div>
+              {fail ? (
+                <span className="text-tx3 text-[13px] whitespace-nowrap">not posted</span>
+              ) : (
+                <a
+                  href={url || pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-tx2 hover:text-tx flex items-center gap-[7px] text-[13px] whitespace-nowrap"
+                  title="The nod comment on GitHub"
+                >
+                  <Dot tone={outcome.tone} />
+                  {outcome.text}
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-none items-center gap-2.5 px-[30px] pt-[18px] pb-6">
+        <span className="text-tx3 text-[12.5px]">{note}</span>
+        <span className="flex-1" />
+        {failed.length > 0 && (
+          <button type="button" className={GHOST} onClick={() => onRetry(failed.map((f) => f.pr))}>
+            Retry {plural(failed.length, "post")}
+          </button>
+        )}
+        <button ref={primary} type="submit" className={PRIMARY}>
+          Done <Kbd className={KBD_ON_NEED}>↵</Kbd>
+        </button>
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// stale: nothing was signed
+
+function Stale({
+  state,
+  prs,
+  rows,
+  primary,
+  onCancel,
+}: {
+  state: Extract<BatchState, { step: "stale" }>;
+  prs: ReadonlyArray<PrView>;
+  rows: ReadonlyArray<BatchRow>;
+  primary: RefObject<HTMLButtonElement | null>;
+  onCancel: () => void;
+}) {
+  const { stale } = state;
+  const unchanged = rows.filter((r) => r.included && !stale.some((s) => s.pr === r.pr.number));
+  return (
+    <>
+      <Header title="Nothing was signed">
+        {stale.length === 1
+          ? "One pull request"
+          : `${capital(countWord(stale.length))} pull requests`}{" "}
+        changed since you looked. A nod covers exactly the commits you saw, so look at{" "}
+        {stale.length === 1 ? "it" : "them"} again, then sign.
+      </Header>
+      <div className="min-h-0 overflow-auto px-[30px] pt-2.5 pb-2">
+        <div className="text-tx3 mt-4 pb-1.5 text-[12.5px]">Changed since you looked</div>
+        {stale.map((s) => {
+          const pr = prs.find((p) => p.number === s.pr) ?? null;
+          return (
+            <div
+              key={s.pr}
+              className="border-line grid grid-cols-[20px_minmax(0,1fr)] items-center gap-3 border-t py-2.5"
+            >
+              <span className="text-need font-bold" aria-hidden>
+                !
+              </span>
+              <div className="min-w-0">
+                <div className="truncate">{pr?.title ?? `#${s.pr}`}</div>
+                <div className="text-tx3 mt-0.5 text-[12.5px]">
+                  #{s.pr} · <span className="font-mono text-xs">{staleText(s, pr)}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        {unchanged.length > 0 && (
+          <p className="text-tx3 mt-3 mb-0 text-[12.5px]">
+            The other {plural(unchanged.length, "pull request")} did not change and{" "}
+            {unchanged.length === 1 ? "stays" : "stay"} in the batch as{" "}
+            {unchanged.length === 1 ? "it was" : "they were"}.
+          </p>
+        )}
+      </div>
+      <div className="flex flex-none items-center gap-2.5 px-[30px] pt-[18px] pb-6">
+        <span className="flex-1" />
+        <button type="button" className={GHOST} onClick={onCancel}>
+          Cancel
+        </button>
+        <button ref={primary} type="submit" className={PRIMARY}>
+          Review again <Kbd className={KBD_ON_NEED}>↵</Kbd>
+        </button>
+      </div>
+    </>
+  );
+}
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// ---------------------------------------------------------------------------
+// error: nothing was signed, and why
+
+function ErrorStep({
+  state,
+  primary,
+  onBack,
+}: {
+  state: Extract<BatchState, { step: "error" }>;
+  primary: RefObject<HTMLButtonElement | null>;
+  onBack: () => void;
+}) {
+  const { failure } = state;
+  const explained =
+    failure.code === "bad-key-file"
+      ? cannotSignText({ state: "bad-key-file" })
+      : failure.code === "no-key"
+        ? cannotSignText({ state: "no-key" })
+        : null;
+  return (
+    <>
+      <Header
+        title={
+          failure.code === "bad-key-file" ? "The key cannot be unlocked" : "Nothing was signed"
+        }
+      >
+        {explained ?? failure.message}
+      </Header>
+      <div className="flex flex-none items-center gap-2.5 px-[30px] pt-[18px] pb-6">
+        <span className="flex-1" />
+        {!explained && (
+          <button type="button" className={GHOST} onClick={onBack}>
+            Back to the batch
+          </button>
+        )}
+        <button ref={primary} type="submit" className={PRIMARY}>
+          Close <Kbd className={KBD_ON_NEED}>↵</Kbd>
+        </button>
+      </div>
+    </>
   );
 }
