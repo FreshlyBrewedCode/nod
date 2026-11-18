@@ -12,7 +12,7 @@ Status: early prototype. See [`docs/concept.md`](docs/concept.md).
 bun install
 bun run check   # format, lint, typecheck, test
 bun run dev     # web app on http://localhost:4517
-bun run serve   # local server (not implemented yet)
+bun run serve   # local server on :4518, run inside a clone of the repo (--fake: demo data)
 ```
 
 `nix develop` gives a shell with the pinned Bun and browser-automation libraries.

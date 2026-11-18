@@ -26,6 +26,10 @@ export interface StartOptions {
   /** Serve the fake data set instead of GitHub. */
   readonly fake?: { readonly scenario: FakeScenario; readonly live: boolean } | null;
   readonly repo?: string | null;
+  /** The clone the GitHub source reads patch-ids from (default: the current folder). */
+  readonly dir?: string;
+  /** How often the GitHub source polls (default 60 s). */
+  readonly pollMs?: number;
   readonly clock?: Clock;
   /** The signing key file (default `$XDG_CONFIG_HOME/nod/signing-key.json`); not with `fake`. */
   readonly keyFile?: string;
@@ -49,7 +53,7 @@ export function start(options: StartOptions): Started {
   const signer: Signer = fake
     ? new FakeSigner(clock, { hasKey: scenarioHasKey(fake.scenario) })
     : new KeyFileSigner({ clock, file: options.keyFile ?? defaultKeyFile() });
-  // The real source fails with "not implemented yet" for now.
+  // A folder that is not a clone of the repo fails here, before the socket opens.
   const source: Source = fake
     ? new FakeSource({
         clock,
@@ -57,7 +61,17 @@ export function start(options: StartOptions): Started {
         live: fake.live,
         ...(options.repo && { repo: options.repo }),
       })
-    : githubSource({ clock, repo: options.repo ?? null });
+    : githubSource({
+        clock,
+        repo: options.repo ?? null,
+        ...(options.dir !== undefined && { dir: options.dir }),
+        ...(options.pollMs !== undefined && { pollMs: options.pollMs }),
+        ...(options.version && { version: options.version }),
+        myKey: () => {
+          const status = signer.status();
+          return status.state === "no-key" ? null : status.key.publicKey;
+        },
+      });
   const version = isRelease(options.version) ? options.version : null;
   const session = new Session({ source, signer, clock, version, fake: fake !== null });
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });

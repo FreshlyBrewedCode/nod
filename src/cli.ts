@@ -24,6 +24,10 @@ export interface ServeFlags {
   readonly frozen: boolean;
   readonly port: number;
   readonly repo: string | null;
+  /** The clone to read (default: the current folder). */
+  readonly dir: string | null;
+  /** Seconds between two reads of GitHub (default 60). */
+  readonly poll: number | null;
   readonly webUrl: string | null;
   readonly tokenFile: string | null;
   readonly newToken: boolean;
@@ -49,7 +53,11 @@ commands:
 
 serve options:
   --port <n>          port on 127.0.0.1 (default ${DEFAULT_SERVE_PORT})
-  --repo <owner/name> the repository (default: the one of this folder)
+  --dir <path>        a clone of the repository (default: this folder); nod
+                      fetches PR objects into it (refs/nod/*) to compute
+                      patch-ids, and never checks anything out
+  --repo <owner/name> the repository (default: the clone's origin)
+  --poll <seconds>    how often to read GitHub (default 60, at least 10)
   --web-url <url>     the web app to pair with (default: this release's, or
                       the Vite dev server for a checkout; env NOD_WEB_URL)
   --fake              serve a fake team and repo instead of GitHub
@@ -95,6 +103,8 @@ function parseServe(args: string[]): Command {
         frozen: { type: "boolean", default: false },
         port: { type: "string" },
         repo: { type: "string" },
+        dir: { type: "string" },
+        poll: { type: "string" },
         "web-url": { type: "string" },
         "token-file": { type: "string" },
         "new-token": { type: "boolean", default: false },
@@ -116,6 +126,11 @@ function parseServe(args: string[]): Command {
     return { kind: "error", message: "--scenario needs --fake" };
   if (values.repo !== undefined && !/^[\w.-]+\/[\w.-]+$/.test(values.repo))
     return { kind: "error", message: "--repo is owner/name" };
+  const poll = values.poll === undefined ? null : Number(values.poll);
+  if (poll !== null && (!Number.isFinite(poll) || poll < 10 || poll > 3600))
+    return { kind: "error", message: "--poll is a number of seconds from 10 to 3600" };
+  if (values.fake && (values.dir !== undefined || poll !== null))
+    return { kind: "error", message: "--dir and --poll read GitHub; not with --fake" };
   const webUrl = values["web-url"] ?? null;
   if (webUrl !== null && !/^https?:\/\/[^/]+/.test(webUrl))
     return { kind: "error", message: "--web-url is an http(s) URL" };
@@ -127,6 +142,8 @@ function parseServe(args: string[]): Command {
       frozen: values.frozen,
       port,
       repo: values.repo ?? null,
+      dir: values.dir ?? null,
+      poll,
       webUrl,
       tokenFile: values["token-file"] ?? null,
       newToken: values["new-token"],
@@ -150,6 +167,8 @@ async function runServe(flags: ServeFlags): Promise<number> {
       version: VERSION,
       fake: flags.fake ? { scenario: flags.scenario, live: !flags.frozen } : null,
       repo: flags.repo,
+      ...(flags.dir !== null && { dir: flags.dir }),
+      ...(flags.poll !== null && { pollMs: flags.poll * 1000 }),
     });
   } catch (error) {
     const code = (error as { code?: string }).code;

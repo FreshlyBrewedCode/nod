@@ -35,7 +35,15 @@ nod
       passphrase: anything but `wrong`
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
-  - server seams: `Source` (`src/server/source.ts`; fake now, GitHub later), `Signer`
+    - against GitHub: `bun src/cli.ts serve --dir <a clone of the repo> [--poll 60]`;
+      `NOD_DEBUG=1` logs each poll's queries and GraphQL cost. Experiments use a throwaway
+      `XDG_CONFIG_HOME` (key and token) and then need `GH_CONFIG_DIR` pointing at the real gh
+      config, or `gh auth token` finds no login. Finding 03 is the sandbox run
+  - server seams: `Source` (`src/server/source.ts`; `fake-source.ts`, and `github-source.ts`
+    with its parts in `src/server/github/`: the `GitHubApi` seam with an injectable `fetch`,
+    the queries, `map.ts` (GraphQL PR + the verifier's summary → `PrFacts`, never classifies),
+    the brief parser, patch-ids in the clone, setup and enrolment; tests run on
+    `github/fake-github.ts`), `Signer`
     (`signer.ts`: the seam, the unlock window and the fake), `view.ts` turns a source's `PrFacts` into the user-relative view model;
     `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
     renders; the web app talks only through `useConnection` (`src/web/hooks/`)

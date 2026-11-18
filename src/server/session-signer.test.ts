@@ -158,10 +158,11 @@ test("nod serve without --fake reads the key file before anything else", async (
     tokenFile: join(dir, "serve-token"),
     version: null,
     keyFile,
+    dir,
   };
   await createKeyFile(keyFile, PASS, { scrypt: CHEAP });
-  // the key is fine: the GitHub source is what is not built yet
-  expect(() => start(options)).toThrow(expect.objectContaining({ code: "not-implemented" }));
+  // the key is fine: the folder is what is not a clone
+  expect(() => start(options)).toThrow(/is not a git clone/);
   await writeFile(keyFile, "{}");
   expect(() => start(options)).toThrow(expect.objectContaining({ code: "bad-key-file" }));
 });
