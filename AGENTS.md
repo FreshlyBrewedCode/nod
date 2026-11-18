@@ -23,6 +23,17 @@ nod
 - working in this repo
   - `bun run check` = format:check + lint + typecheck + test; CI runs it plus `bun run build`
   - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
+    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join] [--frozen]`: the
+      mockup's team in memory (`src/server/fake-*.ts`); open the printed host link. Fake
+      passphrase: anything but `wrong`
+    - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
+      to keep tests and experiments out of it
+  - server seams: `Source` (`src/server/source.ts`; fake now, GitHub later), `Signer`
+    (`signer.ts`), `view.ts` turns a source's `PrFacts` into the user-relative view model;
+    `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
+    renders; the web app talks only through `useConnection` (`src/web/hooks/`)
+  - browser checks: `env -u LD_LIBRARY_PATH playwright-cli open --config=<json>` with a config
+    whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)
   - conventional commits; PRs are squash-merged and the PR title is the conventional commit
   - releases (semantic-release, as in canvas; prepared but switched off until
