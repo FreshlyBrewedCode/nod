@@ -11,6 +11,13 @@ nod
   2. **web app** (`src/web/`): Vite/React SPA, hosted UI later, Vite dev server locally
 - `src/shared/protocol.ts` is the wire contract of both halves; `src/kit/` is the pure helper
   kit the repo-owned verifier imports as `@frebreco/nod/kit`
+- `templates/` is what `nod init` (`src/init/`) writes into a user's repo: `.nod/policy.ts`,
+  `.nod/classifiers/`, `.nod/verify.ts`, `allowed_signers`, the kit pin and
+  `.github/workflows/nod.yml`. They are shipped in the npm package, typechecked, linted and run
+  in `src/init/templates.test.ts` (`@frebreco/nod/kit` maps to `src/kit/` via `tsconfig.json`);
+  the workflow follows finding 01's hygiene rules, enforced by `setup-files.test.ts`
+- the sandbox `FreshlyBrewedCode/nod-sandbox` (public) runs the real setup; findings 01 and 02
+  describe its state
 - kit: zero dependencies; nod format, patch-id and file list via `git`, SSHSIG via `ssh-keygen`
   (argument arrays, never a shell), classifiers, policy, check summary, sticky comment, REST helpers;
   everything exported has a doc comment; tests use real `git`/`ssh-keygen` in temp dirs, never `~/.ssh`

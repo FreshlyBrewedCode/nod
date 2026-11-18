@@ -1,6 +1,6 @@
 # 0003: Who creates the `nod` check
 
-Status: proposed (2026-11-18). Waiting for the owner's decision; v1 builds mode 1 with the seam for mode 2.
+Status: accepted (2026-11-18) by the owner: v1 ships Actions mode with its limit documented, and a seam for app mode. Evidence: [finding 01](../findings/01-spike-1-github-mechanics.md) (the forged check merged a PR under an active ruleset).
 
 ## Context
 
@@ -8,7 +8,7 @@ Finding 01 showed that a workflow pushed on any branch can create a check run na
 
 The same agent, when it holds the owner's token, can also delete the ruleset. So the check source is one of two doors, and closing only one buys little.
 
-## Decision (proposed)
+## Decision
 
 The verifier creates the check through a small seam, with two modes:
 
@@ -17,5 +17,5 @@ The verifier creates the check through a small seam, with two modes:
 
 ## Consequences
 
-- `.nod/verify.ts` takes the check token from one place, so switching modes changes the workflow and the ruleset, not the verifier's logic.
+- `.nod/verify.ts` takes the check token from one place (`NOD_CHECK_TOKEN`, falling back to the workflow's `GITHUB_TOKEN`), so switching modes changes the workflow and the ruleset, not the verifier's logic.
 - The setup PR states the mode and its limit in plain words.

@@ -9,8 +9,9 @@
 // launcher. The web app is not in it: the release workflow deploys that to
 // ui.nod.frebreco.de, and `src/server/web-url.ts` (when it exists) picks the
 // build matching the version stamped here. So only `src/cli.ts`, `src/server/`,
-// `src/shared/` and `src/kit/` are staged, and the manifest carries only the
-// dependencies those need, not React and friends.
+// `src/shared/`, `src/kit/` and `src/init/` are staged, plus `templates/` (what
+// `nod init` writes into a repo), and the manifest carries only the
+// dependencies the sources need, not React and friends.
 //
 // The version is stamped into the staged `package.json`, and into the
 // `const VERSION = "0.0.0-development";` placeholder of the staged `src/cli.ts`.
@@ -36,7 +37,7 @@ const DESCRIPTION =
   "Steer your team's attention across agent-written pull requests, and let humans nod them through with a signed attestation, so agents can merge on their own.";
 
 /** What `nod serve` and the kit are made of, relative to the repo root. */
-const SOURCES = ["src/cli.ts", "src/server", "src/shared", "src/kit"];
+const SOURCES = ["src/cli.ts", "src/server", "src/shared", "src/kit", "src/init", "templates"];
 
 const VERSION = process.argv[2] ?? "0.0.0-dev";
 const SMOKE_TEST = process.argv.includes("--smoke-test");
@@ -155,6 +156,23 @@ async function smokeTestKit(work: string): Promise<void> {
 }
 
 /**
+ * `nod init` renders its files from the staged `templates/`, dot folders
+ * included: the repo-owned `.nod/` and the workflow.
+ */
+async function smokeTestTemplates(installed: string): Promise<void> {
+  const { loadTemplates, renderSetup } = (await import(
+    join(installed, "src", "init", "setup-files.ts")
+  )) as typeof import("../src/init/setup-files.ts");
+  const files = renderSetup(await loadTemplates(join(installed, "templates")), {
+    kitSpec: `^${VERSION}`,
+    signers: [],
+  });
+  const paths = files.map((f) => f.path);
+  for (const p of [".nod/verify.ts", ".nod/.gitignore", ".github/workflows/nod.yml"])
+    if (!paths.includes(p)) fail(`the staged templates do not render ${p}.`);
+}
+
+/**
  * Checks the channel the staged CLI opens, if `src/server/web-url.ts` exists
  * (it is added by a separate change; until then there is nothing to check).
  * It must export `defaultWebUrl(version)`: the stable URL for `X.Y.Z`, the
@@ -190,6 +208,7 @@ async function smokeTest(dependencies: Record<string, string>): Promise<void> {
     smokeTestVersion(installed, work);
     run([process.execPath, join(installed, "bin", "nod.js")], work);
     await smokeTestKit(work);
+    await smokeTestTemplates(installed);
     await smokeTestWebUrl(installed);
   } finally {
     await rm(work, { force: true, recursive: true });
@@ -242,7 +261,7 @@ const manifest = {
   engines: { bun: ">=1.4.1" },
   homepage: "https://nod.frebreco.de",
   repository: { type: "git", url: REPOSITORY_URL },
-  files: ["bin", "src", "README.md", "LICENSE"],
+  files: ["bin", "src", "templates", "README.md", "LICENSE"],
   // A scoped package is private to its org unless published as public.
   publishConfig: { access: "public" },
   dependencies,

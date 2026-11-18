@@ -20,7 +20,7 @@ They are kept as evidence, not as a starting point to copy from.
 | `tools/replay.sh` | The replay and scope attacks (pasted, other repo, wrong key, wrong namespace, tampered, rejected verdict). |
 | `tools/patch-id-experiments.sh` | Local experiments on what `git patch-id --stable` hashes. |
 | `tools/ruleset.json` | The ruleset that was refused on the Free plan. |
-| `tools/prove-ruleset.sh` | Proof point 2 plus the forgery under enforcement. **Not run yet**, because the plan refused rulesets. |
+| `tools/prove-ruleset.sh` | Proof point 2 plus the forgery under enforcement. Run once the sandbox was public; follow-ups in `tools/prove-missing.sh` (the server's messages for a missing and a red check, `--admin`) and `tools/prove-status-pin.sh` (a forged status with no check run). |
 
 The scripts expect a working layout with `tools/`, a clone of the sandbox at `sandbox/` and the
 throwaway keys at `keys/` side by side. The keys are never committed.
