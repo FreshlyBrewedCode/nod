@@ -3,3 +3,12 @@ dist/
 .env
 .certs/
 .DS_Store
+*.tgz
+*.log
+coverage
+*.tsbuildinfo
+.cache
+test-results/
+playwright-report/
+.playwright-cli/
+.idea
