@@ -4,7 +4,14 @@ import { evaluateNods, type PullRequestState } from "./evaluate.ts";
 import type { PolicyResult } from "./policy.ts";
 import { none, peer, self } from "./requirement.ts";
 import type { VerifiedNod } from "./sshsig.ts";
-import { escapeMd, isStickyComment, prDeepLink, renderSticky, STICKY_MARKER } from "./sticky.ts";
+import {
+  batchDeepLink,
+  escapeMd,
+  isStickyComment,
+  prDeepLink,
+  renderSticky,
+  STICKY_MARKER,
+} from "./sticky.ts";
 import { buildSummary } from "./summary.ts";
 
 const pr: PullRequestState = {
@@ -123,5 +130,14 @@ test("escapeMd defuses mentions and markup from PR content", () => {
 test("prDeepLink", () => {
   expect(prDeepLink("https://ui.nod.frebreco.de", "acme/widgets", 12)).toBe(
     "https://ui.nod.frebreco.de/#/pr/acme/widgets/12",
+  );
+});
+
+test("batchDeepLink", () => {
+  expect(batchDeepLink("https://ui.nod.frebreco.de/next/", "acme/widgets", [12, 7, 12])).toBe(
+    "https://ui.nod.frebreco.de/next/#/batch/acme/widgets/12,7",
+  );
+  expect(batchDeepLink("https://ui.example.test", "acme/widgets", [3])).toBe(
+    "https://ui.example.test/#/batch/acme/widgets/3",
   );
 });

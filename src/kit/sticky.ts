@@ -22,6 +22,18 @@ export function prDeepLink(uiBase: string, repo: string, pr: number): string {
 }
 
 /**
+ * The UI link for a batch: `<uiBase>/#/batch/<owner>/<repo>/<n>,<n>,…`. It
+ * opens the batch dialog's review step for the PRs that still need the
+ * reader; like every link it never approves by itself. Duplicates are
+ * dropped; the order is kept.
+ */
+export function batchDeepLink(uiBase: string, repo: string, prs: ReadonlyArray<number>): string {
+  const [owner = "", name = ""] = repo.split("/");
+  const numbers = [...new Set(prs)].filter((n) => Number.isInteger(n) && n > 0);
+  return `${uiBase.replace(/\/+$/, "")}/#/batch/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${numbers.join(",")}`;
+}
+
+/**
  * Renders the sticky comment for a summary. `uiBase` is the UI's origin,
  * e.g. `https://ui.nod.frebreco.de`. A link never approves by itself.
  */
