@@ -437,6 +437,17 @@ export function batchReducer(state: BatchState, event: BatchEvent): BatchState {
         : state;
     case "sign-failed": {
       if (state.step !== "signing") return state;
+      const { prior } = state.attempt;
+      // A retry that fails keeps what was posted and says why on the rows still missing.
+      if (prior && event.failure.code !== "locked")
+        return {
+          step: "signed",
+          shown: state.attempt.shown,
+          result: {
+            ...prior,
+            failed: prior.failed.map((f) => ({ ...f, message: event.failure.message })),
+          },
+        };
       const stale = event.details?.stale;
       if (event.failure.code === "stale" && stale?.length) return { step: "stale", stale };
       // Locked again in between (the window ended, or a lock from another tab).

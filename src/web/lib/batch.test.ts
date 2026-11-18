@@ -306,6 +306,16 @@ describe("the state machine", () => {
       shown: rows,
       result: { posted: [{ pr: 482 }, { pr: 485 }], failed: [] },
     });
+    // a retry that fails again keeps the signed step, with the new reason
+    const again = batchReducer(retry, {
+      t: "sign-failed",
+      failure: { code: "github", message: "Still down." },
+    });
+    expect(again).toEqual({
+      step: "signed",
+      shown: rows,
+      result: { ...result, failed: [{ pr: 485, message: "Still down." }] },
+    });
     // a locked retry goes through the field, and Back returns to the signed step
     const locked = batchReducer(signed, { ...sign("locked"), entries: [entries[1]!] });
     expect(locked.step).toBe("unlock");

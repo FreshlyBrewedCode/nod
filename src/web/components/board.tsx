@@ -35,6 +35,8 @@ export interface BoardColumnView {
   readonly items: ReadonlyArray<Item>;
   /** Under the cards: "also #485, after you". */
   readonly footer: string | null;
+  /** One quiet sentence when the column is empty. */
+  readonly empty: string;
 }
 
 export function BoardBar({
@@ -125,6 +127,9 @@ function BoardColumn({ column }: { column: BoardColumnView }) {
           ),
         )}
       </div>
+      {column.items.length === 0 && (
+        <div className="text-tx3 px-1.5 pb-1 text-[12.5px]">{column.empty}</div>
+      )}
       {column.footer && <div className="text-tx3 px-1.5 py-1 text-[12.5px]">{column.footer}</div>}
     </section>
   );

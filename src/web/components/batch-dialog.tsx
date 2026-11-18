@@ -494,7 +494,7 @@ function ReviewRow({
       />
       <div className={cn("min-w-0", !row.included && "opacity-50")}>
         <div className="truncate">{pr.title}</div>
-        <div className="text-tx3 mt-0.5 flex items-center gap-[7px] text-[12.5px]">
+        <div className="text-tx3 mt-0.5 flex min-w-0 items-center gap-[7px] overflow-hidden text-[12.5px] whitespace-nowrap">
           <Avatar login={pr.prompter} people={people} />
           <span>{who === "you" ? "you" : who}</span>
           <DiffIndicator inline added={pr.diff.added} removed={pr.diff.removed} />
@@ -506,8 +506,8 @@ function ReviewRow({
               </span>
             </Mark>
           )}
-          {row.moved && <Mark tone="bad">new commits since you looked</Mark>}
-          {row.changed && !row.moved && <Mark tone="need">changed: look again</Mark>}
+          {row.moved && <Mark tone="bad">moved since you looked</Mark>}
+          {row.changed && !row.moved && <Mark tone="need">new head</Mark>}
         </div>
         {details && (
           <div
@@ -725,7 +725,8 @@ function Stale({
               <div className="min-w-0">
                 <div className="truncate">{pr?.title ?? `#${s.pr}`}</div>
                 <div className="text-tx3 mt-0.5 text-[12.5px]">
-                  #{s.pr} · <span className="font-mono text-xs">{staleText(s, pr)}</span>
+                  #{s.pr} · <span className="font-mono text-xs">{staleText(s, null)}</span>
+                  {pr && ` · ${pr.lastActivity.text}`}
                 </div>
               </div>
             </div>

@@ -205,7 +205,7 @@ export function LockChip({ signer, actions }: { signer: SignerState | null; acti
         <Lock className="size-3.5" />
         <span>{label}</span>
       </PopoverTrigger>
-      <PopoverContent className="w-[380px] p-4">
+      <PopoverContent className="w-[400px] p-4">
         {ready.state === "locked" ? (
           <UnlockForm actions={actions} onDone={() => setOpen(false)} />
         ) : (

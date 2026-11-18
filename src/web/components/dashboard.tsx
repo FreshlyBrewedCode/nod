@@ -27,6 +27,8 @@ import {
   shortName,
   stateBoardView,
   type Column,
+  type ColumnKind,
+  type StateColumnId,
 } from "../../shared/attention";
 import type { PrView, SetupStatus, SignerState, Snapshot, Welcome } from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
@@ -649,6 +651,21 @@ function FirstRunLanes({ unclassified, repo }: { unclassified: number; repo: str
   );
 }
 
+const WAIT_EMPTY: Readonly<Record<ColumnKind, string>> = {
+  me: "Nothing waits on you.",
+  person: "Nothing waits on them.",
+  anyone: "Nothing waits on a teammate.",
+  automation: "No agent or check is busy.",
+  done: "Nothing merged this week.",
+};
+
+const STATE_EMPTY: Readonly<Record<StateColumnId, string>> = {
+  checks: "No checks running.",
+  signature: "Nothing waits for a signature.",
+  merging: "Nothing merging right now.",
+  done: "Nothing merged this week.",
+};
+
 /** The board's columns, by Waiting on (r3 `09`) or by State (r2 `05`), with their asides. */
 function boardColumns(
   prs: ReadonlyArray<PrView>,
@@ -677,6 +694,7 @@ function boardColumns(
               : doneAside,
       items: c.items,
       footer: null,
+      empty: STATE_EMPTY[c.id],
     }));
   return boardView(prs, { me: snapshot.me, people: snapshot.people }).map((c) => ({
     id: c.id,
@@ -693,6 +711,7 @@ function boardColumns(
       ) : null,
     items: c.items,
     footer: alsoText(c, prs, snapshot),
+    empty: WAIT_EMPTY[c.kind],
   }));
 }
 
