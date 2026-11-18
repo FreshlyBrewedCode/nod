@@ -11,6 +11,9 @@ nod
   2. **web app** (`src/web/`): Vite/React SPA, hosted UI later, Vite dev server locally
 - `src/shared/protocol.ts` is the wire contract of both halves; `src/kit/` is the pure helper
   kit the repo-owned verifier imports as `@frebreco/nod/kit`
+- kit: zero dependencies; nod format, patch-id and file list via `git`, SSHSIG via `ssh-keygen`
+  (argument arrays, never a shell), classifiers, policy, check summary, sticky comment, REST helpers;
+  everything exported has a doc comment; tests use real `git`/`ssh-keygen` in temp dirs, never `~/.ssh`
 
 - stack (sibling: `../canvas`)
   - bun, TypeScript, React 19, Vite, tailwind v4, shadcn-style primitives; design system in
@@ -33,8 +36,15 @@ nod
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)
   - conventional commits; PRs are squash-merged and the PR title is the conventional commit
+  - releases (semantic-release, as in canvas; prepared but switched off until
+    `RELEASE_ENABLED` is set, see `docs/release.md`): every merge to `main` publishes
+    `@frebreco/nod@next` and deploys the web app to `ui.nod.frebreco.de/next`; `release.yml` by
+    hand publishes `latest` and deploys the root (`ui.yml` pushes to the `nod-ui` repo, whose Pages
+    serve it). The published CLI opens its own channel's web app (`src/server/web-url.ts`). The
+    package is staged by `scripts/build-release.ts`. One-time setup:
+    `scripts/bootstrap-release.sh`
   - privacy: the repo is public. No real names of people, tokens, machine names or hostnames in
     the repo or its PRs; fake data uses fictional people and repos
 
-- docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions;
+- docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions; `docs/release.md` how releases work and the owner's setup checklist;
   `docs/findings/` spike and validation evidence; `docs/design/` design system and mockups
