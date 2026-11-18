@@ -53,14 +53,26 @@ const SETUP_PATHS = [".nod", ".github/workflows/nod.yml"];
 export async function runInit(flags: InitFlags, deps: InitDeps): Promise<number> {
   const log = deps.log ?? ((line: string) => console.log(line));
   try {
-    return flags.ruleset ? await applyRuleset(flags, deps, log) : await setup(flags, deps, log);
+    if (flags.ruleset) return await applyRuleset(flags, deps, log);
+    await setupRepo(flags, deps, log);
+    return 0;
   } catch (error) {
     log(`nod init: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   }
 }
 
-async function setup(flags: InitFlags, deps: InitDeps, log: (l: string) => void): Promise<number> {
+/**
+ * `nod init` without `--ruleset`: writes, commits, pushes and opens the setup
+ * PR. Resolves to the PR's URL (null for `--dry-run` and `--no-pr`); throws
+ * with a sentence for the user. `nod serve`'s "open setup PR" calls this in a
+ * temporary worktree of the user's clone.
+ */
+export async function setupRepo(
+  flags: InitFlags,
+  deps: InitDeps,
+  log: (l: string) => void = deps.log ?? ((line: string) => console.log(line)),
+): Promise<string | null> {
   const runner = deps.runner ?? processRunner;
   const dir = resolve(deps.cwd ?? process.cwd(), flags.dir ?? ".");
   const root = await must(runner, ["git", "-C", dir, "rev-parse", "--show-toplevel"]);
@@ -94,7 +106,7 @@ async function setup(flags: InitFlags, deps: InitDeps, log: (l: string) => void)
     log("");
     log("The PR description would be:\n");
     log(body);
-    return 0;
+    return null;
   }
 
   const status = await must(runner, ["git", "-C", root, "status", "--porcelain"]);
@@ -145,7 +157,7 @@ async function setup(flags: InitFlags, deps: InitDeps, log: (l: string) => void)
     log("--no-pr: not pushed. To open the setup PR:");
     log(`  git push -u origin ${SETUP_BRANCH}`);
     log(`  gh pr create --repo ${info.repo} --base ${info.defaultBranch} --head ${SETUP_BRANCH}`);
-    return 0;
+    return null;
   }
 
   await must(runner, [
@@ -187,10 +199,11 @@ async function setup(flags: InitFlags, deps: InitDeps, log: (l: string) => void)
     await rm(tmp, { recursive: true, force: true });
   }
   await switchBack(runner, root, previous);
-  log(`opened the setup PR: ${url.split("\n").pop()}`);
+  const prUrl = url.split("\n").pop() ?? url;
+  log(`opened the setup PR: ${prUrl}`);
   log("It merges under this repository's current rules. After the merge, a repo admin runs:");
   log(`  nod init --ruleset --repo ${info.repo}`);
-  return 0;
+  return prUrl;
 }
 
 /**
