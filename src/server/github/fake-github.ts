@@ -37,6 +37,8 @@ export class FakeGitHub {
       parameters: { required_status_checks: [{ context: "nod", integration_id: 15368 }] },
     },
   ];
+  /** Set: reading the rules fails like this (a private repo on GitHub Free). */
+  rulesError: { status: number; message: string } | null = null;
   autoMergeAllowed = true;
   rateLimit = { cost: 2, remaining: 4900, limit: 5000, resetAt: iso(-60) };
   epics = new Map<number, string>();
@@ -167,7 +169,10 @@ export class FakeGitHub {
     m = new RegExp(`^${repo}/issues/(\\d+)/reactions$`).exec(path);
     if (method === "POST" && m)
       return json(201, { content: (body as { content: string }).content });
-    if (method === "GET" && path === `${repo}/rules/branches/main`) return json(200, this.rules);
+    if (method === "GET" && path === `${repo}/rules/branches/main`)
+      return this.rulesError
+        ? json(this.rulesError.status, { message: this.rulesError.message })
+        : json(200, this.rules);
     if (method === "GET" && path === `${repo}/git/ref/heads/main`)
       return json(200, { object: { sha: sha("main-tip") } });
     if (method === "GET" && path === `${repo}/contents/.nod/allowed_signers`)

@@ -77,9 +77,13 @@ export function useNodConnection(): Connection {
   // A host link opened in this tab (hashchange), or another tab paired (storage).
   useEffect(() => {
     const repair = () => {
-      const next = readHostLink(window.location.hash).pairing
+      const before = window.location.hash;
+      const next = readHostLink(before).pairing
         ? takePairing(window.location, window.history, window.localStorage)
         : loadPairing(window.localStorage);
+      // The host link left the address bar (and maybe led on to a remembered
+      // deep link): `replaceState` fires no event, so the route hears of it here.
+      if (window.location.hash !== before) window.dispatchEvent(new HashChangeEvent("hashchange"));
       setPairing((current) =>
         current?.host === next?.host && current?.token === next?.token ? current : next,
       );

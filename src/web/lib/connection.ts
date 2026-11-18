@@ -4,7 +4,9 @@
  * Pairing. `nod serve` prints `<web app>/#host=<ws url>&token=<token>`. The
  * page takes both from the fragment (browsers never send it to the web
  * host), keeps them in this origin's localStorage, and drops them from the
- * address bar, leaving any other fragment (a deep link) in place. Later
+ * address bar, leaving any other fragment (a deep link) in place; a deep
+ * link opened before pairing is remembered and taken up by the host link
+ * (`rememberLink`, `takeLink`). Later
  * visits, bookmarks and deep links without a token use the stored pairing;
  * the token is stable across server restarts, so they keep working.
  *
@@ -30,6 +32,7 @@ import {
   type Snapshot,
   type Welcome,
 } from "../../shared/protocol";
+import { fragmentOf } from "./route";
 
 // ---------------------------------------------------------------------------
 // pairing
@@ -58,15 +61,20 @@ export function isLoopbackHost(host: string): boolean {
 
 /**
  * The pairing in a fragment, and the fragment without it. A token without a
- * host means the default port.
+ * host means the default port. The fragment is `host=…&token=…` as `nod
+ * serve` prints it, or a route followed by them,
+ * `/pr/<owner>/<repo>/<n>?host=…&token=…` (`lib/route.ts`); `rest` keeps
+ * the route.
  */
 export function readHostLink(hash: string): { pairing: Pairing | null; rest: string } {
-  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const { path, params: query } = fragmentOf(hash);
+  const params = new URLSearchParams(query);
   const token = params.get("token");
   const host = params.get("host") ?? DEFAULT_HOST;
   params.delete("token");
   params.delete("host");
-  const rest = params.toString();
+  const left = params.toString();
+  const rest = path ? `${path}${left ? `?${left}` : ""}` : left;
   if (!token || !isLoopbackHost(host)) return { pairing: null, rest };
   return { pairing: { host: host.replace(/\/+$/, ""), token }, rest };
 }
@@ -102,23 +110,71 @@ export function forgetPairing(storage: KeyValue): void {
   storage.removeItem(PAIRING_KEY);
 }
 
+// ---------------------------------------------------------------------------
+// a deep link opened before pairing
+
+/**
+ * A deep link opened in a browser that is not paired yet (the hosted page,
+ * from a GitHub comment) is remembered here, so the host link that pairs the
+ * origin a minute later lands on the PR the user came for.
+ */
+export const PENDING_LINK_KEY = "nod.pendingLink";
+/** How long a remembered link waits for the pairing. */
+export const PENDING_LINK_MS = 60 * 60 * 1000;
+
+/** Remember a deep link's fragment (`#/pr/…`) until the pairing. */
+export function rememberLink(storage: KeyValue, hash: string, now: number): void {
+  const { path } = fragmentOf(hash);
+  if (!path) return;
+  try {
+    storage.setItem(PENDING_LINK_KEY, JSON.stringify({ hash: `#${path}`, at: now }));
+  } catch {
+    // blocked storage: the link is simply not kept
+  }
+}
+
+/** The remembered deep link, if it is recent; taking it forgets it. */
+export function takeLink(storage: KeyValue, now: number): string | null {
+  let value: { hash?: unknown; at?: unknown } | null;
+  try {
+    value = JSON.parse(storage.getItem(PENDING_LINK_KEY) ?? "null") as {
+      hash?: unknown;
+      at?: unknown;
+    } | null;
+    storage.removeItem(PENDING_LINK_KEY);
+  } catch {
+    return null;
+  }
+  if (
+    !value ||
+    typeof value.hash !== "string" ||
+    typeof value.at !== "number" ||
+    now - value.at > PENDING_LINK_MS ||
+    value.at > now + 60_000 ||
+    !fragmentOf(value.hash).path
+  )
+    return null;
+  return value.hash;
+}
+
 /**
  * The page's pairing: a fresh one from the address bar (stored, and removed
- * from the address bar), else the stored one.
+ * from the address bar), else the stored one. A fresh host link without a
+ * route of its own continues to the deep link remembered before pairing.
  */
 export function takePairing(
   location: Pick<Location, "hash" | "pathname" | "search">,
   history: Pick<History, "replaceState">,
   storage: KeyValue,
+  now: number = Date.now(),
 ): Pairing | null {
   const { pairing, rest } = readHostLink(location.hash);
   if (pairing) {
     savePairing(storage, pairing);
-    history.replaceState(
-      null,
-      "",
-      `${location.pathname}${location.search}${rest ? `#${rest}` : ""}`,
-    );
+    // Taken either way: a remembered link is used once, or not at all.
+    const pending = takeLink(storage, now);
+    const fragment = fragmentOf(rest).path ? `#${rest}` : (pending ?? (rest ? `#${rest}` : ""));
+    history.replaceState(null, "", `${location.pathname}${location.search}${fragment}`);
     return pairing;
   }
   return loadPairing(storage);

@@ -1,12 +1,16 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_HOST,
   PAIRING_KEY,
+  PENDING_LINK_KEY,
+  PENDING_LINK_MS,
   isLoopbackHost,
   loadPairing,
   readHostLink,
+  rememberLink,
   socketUrl,
+  takeLink,
   takePairing,
   type KeyValue,
 } from "./connection";
@@ -81,4 +85,85 @@ test("the socket URL carries the token in the query", () => {
   expect(socketUrl({ host: "ws://127.0.0.1:4518", token: "a+b/c" })).toBe(
     "ws://127.0.0.1:4518/ws?token=a%2Bb%2Fc",
   );
+});
+
+test("a host link combined with a route keeps the route", () => {
+  expect(readHostLink("#/pr/a/b/7?host=ws%3A%2F%2F127.0.0.1%3A4518&token=abc")).toEqual({
+    pairing: { host: "ws://127.0.0.1:4518", token: "abc" },
+    rest: "/pr/a/b/7",
+  });
+  expect(readHostLink("#/batch/a/b/7,8&token=abc&x=1")).toEqual({
+    pairing: { host: DEFAULT_HOST, token: "abc" },
+    rest: "/batch/a/b/7,8?x=1",
+  });
+});
+
+describe("a deep link opened before pairing", () => {
+  const NOW = 1_800_000_000_000;
+  const history = (replaced: string[]) => ({
+    replaceState: (_: unknown, __: string, url?: string | URL | null) =>
+      void replaced.push(String(url)),
+  });
+  const hostLink = "#host=ws%3A%2F%2F127.0.0.1%3A4518&token=abc";
+
+  test("is remembered and taken once, while recent", () => {
+    const storage = memory();
+    rememberLink(storage, "#/pr/a/b/7", NOW);
+    expect(takeLink(storage, NOW + 60_000)).toBe("#/pr/a/b/7");
+    expect(takeLink(storage, NOW + 60_000)).toBeNull();
+    rememberLink(storage, "#/pr/a/b/7", NOW);
+    expect(takeLink(storage, NOW + PENDING_LINK_MS + 1)).toBeNull();
+    // only routes, never a pairing fragment
+    rememberLink(storage, "#token=abc", NOW);
+    expect(storage.data[PENDING_LINK_KEY]).toBeUndefined();
+    expect(takeLink(memory({ [PENDING_LINK_KEY]: "{" }), NOW)).toBeNull();
+  });
+
+  test("the host link `nod serve` prints lands on it", () => {
+    const storage = memory();
+    rememberLink(storage, "#/batch/a/b/7,8", NOW);
+    const replaced: string[] = [];
+    const pairing = takePairing(
+      { hash: hostLink, pathname: "/", search: "" },
+      history(replaced),
+      storage,
+      NOW + 5 * 60_000,
+    );
+    expect(pairing).toEqual({ host: "ws://127.0.0.1:4518", token: "abc" });
+    expect(replaced).toEqual(["/#/batch/a/b/7,8"]);
+    expect(storage.data[PENDING_LINK_KEY]).toBeUndefined();
+  });
+
+  test("a host link with a route of its own wins, and the remembered one is dropped", () => {
+    const storage = memory();
+    rememberLink(storage, "#/pr/a/b/7", NOW);
+    const replaced: string[] = [];
+    takePairing(
+      { hash: `#/pr/a/b/9?${hostLink.slice(1)}`, pathname: "/next/", search: "" },
+      history(replaced),
+      storage,
+      NOW,
+    );
+    expect(replaced).toEqual(["/next/#/pr/a/b/9"]);
+    expect(storage.data[PENDING_LINK_KEY]).toBeUndefined();
+  });
+
+  test("without a remembered link the host link still works as is", () => {
+    const replaced: string[] = [];
+    takePairing({ hash: hostLink, pathname: "/", search: "" }, history(replaced), memory(), NOW);
+    expect(replaced).toEqual(["/"]);
+  });
+
+  test("a stale remembered link is not followed", () => {
+    const storage = memory();
+    rememberLink(storage, "#/pr/a/b/7", NOW);
+    const replaced: string[] = [];
+    takePairing(
+      { hash: hostLink, pathname: "/", search: "" },
+      history(replaced),
+      storage,
+      NOW + PENDING_LINK_MS + 1,
+    );
+    expect(replaced).toEqual(["/"]);
+  });
 });
