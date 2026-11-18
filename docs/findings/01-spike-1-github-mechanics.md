@@ -1,6 +1,6 @@
 # Spike 1: do the GitHub-side mechanics hold?
 
-> Spike for #3 (epic #1), run on 2026-11-18 against the private throwaway repo `FreshlyBrewedCode/nod-sandbox` on GitHub Free.
+> Spike for #3 (epic #1), run on 2026-11-18 against the throwaway repo `FreshlyBrewedCode/nod-sandbox` on GitHub Free. It was private for points 1 and 3–5; the owner then made it public so that rulesets work, and point 2 ran the same day.
 > The scripts and sandbox files are in [`spikes/01-github-mechanics/`](../../spikes/01-github-mechanics/). They are evidence, not production code.
 > Everything ran as the one logged-in `gh` user. Its token has the scopes `gist, project, read:org, repo` and no `workflow` scope.
 > alice and bob are fictional signers with throwaway ed25519 keys.
@@ -10,11 +10,11 @@
 | # | Proof point | Verdict |
 |---|---|---|
 | 1 | Comment → verifier → check on the head SHA | **Holds.** Comment to green check took 12–17 s. |
-| 2 | A ruleset enforces the check; auto-merge merges | **Not tested: the plan refused it.** Private repos on Free get `403 Upgrade to GitHub Pro or make this repository public`. The script for it is ready. |
+| 2 | A ruleset enforces the check; auto-merge merges | **Holds.** The ruleset refuses a merge while `nod` is missing or red, also with `--admin` (empty bypass list). `--auto --squash` waits and merged 15 s after the nod. A commit status named `nod` is refused ("not set by the expected GitHub app"). Private repos need Pro, Team or Enterprise: on Free the plan refused rulesets. |
 | 3 | Patch-id survives a clean rebase and changes with content | **Holds, with caveats.** If the base edits a line within 3 lines of the change, the patch-id changes and a new nod is needed. The diff must be computed locally with pinned flags; the API diff won't do. |
 | 4 | One batch signature turns 3 PRs green | **Holds.** |
 | 5 | Self vs peer from the signature alone | **Holds.** The principal is the GitHub login. |
-| A | Can an agent without the key make `nod` green? | **Yes, the design as written is forgeable.** A workflow pushed on any branch can create a `nod` check from the GitHub Actions app. GitHub cannot tell it from the real one. Recommended fix: the check comes from a self-owned GitHub App with no backend, whose key only default-branch jobs can read. See [Attacks](#attacks). |
+| A | Can an agent without the key make `nod` green? | **Yes, in Actions mode, and the ruleset does not stop it.** A workflow pushed on any branch creates a `nod` check from the GitHub Actions app; with auto-merge armed, the PR merged 10 s after the push. GitHub cannot tell it from the real one. Fix for later: a self-owned GitHub App with no backend (ADR 0003, app mode). See [Attacks](#attacks). |
 
 Two more holes turned up and are fixed in the spike verifier. Both are tested:
 - **Retargeting a PR kept its nod.** A nod matched by `head_sha` alone survived a base change, which can pull unreviewed content into `main`. Entries now carry `base`.
@@ -55,7 +55,7 @@ What we observed:
   - All `nod` runs on a SHA landed in one check suite (Actions app, that SHA): the verifier's runs from both events and, below, the forged one.
   - GitHub's rollup (`statusCheckRollup`, the merge box) shows **only the newest `nod`**. The older ones stay listed under `filter=all`.
   - In every transition we saw, the newest one won: failure→success (#1), success→failure (#6), and real failure→forged success→real failure (#5).
-  - Whether a ruleset also evaluates only the newest is undocumented and could not be tested here (see 2).
+  - The ruleset also goes by the newest: the forged success on #11 merged although an older red `nod` sat on the same SHA (see 2).
 - **Repeated events.**
   - With `concurrency: nod-<pr>` and `cancel-in-progress: false`, six comments posted within 6 s produced one finished run, four `cancelled` pending runs and one finished latest run.
   - That is fine, because every run reads the full current state.
@@ -73,9 +73,9 @@ What we observed:
   - Step breakdown for one run: comment to run queued 3 s, runner start 3 s, checkout (full history) 2 s, `setup-bun` 2 s, `verify.ts` 2–3 s.
   - The script itself took 1.5–2.7 s.
 
-## 2. Ruleset enforcement (not testable on this plan)
+## 2. Ruleset enforcement
 
-All three refused on the private Free repo:
+First attempt, while the sandbox was private on Free, all three refused:
 
 ```
 POST /repos/…/rulesets                 -> 403 {"message":"Upgrade to GitHub Pro or make this repository public to enable this feature."}
@@ -83,8 +83,7 @@ PUT  /repos/…/branches/main/protection -> 403 (same message)
 PATCH /repos/… allow_auto_merge=true   -> 200, but the response still says "allow_auto_merge": false
 ```
 
-- The integration id is verified: `gh api /apps/github-actions` returns `{"id":15368,"slug":"github-actions","owner":"github"}`.
-- The ruleset that was attempted (`spikes/…/tools/ruleset.json`):
+After the owner made the sandbox public, `tools/prove-ruleset.sh` created this ruleset (id 27578833) and enabled auto-merge:
 
 ```json
 { "name": "nod", "target": "branch", "enforcement": "active", "bypass_actors": [],
@@ -97,18 +96,30 @@ PATCH /repos/… allow_auto_merge=true   -> 200, but the response still says "al
       "required_status_checks": [ { "context": "nod", "integration_id": 15368 } ] } } ] }
 ```
 
-- `tools/prove-ruleset.sh` runs the whole proof point 2 once the sandbox is on Pro or public:
-  1. create the ruleset and enable auto-merge;
-  2. show that merging is blocked while the check is red;
-  3. show that `--auto --squash` waits, then merges after the nod;
-  4. try `--admin` with an empty bypass list;
-  5. try a commit-status forgery;
-  6. try the branch-workflow check forgery with auto-merge armed.
+`15368` is the GitHub Actions app (`gh api /apps/github-actions`). The ruleset reports `"current_user_can_bypass": "never"` for the owner. It stays on the sandbox.
+
+What the server answered (REST `PUT /pulls/N/merge` unless noted; `gh pr merge` gives the same text through GraphQL):
+
+| Case | PR | Result |
+|---|---|---|
+| Merge right after opening, before the verifier ran | #12 | `405 Repository rule violations found: Required status check "nod" is expected.` |
+| Merge while `nod` is red | #12, #9 | `405 … Required status check "nod" is failing.` |
+| `gh pr merge --admin` while red, empty bypass list, owner token | #9, #12 | refused: `Repository rule violations found: Required status check "nod" is failing.` |
+| Plain `gh pr merge --squash` while red | #8 | refused; gh adds "add the `--auto` flag … add the `--admin` flag" |
+| Commit status `nod`=success from the owner token, no check run (nod workflow disabled for the test) | #13 | `405 … Required status check "nod" was not set by the expected GitHub app.` |
+| Commit status `nod`=success next to the verifier's red check run | #12 | `405 … "nod" is failing.` |
+| `gh pr merge --auto --squash` while red, then alice's nod | #8 | auto-merge armed, PR stays `BLOCKED`; nod posted 19:54:15Z, merged 19:54:30Z |
+| Branch-workflow forgery with auto-merge armed (a `core/` PR that needs a peer, no nod) | #11 | forge pushed 19:56:28Z, forged success 19:56:36Z, **merged 19:56:38Z** by auto-merge |
+| `PUT /rulesets/27578833` with the owner's `repo` token (same content) | – | `200`: the owner token can edit, and so delete, the ruleset |
+
+What this settles:
+- The ruleset gates on the `nod` check run and on its source: a status from the wrong source does not count, a missing check blocks.
+- An empty bypass list means nobody bypasses, the owner included. Unlike classic branch protection there is no implicit admin exemption, so `--admin` is refused.
+- Auto-merge acts within seconds of the check turning green. Against the forged check (finding A) that is the whole problem: the real verifier never got a chance, and the PR was in `main` 2 s after the forged run.
+- The forged run on #11 ("nodded by bob (peer, head_sha)", from `github-actions`) was the newest `nod` on the head when the ruleset evaluated it. Rulesets, like the rollup, look at the newest check run of that name.
+- The owner's token can still edit or delete the ruleset. Only a token without the Administration permission closes that door.
 - **Product consequence:** nod needs rulesets, so a **private repo needs GitHub Pro, Team or Enterprise**. On Free it only works for public repos.
-- By reading only, not tested:
-  - Rulesets are bypassed only through their bypass list (unlike classic branch protection, where admins are exempt unless "include administrators" is set). With an empty list, `--admin` should therefore be refused for the owner too. This needs the test.
-  - The owner's `repo` token can edit or delete the ruleset, so an empty bypass list does not stop an agent holding that token.
-  - Required checks treat the conclusions `neutral` and `skipped` as passing, so the verifier may only ever conclude `success` or `failure`.
+- Required checks treat the conclusions `neutral` and `skipped` as passing (docs, not tested), so the verifier may only ever conclude `success` or `failure`.
 
 ## 3. Patch-id
 
@@ -222,14 +233,14 @@ push 18:59:31Z -> forged run 135054126503 at 18:59:41Z (10 s)
 - `details_url` and `html_url` are just its own run URL, and `external_id` is whatever the creator sets.
 - Nothing in the check run records which workflow created it, so neither a ruleset pinned to 15368 nor the verifier can tell the two apart.
 - The next real verifier run made it red again ("latest wins"). By then auto-merge would already have merged.
-- Enforcement itself is untested (plan), but nothing distinguishes the forged check, so we expect the merge to go through. `prove-ruleset.sh` step 4 confirms it once rulesets are available.
+- **Under enforcement it merges.** With the ruleset active and auto-merge armed, PR #11 (a `core/` change that needs a peer, no nod) merged 2 s after the forged run appeared (see 2). The fact plainly: in Actions mode, anyone who can push a workflow file to any branch can merge any PR.
 
 Other paths, tested:
 
 | Attempt | Result |
 |---|---|
 | Checks API with the user token | `403 "You must authenticate via a GitHub App."` |
-| Commit status `nod` with the user token | Created (`creator: FreshlyBrewedCode`) and shown in the rollup as a `StatusContext`. A check pinned to 15368 should not accept it (docs: "was not set by the expected GitHub App"). Enforcement untested. |
+| Commit status `nod` with the user token | Created (`creator: FreshlyBrewedCode`) and shown in the rollup as a `StatusContext`. **The ruleset refuses it:** `Required status check "nod" was not set by the expected GitHub app.` (PR #13) |
 | Add a workflow file through the contents API (token without `workflow` scope) | `404 Not Found` |
 | Push a workflow file over SSH | Accepted. The scope check only applies to OAuth tokens. |
 | PR code run by an ordinary CI workflow (`on: pull_request`, default token; the repo default is `read`) tries to create the check | `gh: Resource not accessible by integration (HTTP 403)` |
@@ -259,7 +270,7 @@ Tested:
 
 Not tested:
 - Creating the app is an account-level action, which this spike was not allowed to take.
-- Pinning the check to a custom app needs rulesets (plan).
+- Pinning the check to a custom app: rulesets now work on the sandbox, but there is no app to pin to.
 
 Limits:
 - This is "a GitHub App" in the registration sense. It goes against the concept's wording "no GitHub App", though not its intent (no backend, no hosting). The owner decides.
@@ -358,8 +369,8 @@ Notes:
 
 ## Open questions for the owner
 
-1. **Plan.** Make the sandbox Pro (or public) so `prove-ruleset.sh` can settle proof point 2, `--admin` and forgery under enforcement. nod on private repos needs Pro, Team or Enterprise.
-2. **App or no app.** Accept a self-owned, backend-less GitHub App (option A)? Without it, the gate rests on how the agent's environment is set up (option B).
+1. **Plan.** Settled: the sandbox is public and point 2 ran. nod on private repos needs Pro, Team or Enterprise.
+2. **App or no app.** Decided in ADR 0003: v1 ships Actions mode with this limit documented, and a seam for app mode.
 3. **Agent credentials.** Concept: agents share the human's token. Should nod instead recommend a fine-grained token without Administration and Workflows, and no SSH key? That closes both the admin bypass and the forged workflow file.
 4. **Context lines.** Keep `-U3` (re-nod after nearby base edits) or move to `-U0`?
 5. **`level`.** What does it mean? The spike carried it (`review`) but did not use it.
@@ -368,8 +379,8 @@ Notes:
 
 ## Sandbox state (left for later tasks)
 
-- **Repo:** `FreshlyBrewedCode/nod-sandbox`, private.
-- **No ruleset** (refused). Auto-merge is off (refused).
+- **Repo:** `FreshlyBrewedCode/nod-sandbox`, public since proof point 2.
+- **Ruleset `nod`** (id 27578833) active on the default branch, auto-merge on. (Task #5 then replaced the spike verifier with the `nod init` setup; see [finding 02](02-repo-owned-setup.md).)
 - **Environment `nod`:**
   - branch policy `main`;
   - secret `NOD_ENV_PROBE`, a non-sensitive probe value;
@@ -378,10 +389,7 @@ Notes:
   - the final verifier: strict base, file list from git, plus the `env-probe` job;
   - `ci.yml`;
   - `allowed_signers` with alice and bob.
-- **Open PRs:**
-  - #1 (app change; green from the batch nod);
-  - #2 (core change; green from alice + bob, after "Update branch").
-- **Closed evidence PRs:** #3–#7.
+- **PRs:** #8 and #11 merged during point 2 (#11 through the forged check); #1–#7, #9, #10, #12 and #13 closed as evidence.
 - **Branches:**
   - `attack/forge` holds the forging workflows. A push to `attack/**` re-runs them; `prove-ruleset.sh` uses this.
   - `feature-x` holds the retarget setup.

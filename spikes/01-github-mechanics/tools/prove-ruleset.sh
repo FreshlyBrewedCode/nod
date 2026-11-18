@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Spike, proof point 2 + forgery under enforcement. NOT YET RUN: the private sandbox on GitHub Free refused
-# rulesets, branch protection and auto-merge ("Upgrade to GitHub Pro or make this repository public").
-# Run it once the sandbox is on Pro (or public). NOT production code.
+# Spike, proof point 2 + forgery under enforcement. The private sandbox on GitHub Free refused rulesets
+# ("Upgrade to GitHub Pro or make this repository public"); it ran once the sandbox was made public.
+# NOT production code.
 #
 # Usage: prove-ruleset.sh            (from this directory; expects ../sandbox clone and ../keys)
 set -euo pipefail
@@ -13,14 +13,17 @@ newpr() { # newpr <branch> <file> <sed-expr> <title>
   sed -i "$3" "$SB/$2" && git -C "$SB" commit -qam "$4" && git -C "$SB" push -q -f -u origin "$1"
   gh pr create -R "$R" --head "$1" --base main --title "$4" --body "spike: prove-ruleset" | grep -o '[0-9]*$'
 }
-state() { gh pr view "$1" -R "$R" --json state,mergeStateStatus,autoMergeRequest,mergedAt --jq '{state,mergeStateStatus,auto:(.autoMergeRequest!=null),mergedAt}' -c; }
+state() { gh pr view "$1" -R "$R" --json state,mergeStateStatus,autoMergeRequest,mergedAt --jq '{state,mergeStateStatus,auto:(.autoMergeRequest!=null),mergedAt}'; }
 
 echo "== ruleset + auto-merge"
-gh api -X POST "repos/$R/rulesets" --input "$here/ruleset.json" --jq '{id,name,enforcement,bypass_actors}' -c
-gh api -X PATCH "repos/$R" -F allow_auto_merge=true -F delete_branch_on_merge=true --jq '{allow_auto_merge}' -c
+gh api -X POST "repos/$R/rulesets" --input "$here/ruleset.json" --jq '{id,name,enforcement,bypass_actors}'
+gh api -X PATCH "repos/$R" -F allow_auto_merge=true -F delete_branch_on_merge=true --jq '{allow_auto_merge}'
 
 echo "== 2a: blocked while red, auto-merge waits, merges when green"
 H=$(newpr spike/h app/hello.txt 's/^app line 3$/app line 3 (PR H)/' "PR H: proof 2")
+echo "-- at once, before the verifier ran (check missing):"
+gh pr view "$H" -R "$R" --json statusCheckRollup --jq '[.statusCheckRollup[]|{name,conclusion}]'
+gh pr merge "$H" -R "$R" --squash 2>&1 | tail -2 || true            # expect: refused (check missing)
 sleep 30; state "$H"
 gh pr merge "$H" -R "$R" --squash 2>&1 | tail -2 || true            # expect: refused (required check)
 gh pr merge "$H" -R "$R" --auto --squash 2>&1 | tail -1; state "$H"  # expect: auto-merge enabled, still open
@@ -47,4 +50,4 @@ for i in $(seq 1 40); do s=$(gh pr view "$F" -R "$R" --json state --jq .state); 
 echo "after forge: $(state "$F") at $(ts)"
 
 echo "== 5: can the owner token edit the ruleset? (read only here; do not delete)"
-gh api "repos/$R/rulesets" --jq '.[]|{id,name}' -c
+gh api "repos/$R/rulesets" --jq '.[]|{id,name}'
