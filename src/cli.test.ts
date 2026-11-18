@@ -33,6 +33,8 @@ test("serve defaults: GitHub, port 4518, no browser", () => {
     frozen: false,
     port: 4518,
     repo: null,
+    dir: null,
+    poll: null,
     webUrl: null,
     tokenFile: null,
     newToken: false,
@@ -63,12 +65,19 @@ test("serve flags", () => {
     frozen: true,
     port: 4600,
     repo: "acme/widgets",
+    dir: null,
+    poll: null,
     webUrl: "https://ui.example.test/next",
     tokenFile: "/tmp/t",
     newToken: true,
     open: true,
   });
   expect(serveFlags(["--no-open"]).open).toBe(false);
+  expect(serveFlags(["--dir", "/tmp/clone", "--poll", "30"])).toMatchObject({
+    fake: false,
+    dir: "/tmp/clone",
+    poll: 30,
+  });
 });
 
 test("init", () => {
@@ -94,6 +103,9 @@ test("bad arguments are errors", () => {
     ["serve", "--repo", "no-slash"],
     ["serve", "--web-url", "ui.example.test"],
     ["serve", "--wat"],
+    ["serve", "--poll", "2"],
+    ["serve", "--poll", "soon"],
+    ["serve", "--fake", "--dir", "/tmp/clone"],
     ["init", "x"],
     ["init", "--repo", "no-slash"],
     ["init", "--kit", "has space"],

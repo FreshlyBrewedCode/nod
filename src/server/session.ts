@@ -249,7 +249,7 @@ export class Session {
         const stale: { pr: number; signed: string; current: string }[] = [];
         const built: NodPayload["entries"][number][] = [];
         for (const entry of entries) {
-          const target = source.signTarget(entry.pr);
+          const target = await source.signTarget(entry.pr);
           if (!target) throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo}.`);
           if (target.state !== "open")
             throw new RequestFailure(
