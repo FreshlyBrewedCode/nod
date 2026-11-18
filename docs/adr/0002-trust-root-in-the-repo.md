@@ -1,6 +1,6 @@
 # 0002: The trust root is `.nod/allowed_signers` in the repo
 
-Status: proposed, built on meanwhile (2026-11-18). Waiting for the owner's confirmation.
+Status: accepted (2026-11-18), confirmed by the owner.
 
 ## Decision
 
