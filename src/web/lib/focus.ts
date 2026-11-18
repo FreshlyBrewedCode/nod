@@ -31,6 +31,59 @@ export function moveFocus(
   return keys[Math.max(0, Math.min(keys.length - 1, i + delta))]!;
 }
 
+/** The focusable rows of items in screen order: a cluster, then its PRs when it is open. */
+export function itemKeys(
+  items: ReadonlyArray<
+    | { readonly kind: "pr"; readonly pr: { readonly number: number } }
+    | {
+        readonly kind: "cluster";
+        readonly id: string;
+        readonly prs: ReadonlyArray<{ readonly number: number }>;
+      }
+  >,
+  expanded: ReadonlySet<string>,
+): FocusKey[] {
+  return items.flatMap((item) =>
+    item.kind === "pr"
+      ? [prKey(item.pr.number)]
+      : [
+          clusterKey(item.id),
+          ...(expanded.has(item.id) ? item.prs.map((p) => prKey(p.number)) : []),
+        ],
+  );
+}
+
+export type BoardMove = "left" | "right" | "up" | "down";
+
+/**
+ * Focus on the board: `up`/`down` within a column (stopping at its ends),
+ * `left`/`right` to the next column that has cards, at the same height or
+ * its last card. Without a focus (or one that is gone) any move starts at
+ * the first card of the first column with cards.
+ */
+export function moveBoardFocus(
+  columns: ReadonlyArray<ReadonlyArray<FocusKey>>,
+  current: FocusKey | null,
+  move: BoardMove,
+): FocusKey | null {
+  const first = columns.find((c) => c.length > 0);
+  if (!first) return null;
+  const col = current === null ? -1 : columns.findIndex((c) => c.includes(current));
+  if (col < 0) return first[0]!;
+  const keys = columns[col]!;
+  const row = keys.indexOf(current!);
+  if (move === "up" || move === "down") {
+    const next = Math.max(0, Math.min(keys.length - 1, row + (move === "down" ? 1 : -1)));
+    return keys[next]!;
+  }
+  const step = move === "right" ? 1 : -1;
+  for (let i = col + step; i >= 0 && i < columns.length; i += step) {
+    const target = columns[i]!;
+    if (target.length) return target[Math.min(row, target.length - 1)]!;
+  }
+  return current;
+}
+
 /**
  * Where focus goes when the rows change: it stays on its row; if that row
  * left (an FYI acked, a PR signed and moved lanes), it takes the row that

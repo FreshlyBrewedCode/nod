@@ -51,9 +51,14 @@ nod
     `components/dashboard.tsx` (list state, keyboard, resizable panel); rows in
     `pr-row.tsx`, panel in `detail-panel.tsx`; pure helpers with tests in `src/web/lib/`
     (route, focus, selection, panel width, time, diff bar, wording); theme tokens (the r3
-    palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). Every way to sign
-    calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`, the batch dialog's seam);
-    the board is a placeholder in `dashboard.tsx`. Screenshots of it: `docs/design/r3/impl/`
+    palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). The board
+    (`board.tsx`, group by Waiting on or State) opens the same panel as a 540 px overlay
+    drawer. Every way to sign calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`):
+    review, unlock in place, signed / stale / posting failed, the steps a pure state machine
+    in `lib/batch.ts`; the passphrase only ever lives in its input (`components/unlock.tsx`,
+    also the lock chip). Screenshots of it: `docs/design/r3/impl/`
+  - stale and posting-failure states can't be produced by `--fake`: in a browser check, route
+    the socket (`page.routeWebSocket`) and rewrite the `sign` request or its reply
   - the real signer (`src/server/signer/`, ADR 0004): the key file under
     `$XDG_CONFIG_HOME/nod/signing-key.json` (scrypt + AES-256-GCM), our own SSHSIG output, a
     `SigningMethod` seam for ssh-agent signers later; `nod key create|show|test`. Security code: keep

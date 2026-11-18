@@ -15,6 +15,7 @@ import {
   journeyDetail,
   reasonsSummary,
   rowTag,
+  signaturePips,
   signaturesSummary,
   slotText,
   statusText,
@@ -26,6 +27,18 @@ const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const snapshot = new FakeSource({ clock: new ManualClock(NOW) }).snapshot()!;
 const { people, me } = snapshot;
 const pr = (n: number) => snapshot.prs.find((p) => p.number === n)!;
+
+describe("the board's pips", () => {
+  const pips = (n: number) => signaturePips(pr(n), me, people).map((p) => `${p.label}:${p.tone}`);
+  test("one per slot: signed, mine to fill, someone else's, stale", () => {
+    expect(pips(482)).toEqual(["+1:me"]);
+    expect(pips(485)).toEqual(["J:open", "+1:me"]);
+    expect(pips(476)).toEqual(["J:ok", "M:me"]);
+    expect(pips(491)).toEqual(["!:stale"]);
+    expect(pips(479)).toEqual(["M:ok", "I:open"]);
+    expect(pips(487)).toEqual([]);
+  });
+});
 
 describe("rows", () => {
   test("who: you, or the prompter's first name", () => {

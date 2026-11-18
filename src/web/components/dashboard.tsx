@@ -1,8 +1,9 @@
 /**
  * The dashboard: the top bar, the list (by attention or chronological) with
- * its resizable detail panel, the board placeholder, the selection bar and
- * the keyboard. Owns the list's state (focus, selection, open clusters, the
- * panel) and hands it to rows through `useDashboard`.
+ * its resizable detail panel, the board with its overlay drawer, the
+ * selection bar and the keyboard. Owns the shared state (focus, selection,
+ * open clusters, the panel and the drawer) and hands it to rows and cards
+ * through `useDashboard`.
  */
 
 import {
@@ -18,18 +19,32 @@ import {
 
 import {
   attentionView,
+  boardView,
   chronologicalView,
   mergedOnTheirOwn,
   oldestWaitingSince,
   selectable,
-  type Item,
+  shortName,
+  stateBoardView,
+  type Column,
+  type ColumnKind,
+  type StateColumnId,
 } from "../../shared/attention";
-import type { SetupStatus, SignerState, Snapshot, Welcome } from "../../shared/protocol";
+import type { PrView, SetupStatus, SignerState, Snapshot, Welcome } from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
-import { DashboardContext, type DashboardState } from "@/hooks/use-dashboard";
+import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
 import type { Status } from "@/lib/connection";
-import { clusterKey, moveFocus, prKey, prOfKey, reconcileFocus, type FocusKey } from "@/lib/focus";
+import {
+  itemKeys,
+  moveBoardFocus,
+  moveFocus,
+  prKey,
+  prOfKey,
+  reconcileFocus,
+  type BoardMove,
+  type FocusKey,
+} from "@/lib/focus";
 import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs } from "@/lib/panel";
 import { viewOf, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
@@ -43,12 +58,14 @@ import {
 } from "@/lib/storage";
 import { clockTime, duration, sinceText } from "@/lib/time";
 import { BatchProvider, useBatch } from "./batch-dialog";
+import { Board, BoardBar, type BoardColumnView, type GroupBy } from "./board";
 import { DetailPanel } from "./detail-panel";
 import { Legend } from "./legend";
 import { BucketSection, EmptyLane, LaneHeader, LaneSection } from "./lists";
 import { SelectionBar } from "./selection-bar";
 import { SubBar } from "./sub-bar";
-import { LockChip, Logo, Me, Segmented, ShortcutsHelp, TopBarShell } from "./top-bar";
+import { Logo, Me, Segmented, ShortcutsHelp, TopBarShell } from "./top-bar";
+import { LockChip } from "./unlock";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "./ui/resizable";
 
 export interface DashboardProps {
@@ -64,25 +81,13 @@ export interface DashboardProps {
 
 export function Dashboard(props: DashboardProps) {
   return (
-    <BatchProvider prs={props.snapshot.prs}>
+    <BatchProvider snapshot={props.snapshot} signer={props.signer} actions={props.actions}>
       <DashboardInner {...props} />
     </BatchProvider>
   );
 }
 
 const DAY = 24 * 60 * MINUTE;
-
-/** The visible rows in screen order, the rows of open clusters included. */
-function rowKeys(items: ReadonlyArray<Item>, expanded: ReadonlySet<string>): FocusKey[] {
-  return items.flatMap((item) =>
-    item.kind === "pr"
-      ? [prKey(item.pr.number)]
-      : [
-          clusterKey(item.id),
-          ...(expanded.has(item.id) ? item.prs.map((p) => prKey(p.number)) : []),
-        ],
-  );
-}
 
 function useWindowWidth() {
   const [width, setWidth] = useState(() => window.innerWidth);
@@ -164,12 +169,30 @@ function DashboardInner({
       }),
     [],
   );
+
+  // -- the board ----------------------------------------------------------------
+  const [group, setGroup] = useState<GroupBy>(() =>
+    readJson(browserStorage(), STORAGE_KEYS.board) === "state" ? "state" : "wait",
+  );
+  const chooseGroup = (g: GroupBy) => {
+    writeJson(browserStorage(), STORAGE_KEYS.board, g);
+    setGroup(g);
+  };
+  const columns = useMemo(
+    () => (view === "board" ? boardColumns(prs, group, snapshot, now) : []),
+    [view, prs, group, snapshot, now],
+  );
+  const columnKeys = useMemo(
+    () => columns.map((c) => itemKeys(c.items, expanded)),
+    [columns, expanded],
+  );
+
   const keys = useMemo(() => {
-    if (view === "board") return [];
+    if (view === "board") return columnKeys.flat();
     const items =
       view === "chrono" ? buckets.flatMap((b) => b.items) : lanes.flatMap((l) => l.items);
-    return rowKeys(items, expanded);
-  }, [view, lanes, buckets, expanded]);
+    return itemKeys(items, expanded);
+  }, [view, lanes, buckets, expanded, columnKeys]);
 
   // -- the panel -----------------------------------------------------------------
   const windowWidth = useWindowWidth();
@@ -180,9 +203,19 @@ function DashboardInner({
     const t = setTimeout(() => writeJson(browserStorage(), STORAGE_KEYS.panel, prefs), 200);
     return () => clearTimeout(t);
   }, [prefs]);
-  const panelOpen = prefs.open && view !== "board";
+  const onBoard = view === "board";
+  const listPanelOpen = prefs.open && !onBoard;
   const panelWidth = clampPanelWidth(prefs.width, windowWidth);
-  const setPanelOpen = useCallback((open: boolean) => setPrefs((p) => ({ ...p, open })), []);
+  // The board's drawer: not remembered, it opens on a card (r3 `10`).
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const panelOpen = onBoard ? drawerOpen : listPanelOpen;
+  const setPanelOpen = useCallback(
+    (open: boolean) =>
+      onBoard ? setDrawerOpen(open) : setPrefs((p) => (p.open === open ? p : { ...p, open })),
+    [onBoard],
+  );
+  // Leaving the board closes its drawer.
+  if (!onBoard && drawerOpen) setDrawerOpen(false);
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
     if (!dragging) return;
@@ -202,7 +235,7 @@ function DashboardInner({
     [],
   );
   // An open panel with nothing focused (remembered from last time) takes the first row.
-  const focus = focusState.key ?? (panelOpen ? (keys[0] ?? null) : null);
+  const focus = focusState.key ?? (listPanelOpen ? (keys[0] ?? null) : null);
   const scrollOnFocus = useRef(false);
   const lastKeys = useRef(keys);
   useEffect(() => {
@@ -228,6 +261,14 @@ function DashboardInner({
       markOpened(opened, snapshot.repo, shownNumber, Date.now()),
     );
   }, [panelOpen, shownNumber, snapshot.repo]);
+
+  // Closing the drawer gives the DOM focus back to its card.
+  const wasDrawerOpen = useRef(false);
+  useEffect(() => {
+    if (wasDrawerOpen.current && !drawerOpen && focus)
+      document.querySelector<HTMLElement>(`[data-key="${focus}"]`)?.focus({ preventScroll: true });
+    wasDrawerOpen.current = drawerOpen;
+  }, [drawerOpen, focus]);
 
   // -- selection -----------------------------------------------------------------
   const [selection, dispatch] = useReducer(selectionReducer, []);
@@ -277,9 +318,9 @@ function DashboardInner({
 
   // -- the keyboard ------------------------------------------------------------------
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const latest = useRef({ view, keys, focus, panelOpen, selection, prs });
+  const latest = useRef({ view, keys, columnKeys, focus, panelOpen, selection, prs });
   useLayoutEffect(() => {
-    latest.current = { view, keys, focus, panelOpen, selection, prs };
+    latest.current = { view, keys, columnKeys, focus, panelOpen, selection, prs };
   });
   useEffect(() => {
     let chord = false;
@@ -311,21 +352,31 @@ function DashboardInner({
         setShortcutsOpen(true);
         return;
       }
-      if (s.view === "board") return;
+      const board = s.view === "board";
       const focusedPr = prOfKey(s.focus);
       const pr = focusedPr === null ? null : s.prs.find((p) => p.number === focusedPr);
-      const move = (delta: number) => {
+      const move = (delta: number, boardMove: BoardMove) => {
         e.preventDefault();
         scrollOnFocus.current = true;
-        setFocus(moveFocus(s.keys, s.focus, delta));
+        setFocus(
+          board
+            ? moveBoardFocus(s.columnKeys, s.focus, boardMove)
+            : moveFocus(s.keys, s.focus, delta),
+        );
       };
       switch (e.key) {
         case "j":
         case "ArrowDown":
-          return move(1);
+          return move(1, "down");
         case "k":
         case "ArrowUp":
-          return move(-1);
+          return move(-1, "up");
+        case "h":
+        case "ArrowLeft":
+          return board ? move(0, "left") : undefined;
+        case "l":
+        case "ArrowRight":
+          return board ? move(0, "right") : undefined;
         case "Enter": {
           if (target?.closest("button, a")) return;
           e.preventDefault();
@@ -465,7 +516,7 @@ function DashboardInner({
             </span>
           )}
           <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-          <LockChip signer={signer} onLock={() => void actions.lock().catch(() => {})} />
+          <LockChip signer={signer} actions={actions} />
           <Me login={me} people={snapshot.people} />
         </TopBarShell>
         {status !== "open" && (
@@ -474,14 +525,28 @@ function DashboardInner({
             {snapshot.sync.at ? clockTime(snapshot.sync.at, utcOffsetMinutes) : "earlier"}.
           </div>
         )}
-        {view === "board" ? (
-          <BoardPlaceholder />
+        {onBoard ? (
+          <>
+            <BoardBar group={group} onGroup={chooseGroup} />
+            <Board columns={columns} onBackground={() => setDrawerOpen(false)} />
+            {drawerOpen && (
+              <>
+                <div
+                  aria-hidden
+                  className="pointer-events-none fixed inset-x-0 top-[52px] bottom-0 z-20 bg-[#05070b88]"
+                />
+                <div className="border-line2 shadow-float fixed top-[52px] right-0 bottom-0 z-20 w-[540px] max-w-full border-l">
+                  <DetailPanel pr={shownPr} width={540} onClose={() => setDrawerOpen(false)} />
+                </div>
+              </>
+            )}
+          </>
         ) : (
           <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
             <ResizablePanel id="list" minSize="30%">
               {list}
             </ResizablePanel>
-            {panelOpen && (
+            {listPanelOpen && (
               <>
                 <ResizableHandle
                   id="detail-handle"
@@ -586,14 +651,114 @@ function FirstRunLanes({ unclassified, repo }: { unclassified: number; repo: str
   );
 }
 
-function BoardPlaceholder() {
+const WAIT_EMPTY: Readonly<Record<ColumnKind, string>> = {
+  me: "Nothing waits on you.",
+  person: "Nothing waits on them.",
+  anyone: "Nothing waits on a teammate.",
+  automation: "No agent or check is busy.",
+  done: "Nothing merged this week.",
+};
+
+const STATE_EMPTY: Readonly<Record<StateColumnId, string>> = {
+  checks: "No checks running.",
+  signature: "Nothing waits for a signature.",
+  merging: "Nothing merging right now.",
+  done: "Nothing merged this week.",
+};
+
+/** The board's columns, by Waiting on (r3 `09`) or by State (r2 `05`), with their asides. */
+function boardColumns(
+  prs: ReadonlyArray<PrView>,
+  group: GroupBy,
+  snapshot: Snapshot,
+  now: number,
+): ReadonlyArray<BoardColumnView> {
+  const merged = prs.filter((p) => p.mergedAt !== null);
+  const doneAside =
+    merged.length && merged.every((p) => now - p.mergedAt! <= DAY) ? "last 24h" : "last 7 days";
+  if (group === "state")
+    return stateBoardView(prs).map((c) => ({
+      id: `state:${c.id}`,
+      title: c.title,
+      count: c.count,
+      you: c.id === "signature",
+      aside:
+        c.id === "signature"
+          ? c.mine
+            ? `${c.mine} yours`
+            : null
+          : c.id === "checks"
+            ? "no human needed"
+            : c.id === "merging"
+              ? "agents merge"
+              : doneAside,
+      items: c.items,
+      footer: null,
+      empty: STATE_EMPTY[c.id],
+    }));
+  return boardView(prs, { me: snapshot.me, people: snapshot.people }).map((c) => ({
+    id: c.id,
+    title: c.title,
+    count: c.count,
+    you: c.kind === "me",
+    aside:
+      c.kind === "me" ? (
+        <SignColumn column={c} />
+      ) : c.kind === "done" ? (
+        doneAside
+      ) : c.kind === "person" || c.kind === "anyone" ? (
+        oldestWait(c, now)
+      ) : null,
+    items: c.items,
+    footer: alsoText(c, prs, snapshot),
+    empty: WAIT_EMPTY[c.kind],
+  }));
+}
+
+const prsOf = (column: Pick<Column, "items">): PrView[] =>
+  column.items.flatMap((i) => (i.kind === "pr" ? [i.pr] : [...i.prs]));
+
+/** "1 day": how long the oldest PR of a teammate's column has waited on them. */
+function oldestWait(column: Column, now: number): string | null {
+  const since = prsOf(column).flatMap((p) => (p.waitingSince === null ? [] : [p.waitingSince]));
+  if (!since.length) return null;
+  const ms = now - Math.min(...since);
+  return ms >= 60 * MINUTE ? duration(ms) : null;
+}
+
+/** "also #485, after you": PRs in another column that wait on this one later. */
+function alsoText(column: Column, prs: ReadonlyArray<PrView>, snapshot: Snapshot): string | null {
+  if (!column.also.length) return null;
+  const after = column.also.map((n) => {
+    const first = prs.find((p) => p.number === n)?.waitingOn[0];
+    const who =
+      !first || first.kind === "me"
+        ? "you"
+        : first.kind === "person"
+          ? first.login.toLowerCase() === snapshot.me.toLowerCase()
+            ? "you"
+            : shortName(first.login, snapshot.people)
+          : "the agent";
+    return `#${n}, after ${who}`;
+  });
+  return `also ${after.join("; ")}`;
+}
+
+/** "Sign…" on my column: the batch dialog with the column's selection, or the whole column. */
+function SignColumn({ column }: { column: Column }) {
+  const { openBatch, selection } = useDashboard();
+  const mine = prsOf(column).filter((p) => p.ask);
+  if (!mine.length) return null;
+  const picked = selection.filter((n) => mine.some((p) => p.number === n));
+  const numbers = picked.length ? picked : mine.map((p) => p.number);
   return (
-    <main className="mx-auto mt-24 max-w-[520px] px-6 text-center">
-      <div className="border-line2 text-tx3 rounded-xl border border-dashed px-[18px] py-[22px]">
-        <b className="text-tx font-semibold">The board comes next.</b> Columns by who each pull
-        request waits on. Until then, the list has everything:{" "}
-        <span className="font-mono">g l</span>.
-      </div>
-    </main>
+    <button
+      type="button"
+      onClick={() => openBatch(numbers)}
+      title={picked.length ? "Sign the selected ones (s)" : "Sign everything in this column"}
+      className="bg-need border-need text-on-need inline-flex h-[26px] items-center rounded-lg border px-2.5 text-xs font-semibold"
+    >
+      {picked.length ? `Sign ${picked.length}…` : "Sign…"}
+    </button>
   );
 }
