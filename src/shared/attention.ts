@@ -420,6 +420,40 @@ export function boardView(
 }
 
 // ---------------------------------------------------------------------------
+// the list's hints and summaries
+
+/**
+ * Whether a row gets a checkbox for signing: only tiers 1 and 2, the ones that
+ * need me (r3 open question 5). One-liners and folded PRs never need me.
+ */
+export function selectable(p: TierInput): boolean {
+  return tier(p) <= 2;
+}
+
+/**
+ * Since when the longest-waiting PR of "Needs you" has waited on me, for the
+ * lane's hint "oldest waits 5 hours"; null when nothing needs me.
+ */
+export function oldestWaitingSince(prs: ReadonlyArray<PrView>): number | null {
+  const waiting = prs.filter((p) => p.needsMe).map(waitedSince);
+  return waiting.length ? Math.min(...waiting) : null;
+}
+
+/**
+ * What merged on its own since a time, for "Since yesterday 17:42: 5 merged on
+ * their own": merged PRs that carry no nod of mine.
+ */
+export function mergedOnTheirOwn(prs: ReadonlyArray<PrView>, since: number): number {
+  return prs.filter(
+    (p) =>
+      p.state === "merged" &&
+      p.mergedAt !== null &&
+      p.mergedAt >= since &&
+      !p.signatures.some((s) => s.byMe),
+  ).length;
+}
+
+// ---------------------------------------------------------------------------
 // counts, for summaries and the proof page
 
 export function countByTier(prs: ReadonlyArray<PrView>): Readonly<Record<Tier, number>> {
