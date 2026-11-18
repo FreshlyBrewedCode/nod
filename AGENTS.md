@@ -22,8 +22,15 @@ nod
   - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
   - browser automation through `nix develop` (playwright libs)
   - conventional commits; PRs are squash-merged and the PR title is the conventional commit
+  - releases (semantic-release, as in canvas; prepared but switched off until
+    `RELEASE_ENABLED` is set, see `docs/release.md`): every merge to `main` publishes
+    `@frebreco/nod@next` and deploys the web app to `ui.nod.frebreco.de/next`; `release.yml` by
+    hand publishes `latest` and deploys the root (`ui.yml` pushes to the `nod-ui` repo, whose Pages
+    serve it). The published CLI opens its own channel's web app (`src/server/web-url.ts`). The
+    package is staged by `scripts/build-release.ts`. One-time setup:
+    `scripts/bootstrap-release.sh`
   - privacy: the repo is public. No real names of people, tokens, machine names or hostnames in
     the repo or its PRs; fake data uses fictional people and repos
 
-- docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions;
+- docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions; `docs/release.md` how releases work and the owner's setup checklist;
   `docs/findings/` spike and validation evidence; `docs/design/` design system and mockups

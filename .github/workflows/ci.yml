@@ -19,4 +19,10 @@ jobs:
 
       - run: bun run check
 
+      # The web app the release workflow deploys to ui.nod.frebreco.de.
       - run: bun run build
+
+      # Stages and smoke-tests the npm package with a placeholder version, so a
+      # staging failure is caught here rather than in the release job.
+      - name: Stage the release package
+        run: bun scripts/build-release.ts 0.0.0-development --smoke-test
