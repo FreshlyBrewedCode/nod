@@ -4,8 +4,8 @@
  * - `FakeSource` (`fake-source.ts`, `nod serve --fake`): the mockup's data
  *   set in memory; signing and acking change it so the UI can be exercised.
  * - The GitHub source (`github-source.ts`): polls GraphQL with the `gh`
- *   token about every 60 s and reads the verifier's check summary. A later
- *   task; today it is a stub that fails with "not implemented yet".
+ *   token about every 60 s and reads the verifier's check summary; patch-ids
+ *   come from the clone it runs in.
  *
  * The session (`session.ts`) owns the signer and the protocol; a source only
  * knows the repo. It never sees a passphrase or a private key.
@@ -71,6 +71,7 @@ export class SourceError extends Error {
   constructor(
     readonly code:
       | "no-repo"
+      | "no-key"
       | "not-found"
       | "forbidden"
       | "already-set-up"
@@ -96,8 +97,12 @@ export interface Source {
   snapshot(): Snapshot | null;
   /** Read GitHub now. */
   refresh(): Promise<void>;
-  /** The PR as a nod entry would be built from it; null when not in the repo. */
-  signTarget(pr: number): SignTarget | null;
+  /**
+   * The PR as a nod entry would be built from it, read fresh (the GitHub
+   * source computes the patch-id against the base as it is now); null when
+   * not in the repo.
+   */
+  signTarget(pr: number): Promise<SignTarget | null>;
   /** Post the same nod comment on every PR of the payload. Never throws per PR. */
   postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>>;
   /** Mark an FYI as seen. Throws `SourceError` `not-found`. */

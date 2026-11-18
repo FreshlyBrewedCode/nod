@@ -85,7 +85,17 @@ export type CheckState = "ok" | "missing" | "pending" | "unknown";
 
 /** One line of a setup checklist. */
 export interface SetupCheck {
-  readonly id: "policy" | "workflow" | "allowed-signers" | "required-check";
+  /**
+   * `verifier` (`.nod/verify.ts`) and `auto-merge` (the repo setting) come
+   * from the GitHub source only; the fake lists the first four.
+   */
+  readonly id:
+    | "policy"
+    | "workflow"
+    | "allowed-signers"
+    | "required-check"
+    | "verifier"
+    | "auto-merge";
   readonly label: string;
   /** The file or setting it is about, e.g. `.nod/policy.ts`. */
   readonly detail: string;
@@ -412,11 +422,22 @@ export interface PrView {
   readonly waitingSince: number | null;
 }
 
-/** An open PR the verifier has not classified yet (first run). */
+/**
+ * An open PR the verifier has not classified (first run, or right after a
+ * push). With a set-up repo the GitHub source also lists it in `prs`, as a
+ * high-risk row with no slots and the tag "not classified" or "verifier
+ * error", so it is never folded away as a low-risk change.
+ */
 export interface UnclassifiedPr {
   readonly number: number;
   readonly title: string;
   readonly url: string;
+  /**
+   * `pending`: no summary for this head yet (the verifier has not run);
+   * `verifier-error`: the verifier ran and failed, or left no readable
+   * summary. Absent from the fake source.
+   */
+  readonly reason?: "pending" | "verifier-error";
 }
 
 export interface SyncStatus {
@@ -424,11 +445,16 @@ export interface SyncStatus {
   readonly at: number | null;
   /** The last read failed; the snapshot is from `at`. */
   readonly error: string | null;
+  /**
+   * GitHub is rate-limiting nod: a calm state, not an error. `until` is when
+   * it reads again (null when GitHub did not say). Absent when not limited.
+   */
+  readonly rateLimit?: { readonly until: number | null };
 }
 
 /**
  * The full state of the dashboard, pushed on every change. Holds the open
- * PRs and those merged or closed in the last 7 days.
+ * PRs and those merged or closed in the last 14 days.
  */
 export interface Snapshot {
   readonly repo: RepoName;
@@ -503,11 +529,18 @@ export interface Requests {
     };
     result: SignResult;
   };
-  /** Mark an FYI as seen ("Got it"): a reaction on the PR, unsigned. Errors: `not-found`. */
+  /**
+   * Mark an FYI as seen ("Got it"): a 👀 reaction on the PR, unsigned; a 👀
+   * by anyone is their ack. Errors: `not-found`.
+   */
   "ack-fyi": { body: { readonly pr: number }; result: Record<never, never> };
   /** Read GitHub now instead of waiting for the next poll. A new snapshot follows. */
   refresh: { body: Record<never, never>; result: Record<never, never> };
-  /** Onboarding step 1: the `gh` account and the repos to pick from. */
+  /**
+   * Onboarding step 1: the `gh` account and the repos to pick from. v1 reads
+   * one repo: the GitHub source lists only the clone `nod serve` runs in
+   * (`--dir`), and `pick-repo` accepts only that one.
+   */
   "list-repos": {
     body: Record<never, never>;
     result: { readonly account: Account; readonly repos: ReadonlyArray<RepoChoice> };

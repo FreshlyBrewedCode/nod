@@ -185,7 +185,7 @@ export class FakeSource implements Source {
     this.emit("prs");
   }
 
-  signTarget(pr: number): SignTarget | null {
+  async signTarget(pr: number): Promise<SignTarget | null> {
     const f = this.facts.find((x) => x.number === pr);
     return f ? { pr, state: f.state, base: f.base, headSha: f.headSha, patchId: f.patchId } : null;
   }
