@@ -1,8 +1,10 @@
 /**
  * The `nod` CLI entry: `nod serve` (the local server, src/server/) and
- * `nod init` (opens the repo-owned setup PR; not built yet).
+ * `nod init` (opens the repo-owned setup PR, src/init/).
  */
 import { parseArgs as parseFlags } from "node:util";
+
+import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
@@ -28,7 +30,7 @@ export interface ServeFlags {
 
 export type Command =
   | { kind: "serve"; flags: ServeFlags }
-  | { kind: "init" }
+  | { kind: "init"; flags: InitFlags }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -55,6 +57,8 @@ serve options:
   --open              open the host link in a browser
   --no-open           do not (the default)
 
+${INIT_HELP}
+
 options:
   --help       show this help
   --version    show the version
@@ -65,10 +69,7 @@ export function parseArgs(argv: readonly string[]): Command {
   if (first === undefined || first === "--help" || first === "-h" || first === "help")
     return { kind: "help" };
   if (first === "--version" || first === "-v") return { kind: "version" };
-  if (first === "init")
-    return rest.length === 0
-      ? { kind: "init" }
-      : { kind: "error", message: `unexpected argument: ${rest[0]}` };
+  if (first === "init") return parseInitArgs(rest);
   if (first === "serve") return parseServe(rest);
   return { kind: "error", message: `unknown command: ${first}` };
 }
@@ -190,9 +191,10 @@ async function main(argv: readonly string[]): Promise<number> {
       return 0;
     case "serve":
       return runServe(cmd.flags);
-    case "init":
-      console.error(`nod init: not implemented yet`);
-      return 1;
+    case "init": {
+      const { runInit } = await import("./init/init");
+      return runInit(cmd.flags, { version: VERSION });
+    }
     case "error":
       console.error(`${cmd.message}\n\n${HELP}`);
       return 2;

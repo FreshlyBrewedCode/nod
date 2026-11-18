@@ -10,12 +10,15 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
-    "paths": { "@/*": ["./src/web/*"] },
+    "paths": {
+      "@/*": ["./src/web/*"],
+      "@frebreco/nod/kit": ["./src/kit/index.ts"]
+    },
     "strict": true,
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "templates/.nod/**/*.ts", "vite.config.ts"]
 }

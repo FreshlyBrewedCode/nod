@@ -20,9 +20,9 @@
     "build": "vite build",
     "test": "bun test src",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint src",
-    "format": "oxfmt src bin scripts vite.config.ts package.json .releaserc.json",
-    "format:check": "oxfmt --check src bin scripts vite.config.ts package.json .releaserc.json",
+    "lint": "oxlint src templates",
+    "format": "oxfmt src bin scripts templates vite.config.ts package.json .releaserc.json",
+    "format:check": "oxfmt --check src bin scripts templates vite.config.ts package.json .releaserc.json",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun run test"
   },
   "dependencies": {
