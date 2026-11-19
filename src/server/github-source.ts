@@ -714,14 +714,14 @@ export class GitHubSource implements Source {
     const signable = key !== null && this.enrolment(key).state === "active";
     return toViews(this.facts, { me, now, people: this.people() }).map((v) => {
       let out = v;
-      if (this.noSummary.has(v.number)) {
-        const open = v.state === "open" || v.state === "draft";
+      // Only an open PR is held back for the verifier; a merged or closed one is just history.
+      if (this.noSummary.has(v.number) && (v.state === "open" || v.state === "draft")) {
         out = {
           ...out,
           requirement: { ...out.requirement, satisfied: false },
           ask: null,
           needsMe: false,
-          waitingOn: open ? [{ kind: "checks" }] : out.waitingOn,
+          waitingOn: [{ kind: "checks" }],
         };
       }
       if (!signable && out.needsMe) out = { ...out, ask: null, needsMe: false };

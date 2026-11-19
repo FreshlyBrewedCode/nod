@@ -12,7 +12,10 @@ import type { Login, Person, PrView, WaitingOn } from "./protocol";
 /** 1 prominent · 2 normal · 3 one line · 4 folded into a cluster. */
 export type Tier = 1 | 2 | 3 | 4;
 
-export type TierInput = Pick<PrView, "needsMe" | "risk" | "mine" | "fyiForMe" | "stuck" | "state">;
+export type TierInput = Pick<
+  PrView,
+  "needsMe" | "risk" | "mine" | "fyiForMe" | "stuck" | "state" | "ask" | "waitingOn"
+>;
 
 /**
  * The tier rule, first match wins:
@@ -20,8 +23,10 @@ export type TierInput = Pick<PrView, "needsMe" | "risk" | "mine" | "fyiForMe" | 
  * 1. needs me, and high risk or a teammate's work → 1
  * 2. needs me (my own work, risk ≤ 2) → 2
  * 3. an FYI I have not acked → 3
- * 4. still open, and (mine and stuck) or high risk → 3
- * 5. everything else → 4
+ * 4. waits on my nod, but my key cannot sign yet (`waitsOnMyKey`) → 3, so it
+ *    is never folded away just because nothing is signable
+ * 5. still open, and (mine and stuck) or high risk → 3
+ * 6. everything else → 4
  *
  * The README says "not merged" in rule 4; a closed PR counts as merged here,
  * since neither will change any more.
@@ -29,8 +34,19 @@ export type TierInput = Pick<PrView, "needsMe" | "risk" | "mine" | "fyiForMe" | 
 export function tier(p: TierInput): Tier {
   if (p.needsMe) return p.risk >= 3 || !p.mine ? 1 : 2;
   if (p.fyiForMe) return 3;
+  if (waitsOnMyKey(p)) return 3;
   if (!isDone(p) && ((p.mine && p.stuck !== null) || p.risk >= 3)) return 3;
   return 4;
+}
+
+/**
+ * An open PR with a slot my nod would fill, but no ask: with no key, a
+ * pending or a not enrolled one nothing is signable (ADR 0002), so `needsMe`
+ * is false while `waitingOn` still names me. It waits on me once my key is
+ * enrolled.
+ */
+export function waitsOnMyKey(p: Pick<PrView, "state" | "ask" | "waitingOn">): boolean {
+  return p.state === "open" && p.ask === null && p.waitingOn.some((w) => w.kind === "me");
 }
 
 export function isDone(p: Pick<PrView, "state">): boolean {
@@ -82,7 +98,7 @@ export interface ClusterItem {
   readonly prs: ReadonlyArray<PrView>;
   /** "7 low-risk changes" */
   readonly label: string;
-  /** "3 deps · 2 tier 1 · 1 docs · 1 signed by you" */
+  /** "3 deps · 2 tier 1 · 1 docs · 1 signed by you": at most 4 kinds, then "· +2 more" */
   readonly subtitle: string;
   readonly kinds: ReadonlyArray<{ readonly kind: string; readonly count: number }>;
   readonly added: number;
@@ -98,16 +114,49 @@ const item = (pr: PrView): PrItem => {
   return { kind: "pr", pr, tier: t, form: t };
 };
 
+/** Size tags say how big, not what kind of change: the subtitle leaves them out. */
+const SIZE_TAG = /^size:(s|m|l|xl)$/;
+
+/**
+ * A policy tag in words: `tier-2` and `tier 2` -> "tier 2", `protected` ->
+ * "protected paths", `deps-only` -> "deps". Anything else stays as it is.
+ */
+export function tagWording(tag: string): string {
+  const tierTag = /^tier[- ](\d+)$/.exec(tag);
+  if (tierTag) return `tier ${tierTag[1]}`;
+  if (tag === "protected") return "protected paths";
+  if (tag === "deps-only") return "deps";
+  return tag;
+}
+
 /**
  * What a folded PR counts as in the cluster's subtitle: a dependency bump,
  * docs, something I signed (and that now merges on its own), else its first
- * classifier tag ("tier 1").
+ * tag that is not a size, in words ("tier 1", "protected paths"), else "other".
  */
 export function clusterKind(p: PrView): string {
-  if (p.tags.includes("deps")) return "deps";
+  if (p.tags.some((t) => t === "deps" || t === "deps-only")) return "deps";
   if (p.tags.includes("docs")) return "docs";
   if (p.signatures.some((s) => s.byMe && s.counts)) return "signed by you";
-  return p.tags[0] ?? "other";
+  const tag = p.tags.find((t) => !SIZE_TAG.test(t));
+  return tag === undefined ? "other" : tagWording(tag);
+}
+
+/** How many kinds the subtitle names before it says "+N more". */
+export const SUBTITLE_KINDS = 4;
+
+/**
+ * The kinds a cluster names, as the words a subtitle and the board's
+ * cluster card show: the `SUBTITLE_KINDS` most frequent ("3 deps", or just
+ * "deps" without counts), then "+N more" for the kinds left out, never a
+ * cut-off word.
+ */
+export function kindNames(kinds: ClusterItem["kinds"], counts: boolean): string[] {
+  const names = kinds
+    .slice(0, SUBTITLE_KINDS)
+    .map((k) => (counts ? `${k.count} ${k.kind}` : k.kind));
+  if (kinds.length > SUBTITLE_KINDS) names.push(`+${kinds.length - SUBTITLE_KINDS} more`);
+  return names;
 }
 
 /** The most common kind first; ties keep the order they first appear in. */
@@ -129,7 +178,7 @@ export function cluster(id: string, prs: ReadonlyArray<PrView>): ClusterItem {
     id,
     prs: sorted,
     label: `${sorted.length} low-risk change${sorted.length === 1 ? "" : "s"}`,
-    subtitle: kinds.map((k) => `${k.count} ${k.kind}`).join(" · "),
+    subtitle: kindNames(kinds, true).join(" · "),
     kinds,
     added: sorted.reduce((n, p) => n + p.diff.added, 0),
     removed: sorted.reduce((n, p) => n + p.diff.removed, 0),
@@ -296,6 +345,11 @@ export interface Column {
   readonly kind: ColumnKind;
   /** "You", the teammate's first name, "Any teammate", "Agents & CI", "Merged". */
   readonly title: string;
+  /**
+   * On my column only, when my key cannot sign: "key not enrolled". The column
+   * then holds what waits on me once the key is enrolled, not what I can act on.
+   */
+  readonly note: string | null;
   readonly login: Login | null;
   /** PRs in the column, folded ones included. */
   readonly count: number;
@@ -308,6 +362,8 @@ export interface BoardOptions {
   readonly me: Login;
   /** For the teammates' column titles; the login is used when a name is missing. */
   readonly people?: ReadonlyArray<Person>;
+  /** Why my key cannot sign ("key not enrolled"); null or missing when it can. */
+  readonly keyNote?: string | null;
 }
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -345,7 +401,8 @@ export function shortName(login: Login, people: ReadonlyArray<Person> = []): str
 }
 
 /**
- * Columns: You (always), one per teammate something waits on (the busiest
+ * Columns: You (always; with a `keyNote` it holds what waits on me once my
+ * key can sign, and says so), one per teammate something waits on (the busiest
  * first: their own PRs plus the ones that wait on them later, as in r3),
  * Any teammate (when some PR needs a peer I cannot be), Agents & CI
  * (always), Merged (always). In a column: cards by `compareAttention`, the
@@ -355,7 +412,7 @@ export function boardView(
   prs: ReadonlyArray<PrView>,
   options: BoardOptions,
 ): ReadonlyArray<Column> {
-  const { me, people = [] } = options;
+  const { me, people = [], keyNote = null } = options;
   const groups = new Map<
     string,
     { kind: ColumnKind; login: Login | null; prs: PrView[]; also: number[] }
@@ -400,6 +457,7 @@ export function boardView(
       id,
       kind: g.kind,
       title: title(g.kind, g.login),
+      note: g.kind === "me" ? keyNote : null,
       login: g.login,
       count: g.prs.length,
       items: columnItems(id, g.prs, g.kind === "done"),

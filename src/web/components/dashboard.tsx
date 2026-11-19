@@ -49,6 +49,7 @@ import {
 import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs } from "@/lib/panel";
 import { isLinkRoute, viewOf, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
+import { keyNoteOf } from "@/lib/wording";
 import {
   STORAGE_KEYS,
   browserStorage,
@@ -180,9 +181,10 @@ function DashboardInner({
     writeJson(browserStorage(), STORAGE_KEYS.board, g);
     setGroup(g);
   };
+  const keyNote = keyNoteOf(signer);
   const columns = useMemo(
-    () => (view === "board" ? boardColumns(prs, group, snapshot, now) : []),
-    [view, prs, group, snapshot, now],
+    () => (view === "board" ? boardColumns(prs, group, snapshot, now, keyNote) : []),
+    [view, prs, group, snapshot, now, keyNote],
   );
   const columnKeys = useMemo(
     () => columns.map((c) => itemKeys(c.items, expanded)),
@@ -687,6 +689,7 @@ function boardColumns(
   group: GroupBy,
   snapshot: Snapshot,
   now: number,
+  keyNote: string | null,
 ): ReadonlyArray<BoardColumnView> {
   const merged = prs.filter((p) => p.mergedAt !== null);
   const doneAside =
@@ -696,7 +699,7 @@ function boardColumns(
       id: `state:${c.id}`,
       title: c.title,
       count: c.count,
-      you: c.id === "signature",
+      you: c.id === "signature" && !keyNote,
       aside:
         c.id === "signature"
           ? c.mine
@@ -711,11 +714,13 @@ function boardColumns(
       footer: null,
       empty: STATE_EMPTY[c.id],
     }));
-  return boardView(prs, { me: snapshot.me, people: snapshot.people }).map((c) => ({
+  return boardView(prs, { me: snapshot.me, people: snapshot.people, keyNote }).map((c) => ({
     id: c.id,
     title: c.title,
+    note: c.note,
     count: c.count,
-    you: c.kind === "me",
+    // Without a key that can sign it is a muted column: nothing in it is actionable yet.
+    you: c.kind === "me" && !c.note,
     aside:
       c.kind === "me" ? (
         <SignColumn column={c} />
