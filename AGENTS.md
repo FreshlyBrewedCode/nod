@@ -88,13 +88,29 @@ nod
   - conventional commits; PRs are squash-merged and the PR title is the conventional commit
   - releases (semantic-release, as in canvas; prepared but switched off until
     `RELEASE_ENABLED` is set, see `docs/release.md`): every merge to `main` publishes
-    `@frebreco/nod@next` and deploys the web app to `ui.nod.frebreco.de/next`; `release.yml` by
+    `@frebreco/nod@next`, deploys the web app to `ui.nod.frebreco.de/next` and the site to
+    `nod.frebreco.de` (`site.yml`); `release.yml` by
     hand publishes `latest` and deploys the root (`ui.yml` pushes to the `nod-ui` repo, whose Pages
     serve it). The published CLI opens its own channel's web app (`src/server/web-url.ts`). The
     package is staged by `scripts/build-release.ts`. One-time setup:
     `scripts/bootstrap-release.sh`
   - privacy: the repo is public. No real names of people, tokens, machine names or hostnames in
     the repo or its PRs; fake data uses fictional people and repos
+
+- the site (`site/`): the landing page and the user docs for `nod.frebreco.de`. Astro, its own
+  package with its own `bun.lock` (`cd site && bun install`), copied from canvas's site; the root
+  `bun run check` does not cover it, CI builds it in the `site` job
+  - `bun run check`, `bun run build`, `bun run preview` (builds, then serves `dist/` on :4519; the
+    only way to try the search); on NixOS inside `nix develop`. Details and pitfalls: `site/README.md`
+  - **a user-visible change updates the page in `site/content/docs/` that describes it**, in the
+    terms of its Glossary (`glossary.md`; add a term there before using a new one). Commands, flags
+    and file names in the docs come from the code (`bun src/cli.ts --help`, `templates/`), and what
+    is not released is said to be not released
+  - the landing page (`src/pages/index.astro`, `components/landing/Demo.astro`, `styles/landing.css`)
+    redraws rows of the dashboard by hand: when `pr-row.tsx`, the tiers or the r3 tokens change,
+    change it too. Fictional people and repos only, as everywhere
+  - two docs channels, stable at `/` and `main` under `/next` (`scripts/build-channels.sh`);
+    `site.yml` deploys them to this repo's Pages, switched off like the releases (`docs/release.md`)
 
 - docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions; `docs/release.md` how releases work and the owner's setup checklist;
   `docs/enterprise.md` GHE.com and GHES: what works, what it needs, the owner's checklist;

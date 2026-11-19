@@ -1,9 +1,10 @@
 # Release
 
 The same setup as the sibling project canvas: semantic-release, two channels, the web app on a
-separate Pages repo. **It is prepared but switched off**: nothing below has been created yet
-(no npm package, no `nod-ui` repo, no deploy key, no DNS, no secrets), and every publishing
-workflow is skipped until the repository variable `RELEASE_ENABLED` is `true`.
+separate Pages repo, the site on this repo's Pages. **It is prepared but switched off**: nothing
+below has been created yet (no npm package, no `nod-ui` repo, no deploy key, no Pages, no DNS, no
+secrets), and every publishing workflow is skipped until the repository variable `RELEASE_ENABLED`
+is `true`.
 
 ## How it works
 
@@ -38,13 +39,21 @@ workflow is skipped until the repository variable `RELEASE_ENABLED` is `true`.
   version gives the dev URL, a version with a `-` suffix gives next, otherwise stable. The server
   reads the version from the `package.json` the staging step stamped; the repo's own manifest has
   none, which means a checkout and the Vite dev server. Staging tolerates the file being absent.
-- The site (`nod.frebreco.de`) is **not part of this pipeline**: there is no site yet, so no
-  `site.yml`. When it exists it gets its own workflow, as in canvas.
+- The site (`nod.frebreco.de`: the landing page and the docs, `site/`) has its own workflow,
+  `site.yml`, as in canvas. It runs after every run of `release` (and by hand), builds both docs
+  channels with `site/scripts/build-channels.sh` and deploys `site/dist` to **this repo's** GitHub
+  Pages with `actions/deploy-pages`. The root documents the last stable tag's `site/content/`,
+  `/next` documents `main`. Before the first stable release that has docs, both channels are built
+  from `main`, and the version picker shows no stable version. CI builds the site on every PR
+  (the `site` job); it is its own package and the root `bun run check` does not touch it. See
+  `site/README.md`.
 
 ## What switches it on
 
-`vars.RELEASE_ENABLED == 'true'` gates the `release` job, the `ui` job of `release.yml` and the
-`deploy` job of `ui.yml`. Unset, a merge to `main` shows them as skipped and stays green.
+`vars.RELEASE_ENABLED == 'true'` gates the `release` job, the `ui` job of `release.yml`, the
+`deploy` job of `ui.yml` and both jobs of `site.yml`. Unset, a merge to `main` shows them as
+skipped and stays green. The site needs one more thing before its first deploy can succeed: Pages
+enabled on this repo with "GitHub Actions" as the source (step 4 below).
 Switch on: `gh variable set RELEASE_ENABLED --body true --repo FreshlyBrewedCode/nod`.
 Switch off again: `gh variable delete RELEASE_ENABLED --repo FreshlyBrewedCode/nod`.
 
@@ -52,7 +61,8 @@ Switch off again: `gh variable delete RELEASE_ENABLED --repo FreshlyBrewedCode/n
 
 In this order. `scripts/bootstrap-release.sh` automates the GitHub parts; it prints each step and
 asks `[y/N]` before doing it, so it can be run phase by phase
-(`scripts/bootstrap-release.sh <github|ui|dns|npm|trusted-publishers|enable>`). It has not been run.
+(`scripts/bootstrap-release.sh <github|ui|site|dns|npm|trusted-publishers|enable>`). It has not been
+run.
 
 1. **npm organisation.** Make sure the `@frebreco` org exists: https://www.npmjs.com/org/create
    (the script checks with `npm org ls frebreco`).
@@ -71,31 +81,45 @@ asks `[y/N]` before doing it, so it can be run phase by phase
    gh repo deploy-key add key.pub --repo FreshlyBrewedCode/nod-ui --allow-write
    gh secret set UI_DEPLOY_KEY --repo FreshlyBrewedCode/nod < key
    ```
-4. **DNS** at wherever the `frebreco.de` zone lives (`scripts/bootstrap-release.sh dns` prints
+4. **Pages for the site** (`scripts/bootstrap-release.sh site`): enables GitHub Pages on
+   `FreshlyBrewedCode/nod` itself with **GitHub Actions** as the source (`site.yml` deploys with
+   `actions/deploy-pages`; there is no Pages branch) and sets the custom domain `nod.frebreco.de`.
+   By hand: Settings, Pages, Source "GitHub Actions", Custom domain `nod.frebreco.de`. Or:
+   ```
+   gh api --method POST repos/FreshlyBrewedCode/nod/pages -f build_type=workflow
+   gh api --method PUT repos/FreshlyBrewedCode/nod/pages -f cname=nod.frebreco.de
+   ```
+   The first deploy creates the `github-pages` environment; nothing to set up there.
+5. **DNS** at wherever the `frebreco.de` zone lives (`scripts/bootstrap-release.sh dns` prints
    them):
    ```
    CNAME  ui.nod  ->  freshlybrewedcode.github.io
-   CNAME  nod     ->  freshlybrewedcode.github.io   (only once the site exists; none yet)
+   CNAME  nod     ->  freshlybrewedcode.github.io
    ```
-   Then re-run the `ui` phase (or tick "Enforce HTTPS" in the `nod-ui` Pages settings) once
-   GitHub has issued the certificate.
-5. **npm package name** (`scripts/bootstrap-release.sh npm`): needs `npm login` and npm >= 11.5.1.
+   Then re-run the `ui` and `site` phases (or tick "Enforce HTTPS" in both Pages settings) once
+   GitHub has issued the certificates.
+6. **npm package name** (`scripts/bootstrap-release.sh npm`): needs `npm login` and npm >= 11.5.1.
    npm only lets you attach a trusted publisher to a package that exists, and CI has no token,
    so this publishes a `0.0.1` placeholder of `@frebreco/nod` by hand, once. (Alternative to
    trusted publishing: an automation token as `NPM_TOKEN` secret, passed as `NPM_TOKEN` env to
    the two `semantic-release` steps. Trusted publishing is preferred: nothing to leak or rotate.)
-6. **npm trusted publisher** (`scripts/bootstrap-release.sh trusted-publishers`): on
+7. **npm trusted publisher** (`scripts/bootstrap-release.sh trusted-publishers`): on
    https://www.npmjs.com/package/@frebreco/nod/access, Trusted Publisher, GitHub Actions:
    organization `FreshlyBrewedCode`, repository `nod`, workflow filename `release.yml`,
    environment `release`; tick the "npm publish" allowed action. A mistake here shows up later as
    an opaque 404 or 422 in the first release.
-7. **Switch it on** (`scripts/bootstrap-release.sh enable`):
+8. **Switch it on** (`scripts/bootstrap-release.sh enable`):
    `gh variable set RELEASE_ENABLED --body true --repo FreshlyBrewedCode/nod`.
-8. **First run.** The next merge to `main` (or "Re-run" of its `release` run) publishes
+9. **First run.** The next merge to `main` (or "Re-run" of its `release` run) publishes
    `0.1.0-next.1`-style pre-release and deploys `ui.nod.frebreco.de/next`. Check
    `npm view @frebreco/nod dist-tags`, the `nod-ui` commit `deploy: <version>`, and
    `bunx @frebreco/nod@next --version`. For the first stable release: Actions, `release`,
    "Run workflow" on `main`; then `ui.nod.frebreco.de` serves the root build.
+   `site` runs after each `release` run and deploys `nod.frebreco.de` (to deploy it without a
+   release: Actions, `site`, "Run workflow"). Check the landing page, `/docs`, `/next/docs` and the
+   search. Then update the docs pages that say nothing is released yet
+   (`site/content/docs/quick-start.md`, `status.md`, `introduction.md`, `cli.md`) and the landing
+   page's "Try it".
 
 If a release job fails after the tag exists, fix the cause and run `ui` by hand with that version
 to redeploy; do not delete tags semantic-release made.

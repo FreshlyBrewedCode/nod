@@ -1,0 +1,78 @@
+name: site
+
+# SWITCHED OFF until the owner runs the one-time setup (docs/release.md,
+# scripts/bootstrap-release.sh): both jobs are skipped, not failed, unless the
+# repository variable RELEASE_ENABLED is `true`:
+#   gh variable set RELEASE_ENABLED --body true --repo FreshlyBrewedCode/nod
+# It also needs GitHub Pages enabled on this repo with "GitHub Actions" as the
+# source and the custom domain nod.frebreco.de (the `site` phase of the script).
+#
+# Deploys the landing page and the docs (site/) to nod.frebreco.de, the GitHub
+# Pages site of this repository.
+#
+# `site/` is its own package (own `bun.lock`, own `node_modules`), not a
+# workspace of the root, so this workflow only ever touches that directory,
+# never `bun install`/`bun run check` at the repo root.
+#
+# The docs come in two channels, like the package (site/src/lib/channel.ts):
+# the root documents the last stable release (its tag's `site/content/`), and
+# `/next` documents main. Both change with a release (a stable one moves the
+# root, any one the versions the picker shows), so this runs after every run
+# of release.yml, which every push to main starts, rather than on pushes.
+# Before the first stable release both channels are built from main
+# (site/scripts/build-channels.sh).
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; let a newer push win rather than queue
+# behind a stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Main, with the release tags: the stable content comes from one.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+        working-directory: site
+
+      # Both channels into dist/, each with its own search index.
+      - run: bun run build:channels
+        working-directory: site
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    if: vars.RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
