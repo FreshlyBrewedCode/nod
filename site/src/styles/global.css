@@ -1,0 +1,382 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@plugin "@tailwindcss/typography";
+
+/*
+ * Tokens copied from `src/web/styles.css`: the r3 palette (docs/design/r3).
+ * Achromatic-ish chrome where colour means something: amber = needs you,
+ * blue = worth knowing, green and red = ok and bad. The app is dark only, so
+ * dark is the site's default and the landing page's only scheme; the light
+ * values below exist for reading the docs and are the site's own.
+ * Worth lifting into one shared file once both surfaces settle.
+ */
+:root {
+  --background: #fbfbfc;
+  --card: #ffffff;
+  --foreground: #171a21;
+  --muted: #f0f2f5;
+  --muted-foreground: #586172;
+  --faint-foreground: #7a8393;
+  --accent: #eceff3;
+  --border: #e3e6ec;
+  --border-strong: #c5cbd6;
+  --primary: #f2b24a;
+  --primary-foreground: #15120a;
+  --ring: #c98a1b;
+  --radius: 0.75rem;
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0d0f13; /* r3 --bg */
+  --card: #13161c; /* --panel */
+  --foreground: #e7e9ee; /* --tx */
+  --muted: #191d25; /* --panel2 */
+  --muted-foreground: #a3abba; /* --tx2 */
+  --faint-foreground: #6c7586; /* --tx3 */
+  --accent: #191d25;
+  --border: #20252f; /* --line */
+  --border-strong: #2e3542; /* --line2 */
+  --ring: #f2b24a; /* --need */
+  color-scheme: dark;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint-foreground: var(--faint-foreground);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+
+  --font-sans:
+    "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    "Noto Sans", Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 40%, transparent);
+  }
+
+  /* Anchored headings shouldn't hide under the sticky header. */
+  :target {
+    scroll-margin-top: 5rem;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* The first stop of the keyboard: past the header, to the page. */
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 50;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+/*
+ * Bind @tailwindcss/typography to the tokens above instead of its own greys,
+ * so markdown prose reads as the same surface in both schemes.
+ *
+ * Deliberately unlayered: the plugin defines `.prose` in Tailwind's `utilities`
+ * layer, which outranks `components`. Unlayered rules beat every layer, so the
+ * tokens win without a specificity fight. (Layer this and dark mode renders
+ * near-black prose on a near-black background.)
+ */
+.prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-lead: var(--muted-foreground);
+  --tw-prose-links: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--border-strong);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-quote-borders: var(--primary);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-th-borders: var(--border-strong);
+  --tw-prose-td-borders: var(--border);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+
+/* The dark body text is a step softer than the headings, as in the app. */
+.dark .prose {
+  --tw-prose-body: #cdd2db;
+}
+
+.prose :where(h2) {
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 2.4em;
+}
+
+.prose :where(h3) {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+/* Inline code only — Expressive Code owns the block-level rendering. */
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  font-weight: 500;
+  background-color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+  overflow-wrap: anywhere;
+}
+
+.prose :not(pre) > code::before,
+.prose :not(pre) > code::after {
+  content: none;
+}
+
+/*
+ * Blockquotes are callouts here (the prototype notice), not quotations: no
+ * italics, no curly quotes the plugin adds around the first and last line.
+ */
+.prose blockquote {
+  color: var(--foreground);
+  font-style: normal;
+  font-weight: 400;
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 0.25rem 1.25rem;
+}
+
+.prose blockquote p:first-of-type::before,
+.prose blockquote p:last-of-type::after {
+  content: none;
+}
+
+/*
+ * Screenshots are of the app, which is dark: they keep a dark frame in the
+ * light scheme too. Tall ones are capped in height and centred.
+ */
+.prose img {
+  width: auto;
+  max-height: 34rem;
+  margin-inline: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background-color: #0d0f13;
+}
+
+.prose a {
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.prose a:hover {
+  text-decoration-color: var(--primary);
+}
+
+/*
+ * Tables fill the column, and their cells may break anywhere a long path or
+ * flag needs to, so a table never widens the page on a phone.
+ */
+.prose table {
+  width: 100%;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.prose :where(td, th) {
+  overflow-wrap: anywhere;
+}
+
+/* The first column names the thing: keep short names on one line. */
+.prose :where(td:first-child) {
+  min-width: 6.5rem;
+}
+
+.prose :where(thead th) {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.prose kbd {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  background-color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  box-shadow: none;
+  padding: 0.05em 0.4em;
+}
+
+/*
+ * Mobile nav drawer. `<dialog>` toggles `display`, which is not an animatable
+ * property, so a plain transition would snap: `allow-discrete` lets `display`
+ * flip at the right end of the transition, and `@starting-style` supplies the
+ * pre-open values there is otherwise no way to express. Both the panel and its
+ * backdrop need the treatment.
+ */
+.nav-drawer,
+.nav-drawer::backdrop {
+  transition:
+    display 0.2s allow-discrete,
+    overlay 0.2s allow-discrete,
+    opacity 0.2s ease,
+    translate 0.2s ease;
+}
+
+.nav-drawer {
+  translate: 0 0;
+  opacity: 1;
+}
+
+.nav-drawer::backdrop {
+  opacity: 1;
+}
+
+/* The closed state: where the drawer animates to on exit... */
+.nav-drawer:not([open]) {
+  translate: -100% 0;
+  opacity: 0;
+}
+
+.nav-drawer:not([open])::backdrop {
+  opacity: 0;
+}
+
+/* ...and, via @starting-style, where it animates from on entry. */
+@starting-style {
+  .nav-drawer[open] {
+    translate: -100% 0;
+    opacity: 0;
+  }
+
+  .nav-drawer[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-drawer,
+  .nav-drawer::backdrop {
+    transition: none;
+  }
+}
+
+/*
+ * Expressive Code's copy-to-clipboard button, shrunk. Its own sizes (2.5rem
+ * with a coarse pointer, 2rem with a mouse) aren't exposed through
+ * `styleOverrides` — they're literal values in the plugin's stylesheet, not
+ * settings — so this overrides the rule directly.
+ *
+ * `.expressive-code.expressive-code` on purpose: Expressive Code scopes its
+ * own plugin CSS under `.expressive-code` too, so its rule and a plain
+ * `.expressive-code .copy button` here are the same selector at the same
+ * specificity — a repeated class breaks the tie in our favour regardless of
+ * which stylesheet loads last, same idea as the Pagefind `:root:root` below.
+ *
+ * Sizes hold the WCAG 2.2 AA target-size floor (24 CSS px) rather than
+ * matching the plugin's proportions exactly: 1.5rem with a mouse — precise
+ * pointer, and the button only ever appears on hover anyway — and 1.75rem
+ * with a coarse pointer, since a touchscreen tap has no hover state to
+ * reveal it first and needs the extra margin. The icon's mask has its own
+ * inset (`::after`'s margin in the plugin's CSS); shrunk here to match so it
+ * doesn't end up oversized inside the smaller button.
+ */
+.expressive-code.expressive-code .copy button {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.expressive-code.expressive-code .copy button::after {
+  margin: 0.4rem;
+}
+
+@media (hover: hover) {
+  .expressive-code.expressive-code .copy button {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .expressive-code.expressive-code .copy button::after {
+    margin: 0.35rem;
+  }
+}
+
+/*
+ * Pagefind's Component UI, re-skinned onto the tokens. It ships no dark theme
+ * of its own; pointing `--pf-*` at the token variables gets both schemes for
+ * free, since those already flip under `.dark`.
+ *
+ * `:root:root` on purpose: Pagefind declares its own defaults on `:root`, in a
+ * stylesheet that loads after this one. Equal specificity would lose the
+ * cascade, so this doubles it.
+ */
+:root:root {
+  --pf-font: var(--font-sans);
+  --pf-background: var(--card);
+  --pf-text: var(--foreground);
+  --pf-text-secondary: var(--muted-foreground);
+  --pf-text-muted: var(--muted-foreground);
+  --pf-border: var(--border-strong);
+  --pf-border-focus: var(--ring);
+  --pf-border-radius: var(--radius-sm);
+  --pf-hover: var(--accent);
+  --pf-mark: var(--ring);
+  --pf-outline-focus: var(--ring);
+  --pf-shadow-lg: 0 24px 70px color-mix(in oklab, black 55%, transparent);
+  --pf-input-height: 2rem;
+  --pf-input-font-size: 0.8125rem;
+  --pf-modal-backdrop: color-mix(in oklab, black 60%, transparent);
+  --pf-skeleton: var(--muted);
+}

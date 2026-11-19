@@ -1,0 +1,44 @@
+---
+import { href } from "../lib/channel";
+import Logo from "./Logo.astro";
+import Search from "./Search.astro";
+import ThemeToggle from "./ThemeToggle.astro";
+
+interface Props {
+  /** The landing page is dark only, like the app: it has no scheme to toggle. */
+  toggle?: boolean;
+}
+
+const { toggle = true } = Astro.props;
+const path = Astro.url.pathname;
+const inDocs = path.startsWith(href("/docs"));
+---
+
+<header
+  class="sticky top-0 z-30 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+>
+  <div class="mx-auto max-w-6xl px-5 sm:px-6 h-14 flex items-center gap-5 sm:gap-6">
+    <a href={href("/")} aria-label="nod, home" class="rounded-sm"><Logo /></a>
+
+    <nav aria-label="Site" class="flex items-center gap-4 text-sm">
+      <a
+        href={href("/docs")}
+        aria-current={inDocs ? "page" : undefined}
+        class:list={[
+          "hover:text-foreground",
+          inDocs ? "text-foreground font-medium" : "text-muted-foreground",
+        ]}
+      >
+        Docs
+      </a>
+      <a href="https://github.com/FreshlyBrewedCode/nod" class="text-muted-foreground hover:text-foreground">
+        GitHub
+      </a>
+    </nav>
+
+    <div class="ml-auto flex items-center gap-3">
+      <Search />
+      {toggle && <ThemeToggle />}
+    </div>
+  </div>
+</header>

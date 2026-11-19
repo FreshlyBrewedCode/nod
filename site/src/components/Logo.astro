@@ -1,0 +1,23 @@
+---
+/*
+ * The app's mark (src/web/components/top-bar.tsx): an amber tile with a
+ * check, then the name. The tile is decorative next to the word.
+ */
+interface Props {
+  class?: string;
+}
+---
+
+<span class:list={["inline-flex items-center gap-2 text-[15px] font-bold tracking-tight", Astro.props.class]}>
+  <svg viewBox="0 0 18 18" class="size-[18px] flex-none" aria-hidden="true">
+    <rect width="18" height="18" rx="5" fill="#f2b24a"></rect>
+    <path
+      d="M5 9.4l2.6 2.6L13 6.6"
+      fill="none"
+      stroke="#15120a"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"></path>
+  </svg>
+  nod
+</span>
