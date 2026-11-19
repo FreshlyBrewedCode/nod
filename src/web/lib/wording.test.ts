@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { ManualClock } from "../../server/clock";
 import { FakeSource } from "../../server/fake-source";
 import { attentionView } from "../../shared/attention";
-import type { JourneyEvent } from "../../shared/protocol";
+import type { Enrolment as SignerKeyEnrolment, JourneyEvent, PrView } from "../../shared/protocol";
 import {
   askHeadline,
   checksTag,
@@ -13,6 +13,7 @@ import {
   fyiSummary,
   fyiWhy,
   journeyDetail,
+  keyNoteOf,
   reasonsSummary,
   rowTag,
   signaturePips,
@@ -143,5 +144,30 @@ describe("the panel", () => {
     expect(journeyDetail(e({ phase: "now", at: NOW - 5 * 3_600_000 }), NOW, 0)).toBe("5h");
     expect(journeyDetail(e({ at: Date.UTC(2026, 10, 17, 16, 12) }), NOW, 0)).toBe("16:12");
     expect(journeyDetail(e({ phase: "next" }), NOW, 0)).toBe("");
+  });
+});
+
+describe("a key that cannot sign", () => {
+  const key = (enrolment: SignerKeyEnrolment) =>
+    ({
+      state: "locked",
+      key: { fingerprint: "", publicKey: "", location: "", enrolment },
+    }) as const;
+  test("keyNoteOf: the muted note on the board's You column", () => {
+    expect(keyNoteOf(null)).toBeNull();
+    expect(keyNoteOf({ state: "no-key" })).toBe("no key yet");
+    expect(keyNoteOf(key({ state: "active" }))).toBeNull();
+    expect(keyNoteOf(key({ state: "pending", pr: null }))).toBe("key pending");
+    expect(keyNoteOf(key({ state: "not-enrolled" }))).toBe("key not enrolled");
+  });
+
+  test("statusText says it waits on me once the key is enrolled", () => {
+    const waiting = {
+      ...pr(482),
+      needsMe: false,
+      ask: null,
+      waitingOn: [{ kind: "me" }],
+    } as PrView;
+    expect(statusText(waiting, people)).toBe("waits on you, once your key is enrolled");
   });
 });
