@@ -272,6 +272,24 @@ describe("polling", () => {
   });
 });
 
+describe("merged PRs without a summary", () => {
+  test("are quiet history: no error tag, not listed as unclassified", async () => {
+    const t = setup();
+    const merged = rawPr({ number: 21, state: "MERGED", merged: 60 });
+    t.gh.closed.push({ number: 21, updatedAt: iso(60), closedAt: iso(60), raw: merged });
+    t.source.start();
+    await settle();
+    expect(t.pr(21)).toMatchObject({
+      state: "merged",
+      risk: 0,
+      tags: [],
+      needsMe: false,
+      waitingOn: [{ kind: "nothing" }],
+    });
+    expect(t.source.snapshot()!.unclassified).toEqual([]);
+  });
+});
+
 describe("my key", () => {
   test("enrolled: the asks are there; pending or no key: readable, nothing signable", async () => {
     const t = setup();

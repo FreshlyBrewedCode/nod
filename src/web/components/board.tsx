@@ -10,7 +10,7 @@
 import type * as React from "react";
 
 import type { ClusterItem, Item, PrItem } from "../../shared/attention";
-import { selectable } from "../../shared/attention";
+import { kindNames, selectable } from "../../shared/attention";
 import { MINUTE, useNow } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { clusterKey, prKey } from "@/lib/focus";
@@ -27,8 +27,10 @@ export type GroupBy = "wait" | "state";
 export interface BoardColumnView {
   readonly id: string;
   readonly title: string;
+  /** Muted, after the title: "key not enrolled" on my column when my key cannot sign. */
+  readonly note?: string | null;
   readonly count: number;
-  /** The column that waits on me: amber outline, and wider. */
+  /** The column that waits on me and I can act on: amber outline, and wider. */
   readonly you: boolean;
   /** Right of the title: "Sign…", "1 day", "last 24h". */
   readonly aside: React.ReactNode;
@@ -106,14 +108,17 @@ export function Board({
 function BoardColumn({ column }: { column: BoardColumnView }) {
   return (
     <section
-      aria-label={column.title}
+      aria-label={column.note ? `${column.title} · ${column.note}` : column.title}
       className={cn(
         "bg-panel min-h-[120px] min-w-0 rounded-xl border px-2 pb-2",
         column.you ? "border-need-line" : "border-line",
       )}
     >
       <div className="flex h-[46px] items-center gap-2 px-1.5">
-        <h3 className="m-0 text-[13px] font-semibold">{column.title}</h3>
+        <h3 className="m-0 text-[13px] font-semibold">
+          {column.title}
+          {column.note && <span className="text-tx3 font-normal"> · {column.note}</span>}
+        </h3>
         <span className="text-tx3">{column.count}</span>
         <span className="text-tx3 ml-auto text-xs">{column.aside}</span>
       </div>
@@ -326,7 +331,7 @@ function ClusterCard({ cluster }: { cluster: ClusterItem }) {
   const { expanded, toggleCluster, focusRow } = useDashboard();
   const open = expanded.has(cluster.id);
   const key = clusterKey(cluster.id);
-  const text = `${cluster.prs.length} low-risk · ${cluster.kinds.map((k) => k.kind).join(", ")}`;
+  const text = `${cluster.prs.length} low-risk · ${kindNames(cluster.kinds, false).join(", ")}`;
   return (
     <>
       <CardShell

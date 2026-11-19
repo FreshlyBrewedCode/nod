@@ -10,6 +10,8 @@ import {
   cluster,
   clusterKind,
   compareAttention,
+  kindNames,
+  tagWording,
   countByTier,
   lane,
   mergedOnTheirOwn,
@@ -19,6 +21,7 @@ import {
   stateBoardView,
   stateOf,
   tier,
+  waitsOnMyKey,
   type Item,
 } from "./attention";
 import type { PrView } from "./protocol";
@@ -306,6 +309,50 @@ describe("clusters", () => {
     expect(clusterKind(pr({ number: 1 }))).toBe("other");
   });
 
+  test("tags in words: size tags are left out, tier-N, protected, unknown ones stay", () => {
+    expect(tagWording("tier-2")).toBe("tier 2");
+    expect(tagWording("tier 3")).toBe("tier 3");
+    expect(tagWording("protected")).toBe("protected paths");
+    expect(tagWording("deps-only")).toBe("deps");
+    expect(tagWording("ci-config")).toBe("ci-config");
+    expect(clusterKind(pr({ number: 1, tags: ["size:s", "tier-2"] }))).toBe("tier 2");
+    expect(clusterKind(pr({ number: 1, tags: ["size:xl", "protected"] }))).toBe("protected paths");
+    expect(clusterKind(pr({ number: 1, tags: ["size:m", "deps-only", "deps"] }))).toBe("deps");
+    expect(clusterKind(pr({ number: 1, tags: ["size:l"] }))).toBe("other");
+  });
+
+  test("a subtitle from real policy tags reads in words and never prints a raw size", () => {
+    const tags = [
+      ["size:s", "docs"],
+      ["size:s", "docs"],
+      ["size:l", "protected"],
+      ["size:s", "tier-2"],
+      ["size:xl", "tier-2"],
+      ["size:s"],
+    ];
+    const c = cluster(
+      "x",
+      tags.map((t, i) => pr({ number: i + 1, tags: t })),
+    );
+    expect(c.subtitle).toBe("2 tier 2 · 2 docs · 1 other · 1 protected paths");
+    expect(c.subtitle).not.toContain("size");
+  });
+
+  test("at most 4 kinds, then +N more instead of a cut-off word", () => {
+    const kinds = ["a", "b", "c", "d", "e", "f"].map((k, i) => ({ kind: k, count: 6 - i }));
+    expect(kindNames(kinds, true)).toEqual(["6 a", "5 b", "4 c", "3 d", "+2 more"]);
+    expect(kindNames(kinds.slice(0, 4), true)).toEqual(["6 a", "5 b", "4 c", "3 d"]);
+    expect(kindNames(kinds, false)).toEqual(["a", "b", "c", "d", "+2 more"]);
+    const c = cluster(
+      "x",
+      ["docs", "deps", "tier-1", "tier-2", "tier-3", "core"].map((t, i) =>
+        pr({ number: i + 1, tags: [t] }),
+      ),
+    );
+    expect(c.subtitle).toBe("1 core · 1 tier 3 · 1 tier 2 · 1 tier 1 · +2 more");
+    expect(c.kinds).toHaveLength(6);
+  });
+
   test("label, subtitle by count, sums, merged and open, newest first", () => {
     const c = cluster("x", [
       pr({ number: 1, tags: ["tier 1"], lastActivity: { at: NOW - 3 * HOUR, text: "" } }),
@@ -325,6 +372,52 @@ describe("clusters", () => {
     expect(c.subtitle).toBe("2 deps · 1 tier 1");
     expect([c.added, c.removed, c.merged, c.open]).toEqual([12, 7, 1, 2]);
     expect(c.prs.map((p) => p.number)).toEqual([3, 2, 1]);
+  });
+});
+
+describe("a key that cannot sign", () => {
+  /** What the GitHub source makes of a PR that waits on my nod when my key is not enrolled. */
+  const blocked = (over: Partial<PrView> & { number: number }) =>
+    pr({ needsMe: false, ask: null, waitingOn: [{ kind: "me" }], ...over });
+  const asked = (over: Partial<PrView> & { number: number }) =>
+    pr({
+      needsMe: true,
+      ask: { kind: "peer", label: "Sign as peer", then: { outcome: "satisfied" } },
+      waitingOn: [{ kind: "me" }],
+      ...over,
+    });
+
+  test("waitsOnMyKey: an open PR on me without an ask", () => {
+    expect(waitsOnMyKey(blocked({ number: 1 }))).toBe(true);
+    expect(waitsOnMyKey(asked({ number: 1 }))).toBe(false);
+    expect(waitsOnMyKey(blocked({ number: 1, state: "draft" }))).toBe(false);
+    expect(waitsOnMyKey(blocked({ number: 1, state: "merged" }))).toBe(false);
+    expect(waitsOnMyKey(pr({ number: 1 }))).toBe(false);
+  });
+
+  test("it is not folded away: a one-liner, never tier 4, and not selectable", () => {
+    expect(tier(blocked({ number: 1 }))).toBe(3);
+    expect(tier(blocked({ number: 1, mine: true }))).toBe(3);
+    expect(selectable(blocked({ number: 1 }))).toBe(false);
+    expect(tier(asked({ number: 1 }))).toBe(1);
+    const [needs, , background] = attentionView([
+      blocked({ number: 1 }),
+      pr({ number: 2 }),
+      pr({ number: 3 }),
+    ]);
+    expect(needs!.count).toBe(0);
+    expect(show(background!.items)).toEqual(["1/3", "[2 low-risk changes · 2 other]"]);
+  });
+
+  test("the board: the You column says so, and still holds them as cards", () => {
+    const prs = [blocked({ number: 1 }), blocked({ number: 2 }), pr({ number: 3 })];
+    const [me] = boardView(prs, { me: "mara-l", keyNote: "key not enrolled" });
+    expect(me).toMatchObject({ kind: "me", title: "You", note: "key not enrolled", count: 2 });
+    expect(show(me!.items)).toEqual(["1/3", "2/3"]);
+    const [able] = boardView(prs, { me: "mara-l" });
+    expect(able!.note).toBeNull();
+    const others = boardView(prs, { me: "mara-l", keyNote: "key not enrolled" }).slice(1);
+    expect(others.every((c) => c.note === null)).toBe(true);
   });
 });
 
