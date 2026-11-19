@@ -7,7 +7,7 @@
 // The package is `nod serve` and the `@frebreco/nod/kit` helpers. It ships raw
 // TypeScript and requires Bun at runtime; `bin/nod.js` is the guard and
 // launcher. The web app is not in it: the release workflow deploys that to
-// ui.nod.frebreco.de, and `src/server/web-url.ts` (when it exists) picks the
+// ui.nod.frebreco.de, and `src/server/web-url.ts` picks the
 // build matching the version stamped here. So only `src/cli.ts`, `src/server/`,
 // `src/shared/`, `src/kit/` and `src/init/` are staged, plus `templates/` (what
 // `nod init` writes into a repo), and the manifest carries only the
@@ -173,17 +173,13 @@ async function smokeTestTemplates(installed: string): Promise<void> {
 }
 
 /**
- * Checks the channel the staged CLI opens, if `src/server/web-url.ts` exists
- * (it is added by a separate change; until then there is nothing to check).
- * It must export `defaultWebUrl(version)`: the stable URL for `X.Y.Z`, the
+ * Checks the channel the staged CLI opens: `src/server/web-url.ts` must exist
+ * and export `defaultWebUrl(version)`: the stable URL for `X.Y.Z`, the
  * `/next` one for `X.Y.Z-next.N`, a local one for no version.
  */
 async function smokeTestWebUrl(installed: string): Promise<void> {
   const file = join(installed, "src", "server", "web-url.ts");
-  if (!(await Bun.file(file).exists())) {
-    console.warn("nod: src/server/web-url.ts is absent, skipping the channel check.");
-    return;
-  }
+  if (!(await Bun.file(file).exists())) fail("src/server/web-url.ts was not staged.");
   const { defaultWebUrl } = (await import(file)) as {
     defaultWebUrl: (version: string | undefined) => string;
   };

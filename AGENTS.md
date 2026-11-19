@@ -86,8 +86,8 @@ nod
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)
   - conventional commits; PRs are squash-merged and the PR title is the conventional commit
-  - releases (semantic-release, as in canvas; prepared but switched off until
-    `RELEASE_ENABLED` is set, see `docs/release.md`): every merge to `main` publishes
+  - releases (semantic-release, as in canvas; on, behind the repository variable
+    `RELEASE_ENABLED`, see `docs/release.md`): every merge to `main` publishes
     `@frebreco/nod@next` and deploys the web app to `ui.nod.frebreco.de/next`; `release.yml` by
     hand publishes `latest` and deploys the root (`ui.yml` pushes to the `nod-ui` repo, whose Pages
     serve it). The published CLI opens its own channel's web app (`src/server/web-url.ts`). The
@@ -97,7 +97,7 @@ nod
     the repo or its PRs; fake data uses fictional people and repos
 
 - the site (`site/`): the landing page and the user docs, served at
-  `https://freshlybrewedcode.github.io/nod/` until the custom domain `nod.frebreco.de` is set. Astro, its own
+  `https://nod.frebreco.de/` (the Pages custom domain of this repo). Astro, its own
   package with its own `bun.lock` (`cd site && bun install`), copied from canvas's site; the root
   `bun run check` does not cover it, CI builds it in the `site` job
   - `bun run check`, `bun run build`, `bun run preview` (builds, then serves `dist/` on :4519; the
