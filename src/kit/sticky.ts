@@ -5,6 +5,7 @@
  * nobody gets pinged.
  */
 import { RISK_NAMES } from "./classifiers/types.ts";
+import { GITHUB_COM, hostName } from "./host.ts";
 import { checkTitle, type CheckSummary } from "./summary.ts";
 
 /** First line of the sticky comment; how the verifier finds its own comment again. */
@@ -15,33 +16,57 @@ export function isStickyComment(body: string): boolean {
   return body.trimStart().startsWith(STICKY_MARKER);
 }
 
-/** The UI link for a PR: `<uiBase>/#/pr/<owner>/<repo>/<n>`. */
-export function prDeepLink(uiBase: string, repo: string, pr: number): string {
+/**
+ * The path segments naming a repo in a deep link: `<owner>/<repo>` on
+ * github.com, `<host>/<owner>/<repo>` on any other host. A link without a
+ * host is a github.com link, so a link for one host can never match a repo
+ * of the same name on another.
+ */
+function linkRepo(repo: string, host: string | undefined): string {
   const [owner = "", name = ""] = repo.split("/");
-  return `${uiBase.replace(/\/+$/, "")}/#/pr/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${pr}`;
+  const path = `${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  if (host === undefined) return path;
+  const h = hostName(host);
+  if (!h) throw new Error(`not a GitHub host: ${host}`);
+  return h === GITHUB_COM ? path : `${encodeURIComponent(h)}/${path}`;
 }
 
 /**
- * The UI link for a batch: `<uiBase>/#/batch/<owner>/<repo>/<n>,<n>,…`. It
- * opens the batch dialog's review step for the PRs that still need the
- * reader; like every link it never approves by itself. Duplicates are
- * dropped; the order is kept.
+ * The UI link for a PR: `<uiBase>/#/pr/<owner>/<repo>/<n>`, and
+ * `<uiBase>/#/pr/<host>/<owner>/<repo>/<n>` when `host` (a host name or the
+ * server URL, e.g. `GITHUB_SERVER_URL`) is not github.com.
  */
-export function batchDeepLink(uiBase: string, repo: string, prs: ReadonlyArray<number>): string {
-  const [owner = "", name = ""] = repo.split("/");
+export function prDeepLink(uiBase: string, repo: string, pr: number, host?: string): string {
+  return `${uiBase.replace(/\/+$/, "")}/#/pr/${linkRepo(repo, host)}/${pr}`;
+}
+
+/**
+ * The UI link for a batch: `<uiBase>/#/batch/[<host>/]<owner>/<repo>/<n>,<n>,…`
+ * (the host as in {@link prDeepLink}). It opens the batch dialog's review
+ * step for the PRs that still need the reader; like every link it never
+ * approves by itself. Duplicates are dropped; the order is kept.
+ */
+export function batchDeepLink(
+  uiBase: string,
+  repo: string,
+  prs: ReadonlyArray<number>,
+  host?: string,
+): string {
   const numbers = [...new Set(prs)].filter((n) => Number.isInteger(n) && n > 0);
-  return `${uiBase.replace(/\/+$/, "")}/#/batch/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${numbers.join(",")}`;
+  return `${uiBase.replace(/\/+$/, "")}/#/batch/${linkRepo(repo, host)}/${numbers.join(",")}`;
 }
 
 /**
  * Renders the sticky comment for a summary. `uiBase` is the UI's origin,
- * e.g. `https://ui.nod.frebreco.de`. A link never approves by itself.
+ * e.g. `https://ui.nod.frebreco.de`; `host` the repo's GitHub host or server
+ * URL (`GITHUB_SERVER_URL`), which the link names unless it is github.com. A
+ * link never approves by itself.
  */
 export function renderSticky(
   summary: CheckSummary,
-  options: { uiBase: string; maxReasons?: number },
+  options: { uiBase: string; host?: string; maxReasons?: number },
 ): string {
-  const { uiBase, maxReasons = 10 } = options;
+  const { uiBase, host, maxReasons = 10 } = options;
   const lines: string[] = [STICKY_MARKER];
   lines.push(
     `**nod** · ${summary.category} · risk ${RISK_NAMES[summary.risk]} · ${escapeMd(checkTitle(summary))}`,
@@ -102,7 +127,7 @@ export function renderSticky(
 
   lines.push(
     "",
-    `[Open in nod](${prDeepLink(uiBase, summary.repo, summary.pr)}) to look and nod. A link never approves by itself.`,
+    `[Open in nod](${prDeepLink(uiBase, summary.repo, summary.pr, host)}) to look and nod. A link never approves by itself.`,
   );
   return `${lines.join("\n")}\n`;
 }

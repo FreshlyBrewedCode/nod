@@ -219,4 +219,24 @@ describe("github helpers", () => {
     );
     expect(calls[0]!.url).toBe("https://ghe.example.test/api/v3/repos/acme/widgets/pulls/6");
   });
+
+  test("the token stays with apiUrl: a redirect to another host is refused, not followed", async () => {
+    const { calls, options } = fake({
+      "GET /repos/acme/widgets/pulls/6": () =>
+        new Response(null, {
+          status: 307,
+          headers: { location: "https://api.github.com.example.test/x" },
+        }),
+    });
+    await expect(getPullRequest(options, 6)).rejects.toThrow(/refusing to send the token/);
+    expect(calls.map((c) => c.url)).toEqual(["https://api.github.com/repos/acme/widgets/pulls/6"]);
+    // GHE.com: managed users own repos too.
+    const ghe = fake({});
+    await getPullRequest(
+      { ...ghe.options, repo: "mona_acme/widgets", apiUrl: "https://api.acme.ghe.com" },
+      6,
+    ).catch(() => {});
+    expect(ghe.calls[0]!.url).toBe("https://api.acme.ghe.com/repos/mona_acme/widgets/pulls/6");
+    expect(ghe.calls[0]!.headers.authorization).toBe("Bearer tok-123");
+  });
 });

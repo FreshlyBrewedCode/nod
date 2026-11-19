@@ -48,7 +48,7 @@ export function DetailPanel({
   width: number;
   onClose: () => void;
 }) {
-  const { snapshot } = useDashboard();
+  const { snapshot, github } = useDashboard();
   return (
     <aside className="bg-panel h-full overflow-auto" aria-label="Details">
       <div className="bg-panel border-line sticky top-0 z-10 flex items-center gap-2 border-b py-3 pr-4 pl-6">
@@ -68,7 +68,12 @@ export function DetailPanel({
             </a>
             <a
               className="border-line text-tx2 hover:text-tx grid size-7 place-items-center rounded-[7px] border"
-              href={formatRoute({ view: "pr", repo: snapshot.repo, number: pr.number })}
+              href={formatRoute({
+                view: "pr",
+                host: github.host,
+                repo: snapshot.repo,
+                number: pr.number,
+              })}
               title="Link to this pull request"
             >
               <Maximize2 className="size-[13px]" />

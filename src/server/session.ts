@@ -17,6 +17,7 @@ import type {
   SignerState,
   Welcome,
 } from "../shared/protocol";
+import { ghLoginCommand } from "../kit/host.ts";
 import { PROTOCOL_VERSION } from "../shared/protocol";
 import type { Clock } from "./clock";
 import { commentBody, humanLine, payloadLine } from "./payload";
@@ -178,6 +179,7 @@ export class Session {
       fake,
       me: await this.me(),
       repo: source.repo(),
+      github: source.github(),
       setup: await source.setup(),
       signer: this.signerState(),
     };
@@ -205,7 +207,13 @@ export class Session {
     };
     const needMe = async () => {
       const me = await this.me();
-      if (!me) throw new RequestFailure("github", "`gh` is not logged in. Run `gh auth login`.");
+      if (!me) {
+        const { host } = source.github();
+        throw new RequestFailure(
+          "github",
+          `\`gh\` is not logged in to ${host}. Run \`${ghLoginCommand(host)}\`.`,
+        );
+      }
       return me;
     };
     const needKey = () => {

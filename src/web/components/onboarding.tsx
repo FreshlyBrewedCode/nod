@@ -18,6 +18,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefOb
 import {
   MIN_PASSPHRASE_LENGTH,
   type Account,
+  type GitHubInfo,
   type Person,
   type PrLink,
   type RepoChoice,
@@ -45,6 +46,7 @@ import {
   type StepNumber,
 } from "@/lib/onboarding";
 import { formatRoute } from "@/lib/route";
+import { GITHUB_COM, ghLoginCommand } from "../../kit/host.ts";
 import { duration } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { Logo, TopBarShell } from "./top-bar";
@@ -208,6 +210,8 @@ function useRequest() {
 
 export interface OnboardingProps {
   readonly me: Account | null;
+  /** The GitHub host `nod serve` reads. */
+  readonly github: GitHubInfo;
   readonly setup: SetupStatus;
   readonly signer: SignerState;
   readonly people: ReadonlyArray<Person>;
@@ -337,11 +341,13 @@ function Heading({ title, children }: { title: string; children: ReactNode }) {
 function GitHubStep({
   progress,
   me,
+  github,
   setup,
   actions,
   onNext,
 }: OnboardingProps & { progress: Progress; onNext: () => void }) {
   const now = useNow(MINUTE);
+  const onGitHubCom = github.host === GITHUB_COM;
   const [repos, setRepos] = useState<ReadonlyArray<RepoChoice> | null>(null);
   const list = useRequest();
   const pick = useRequest();
@@ -395,9 +401,15 @@ function GitHubStep({
               : "a token without classic scopes (fine-grained or an app)"}
           </Check>
         ) : (
-          <Check mark="bad" title="Not signed in to GitHub" note="nothing changed">
-            nod uses the login of the <Mono>gh</Mono> command line tool. Run{" "}
-            <Mono>gh auth login</Mono> in a terminal, then restart <Mono>nod serve</Mono>.
+          <Check
+            mark="bad"
+            title={onGitHubCom ? "Not signed in to GitHub" : `Not signed in to ${github.host}`}
+            note="nothing changed"
+          >
+            nod uses the login of the <Mono>gh</Mono> command line tool
+            {onGitHubCom ? "" : ` for ${github.host}, the host of this clone's origin`}. Run{" "}
+            <Mono>{ghLoginCommand(github.host)}</Mono> in a terminal, then restart{" "}
+            <Mono>nod serve</Mono>.
           </Check>
         )}
       </Checks>
@@ -810,6 +822,7 @@ function CreateKey({
 function Enrol({
   progress,
   me,
+  github,
   setup,
   signer,
   people,
@@ -836,7 +849,7 @@ function Enrol({
 
   const copyAsk = async (pr: PrLink) => {
     if (!setup.repo) return;
-    const link = `${window.location.origin}${window.location.pathname}${formatRoute({ view: "pr", repo: setup.repo, number: pr.number })}`;
+    const link = `${window.location.origin}${window.location.pathname}${formatRoute({ view: "pr", host: github.host, repo: setup.repo, number: pr.number })}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);

@@ -3,6 +3,7 @@
  * merges under the old rule, the one step a repo admin takes after the
  * merge, and the honest limits of Actions mode (ADR 0003).
  */
+import { GITHUB_COM, githubHost } from "../kit/host.ts";
 import { RULESET_NAME } from "./ruleset.ts";
 import type { Signer } from "./setup-files.ts";
 
@@ -12,9 +13,29 @@ export const SETUP_PR_TITLE = "chore: set up nod (.nod/ and the verifier workflo
 /** Branch the setup is committed on. */
 export const SETUP_BRANCH = "nod/setup";
 
+/** The command a repo admin runs after the setup PR merged; `--host` off github.com. */
+export function rulesetCommand(host: string, repo: string): string {
+  return `nod init --ruleset --repo ${repo}${host === GITHUB_COM ? "" : ` --host ${host}`}`;
+}
+
+/**
+ * What a runner on an Enterprise host needs for the kit pin, in one
+ * sentence; null on github.com. A git pin comes from github.com, a version
+ * range from the npm registry.
+ */
+export function kitAccessNote(host: string, kitSpec: string): string | null {
+  if (host === GITHUB_COM) return null;
+  const where = /^(github:|git\+|https?:)/.test(kitSpec)
+    ? "github.com (it is a git dependency)"
+    : "the npm registry, registry.npmjs.org (it is a version range), or an npm mirror your runners use";
+  return `This repository is on ${host}: the verifier's runner installs the kit pin from ${where}, so the runners need outbound access there, or \`nod init --kit\` must point at a copy they can reach.`;
+}
+
 export interface SetupPrContext {
   /** `owner/name`. */
   repo: string;
+  /** The GitHub host (`github.com`, `acme.ghe.com`, …); default github.com. */
+  host?: string;
   defaultBranch: string;
   signers: readonly Signer[];
   /** The kit dependency written to `.nod/package.json`. */
@@ -25,6 +46,12 @@ export interface SetupPrContext {
 /** The setup PR's body, in Markdown. */
 export function setupPrBody(ctx: SetupPrContext): string {
   const { repo, defaultBranch, signers, kitSpec, isPrivate } = ctx;
+  const host = ctx.host ?? GITHUB_COM;
+  const kitNote = kitAccessNote(host, kitSpec);
+  const actionsNote =
+    githubHost(host).kind !== "server"
+      ? null
+      : "On GitHub Enterprise Server the workflow's actions (`actions/checkout`, `oven-sh/setup-bun`) come from github.com: they need GitHub Connect's access to GitHub.com actions, or copies synced to this server.";
   const code = (s: string) => `\`${s.replace(/`/g, "'")}\``;
   const who = signers.length
     ? signers.map((s) => code(s.login)).join(", ")
@@ -45,6 +72,8 @@ export function setupPrBody(ctx: SetupPrContext): string {
     "| `.nod/.gitignore` | Keeps `.nod/node_modules` out of git. |",
     "| `.github/workflows/nod.yml` | Runs `.nod/verify.ts` on every PR event and PR comment. It checks out the default branch only, never code from the PR, and its job is deliberately not named `nod`. |",
     "",
+    ...(kitNote ? [kitNote, ""] : []),
+    ...(actionsNote ? [actionsNote, ""] : []),
     "## This PR merges under the current rules",
     "",
     "The verifier does not exist until this PR is merged, so this PR cannot be gated by it. Review it like any other change and merge it the way this repository merges today. From then on, every change to `.nod/` or `.github/workflows/` needs a peer's nod, this setup included.",
@@ -54,7 +83,7 @@ export function setupPrBody(ctx: SetupPrContext): string {
     `Make \`nod\` the gate of \`${defaultBranch}\` and turn on auto-merge. Either run`,
     "",
     "```sh",
-    `nod init --ruleset --repo ${repo}`,
+    rulesetCommand(host, repo),
     "```",
     "",
     "or set it up by hand:",

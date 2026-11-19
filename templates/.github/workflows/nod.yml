@@ -7,6 +7,13 @@
 # - the job is not named `nod`: its own job check would be a green `nod`
 # - ${{ }} only ever expands numbers and fixed strings
 # - third-party actions are pinned by commit SHA
+#
+# GitHub Enterprise: the verifier reads GITHUB_API_URL and GITHUB_SERVER_URL,
+# so it runs on any host. The two actions below and the kit pin in
+# .nod/package.json come from github.com (or npm): on GHE.com Actions falls
+# back to github.com for them; on GitHub Enterprise Server they need GitHub
+# Connect's access to github.com actions, or copies synced to the server, and
+# the runner needs to reach wherever the kit pin points.
 name: nod
 
 on:

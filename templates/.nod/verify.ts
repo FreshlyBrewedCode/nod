@@ -71,6 +71,8 @@ const env = (name: string): string => {
 };
 
 const repo = env("GITHUB_REPOSITORY");
+// The host this runs on, as Actions says it: github.com, <name>.ghe.com or a
+// GitHub Enterprise Server. Every call and link below derives from these two.
 const apiUrl = process.env.GITHUB_API_URL ?? "https://api.github.com";
 const serverUrl = process.env.GITHUB_SERVER_URL ?? "https://github.com";
 
@@ -174,7 +176,8 @@ async function verify(pr: PullRequest): Promise<CheckSummary> {
 
 /** Steps 7 and 8: tell GitHub. The check is the gate; the rest is display. */
 async function report(pr: PullRequest, summary: CheckSummary): Promise<void> {
-  const sticky = renderSticky(summary, { uiBase: UI_BASE });
+  // The link names the host off github.com, so it never opens a same-named repo elsewhere.
+  const sticky = renderSticky(summary, { uiBase: UI_BASE, host: serverUrl });
 
   // 7. The check run `nod` on the head SHA: the only thing the ruleset reads.
   await createCheckRun(checks, {
@@ -183,7 +186,7 @@ async function report(pr: PullRequest, summary: CheckSummary): Promise<void> {
     title: checkTitle(summary),
     summary: sticky,
     text: encodeSummary(summary),
-    details_url: prDeepLink(UI_BASE, repo, pr.number),
+    details_url: prDeepLink(UI_BASE, repo, pr.number, serverUrl),
   });
   console.log(`nod ${checkConclusion(summary)} on ${pr.head_sha}: ${checkTitle(summary)}`);
 

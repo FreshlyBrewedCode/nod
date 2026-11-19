@@ -7,10 +7,14 @@
  * head are fetched into it by id (`refs/nod/base`, the kit's
  * `fetchPullRequestObjects`), nothing is checked out, and the working tree
  * and the user's branches are never touched.
+ *
+ * The GitHub host comes from the clone's remote, once (`--host` overrides
+ * it); every URL `nod serve` uses derives from it (`kit/host.ts`).
  */
 
 import { resolve } from "node:path";
 
+import { githubHost, parseRemote, type GitHubHost } from "../../kit/host.ts";
 import { fetchPullRequestObjects, gitEnv, patchId } from "../../kit/patch-id.ts";
 
 export class CloneError extends Error {
@@ -22,15 +26,10 @@ export interface Clone {
   readonly dir: string;
   /** `owner/name`, as the remote spells it. */
   readonly repo: string;
-}
-
-/** `owner/name` of a GitHub remote URL (https, ssh, git), else null. */
-export function githubRepoOf(url: string): string | null {
-  const m =
-    /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|ssh:\/\/git@github\.com(?::\d+)?\/|git@github\.com:|git:\/\/github\.com\/)([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(
-      url.trim(),
-    );
-  return m ? `${m[1]}/${m[2]}` : null;
+  /** The GitHub host, from the remote (or `--host`). */
+  readonly host: GitHubHost;
+  /** The remote's fetch URL, as it is: patch-id fetches go there. */
+  readonly remoteUrl: string;
 }
 
 function gitSync(dir: string, args: string[]): { ok: boolean; out: string } {
@@ -44,10 +43,11 @@ function gitSync(dir: string, args: string[]): { ok: boolean; out: string } {
 
 /**
  * The clone in `dir` and the repo it is a clone of: `repo` when given (one
- * of its remotes must point at it), else its `origin`. Throws `CloneError`
- * with a sentence for the user otherwise.
+ * of its remotes must point at it), else its `origin`. The host is that
+ * remote's, unless `host` overrides it (needed when the remote names an ssh
+ * alias). Throws `CloneError` with a sentence for the user otherwise.
  */
-export function resolveClone(dir: string, repo: string | null): Clone {
+export function resolveClone(dir: string, repo: string | null, host: string | null = null): Clone {
   const abs = resolve(dir);
   const top = gitSync(abs, ["rev-parse", "--show-toplevel"]);
   if (!top.ok)
@@ -57,24 +57,39 @@ export function resolveClone(dir: string, repo: string | null): Clone {
   const remotes = gitSync(top.out, ["remote", "-v"])
     .out.split("\n")
     .map((l) => l.split(/\s+/))
-    .filter((p) => p.length >= 2)
-    .map(([name, url]) => ({ name: name!, repo: githubRepoOf(url!) }));
+    .filter((p) => p.length >= 3 && p[2] === "(fetch)")
+    .map(([name, url]) => ({ name: name!, url: url!, remote: parseRemote(url!) }));
+  let hit: (typeof remotes)[number];
   if (repo) {
-    const hit = remotes.find((r) => r.repo && r.repo.toLowerCase() === repo.toLowerCase());
-    if (!hit)
+    const found = remotes.find((r) => r.remote?.repo.toLowerCase() === repo.toLowerCase());
+    if (!found)
       throw new CloneError(
         `${top.out} is not a clone of ${repo} (no remote points at it). nod serve computes patch-ids in a clone of the repository: pass --dir <a clone of ${repo}>.`,
       );
-    return { dir: top.out, repo: hit.repo! };
+    hit = found;
+  } else {
+    const origin = remotes.find((r) => r.name === "origin");
+    if (!origin)
+      throw new CloneError(`${top.out} has no remote named origin; pass --repo <owner/name>.`);
+    hit = origin;
   }
-  const origin = remotes.find((r) => r.name === "origin");
-  if (!origin)
-    throw new CloneError(`${top.out} has no remote named origin; pass --repo <owner/name>.`);
-  if (!origin.repo)
+  const remote = hit.remote;
+  if (!remote)
     throw new CloneError(
-      `origin of ${top.out} is not a GitHub repository; nod reads pull requests from github.com.`,
+      `${hit.name} of ${top.out} is not a GitHub repository; nod reads pull requests from github.com, GHE.com or GitHub Enterprise Server.`,
     );
-  return { dir: top.out, repo: origin.repo };
+  if (!host && remote.alias)
+    throw new CloneError(
+      `${hit.name} of ${top.out} points at the ssh host "${remote.host}", which looks like an alias from your ssh config, and nod cannot resolve it. Pass --host with the real host: github.com, <name>.ghe.com or your GitHub Enterprise Server.`,
+    );
+  let resolved: GitHubHost;
+  try {
+    resolved = githubHost(host ?? remote.host);
+  } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    throw new CloneError(host ? `--host: ${why}` : `${hit.name} of ${top.out}: ${why}`);
+  }
+  return { dir: top.out, repo: remote.repo, host: resolved, remoteUrl: hit.url };
 }
 
 /** Computes a PR's patch-id. The seam the tests replace. */
@@ -84,15 +99,17 @@ export interface PatchIds {
 }
 
 /**
- * Patch-ids from the clone: the base branch and the head fetched from
- * GitHub (https, with the token in an extra header, never in a URL), one at
- * a time, as the kit's single `refs/nod/base` asks.
+ * Patch-ids from the clone: the base branch and the head fetched from the
+ * remote as it is (by URL, so no remote-tracking ref moves), one at a time,
+ * as the kit's single `refs/nod/base` asks. Over https the token rides in
+ * an extra header scoped to the host's web URL, never in a URL, and git
+ * sends it nowhere else; over ssh git uses the user's own ssh setup.
  */
 export function clonePatchIds(
   clone: Clone,
   token: () => string | null,
-  /** Where to fetch from (tests: a local bare repo). */
-  remote = `https://github.com/${clone.repo}.git`,
+  /** Where to fetch from (default the remote's URL; tests: a local bare repo). */
+  remote = clone.remoteUrl,
 ): PatchIds {
   let queue: Promise<unknown> = Promise.resolve();
   return {
@@ -104,6 +121,7 @@ export function clonePatchIds(
           base,
           headSha,
           remote,
+          serverUrl: `${clone.host.webUrl}/`,
           ...(t ? { token: t } : {}),
         });
         return patchId({ repoDir: clone.dir, baseTip, head: headSha });

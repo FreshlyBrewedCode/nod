@@ -5,7 +5,8 @@
  * button opens the normal batch dialog.
  */
 
-import type { PrView, Snapshot, UnclassifiedPr } from "../../shared/protocol";
+import { GITHUB_COM, githubHost } from "../../kit/host.ts";
+import type { GitHubInfo, PrView, Snapshot, UnclassifiedPr, Welcome } from "../../shared/protocol";
 import { linkNumbers, type LinkRoute } from "./route";
 import { duration } from "./time";
 import { namesOf, statusText, type People } from "./wording";
@@ -19,8 +20,17 @@ export interface LinkTarget {
 }
 
 export type Landing =
-  /** The link is for another repo than the one `nod serve` reads. */
-  | { readonly kind: "other-repo"; readonly repo: string; readonly here: string }
+  /**
+   * The link is for another repo than the one `nod serve` reads, or for one
+   * of the same name on another host. `repo` and `here` name the host when
+   * it is not github.com; `webUrl` is the web UI of the link's host.
+   */
+  | {
+      readonly kind: "other-repo";
+      readonly repo: string;
+      readonly here: string;
+      readonly webUrl: string;
+    }
   | {
       readonly kind: "found";
       readonly targets: ReadonlyArray<LinkTarget>;
@@ -32,9 +42,36 @@ export type Landing =
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
+/** github.com, for a server that does not say its host (older than the field). */
+const GITHUB_DOT_COM: GitHubInfo = { host: GITHUB_COM, webUrl: githubHost(GITHUB_COM).webUrl };
+
+/** The GitHub host the connected `nod serve` reads; github.com before the welcome. */
+export function githubOf(welcome: Pick<Welcome, "github"> | null | undefined): GitHubInfo {
+  return welcome?.github ?? GITHUB_DOT_COM;
+}
+
+/** A host's web UI, e.g. `https://acme.ghe.com`. */
+export function webUrlOf(host: string): string {
+  try {
+    return githubHost(host).webUrl;
+  } catch {
+    return GITHUB_DOT_COM.webUrl;
+  }
+}
+
 /** The PR on GitHub, for links that cannot be shown here. */
-export function githubPrUrl(repo: string, pr: number): string {
-  return `https://github.com/${repo}/pull/${pr}`;
+export function githubPrUrl(webUrl: string, repo: string, pr: number): string {
+  return `${webUrl}/${repo}/pull/${pr}`;
+}
+
+/** The repo's pull requests on GitHub. */
+export function githubPullsUrl(webUrl: string, repo: string): string {
+  return `${webUrl}/${repo}/pulls`;
+}
+
+/** How a link's repo is named on screen: `owner/name`, or `host/owner/name` off github.com. */
+export function repoLabel(host: string, repo: string): string {
+  return host === GITHUB_COM ? repo : `${host}/${repo}`;
 }
 
 /**
@@ -64,9 +101,23 @@ export function whyNotNeeded(pr: PrView, people: People, now: number): string | 
   return `nothing needed from you: ${statusText(pr, people)}`;
 }
 
-export function landingOf(route: LinkRoute, snapshot: Snapshot, now: number): Landing {
-  if (!same(route.repo, snapshot.repo))
-    return { kind: "other-repo", repo: route.repo, here: snapshot.repo };
+/**
+ * What a link lands on. `github` is the host `nod serve` reads: a link for
+ * another host is another repository, even when `owner/name` match.
+ */
+export function landingOf(
+  route: LinkRoute,
+  snapshot: Snapshot,
+  now: number,
+  github: GitHubInfo,
+): Landing {
+  if (!same(route.host, github.host) || !same(route.repo, snapshot.repo))
+    return {
+      kind: "other-repo",
+      repo: repoLabel(route.host, route.repo),
+      here: repoLabel(github.host, snapshot.repo),
+      webUrl: webUrlOf(route.host),
+    };
   const targets: LinkTarget[] = [];
   const unclassified: UnclassifiedPr[] = [];
   const missing: number[] = [];

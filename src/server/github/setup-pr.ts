@@ -15,6 +15,8 @@ export interface SetupPrInput {
   /** The clone's root. */
   readonly dir: string;
   readonly repo: string;
+  /** The GitHub host of the repo: every `gh` call `nod init` makes names it. */
+  readonly host: string;
   readonly login: string;
   /** `ssh-ed25519 AAAA…`: the first allowed signer. */
   readonly publicKey: string;
@@ -38,6 +40,7 @@ export async function openSetupPrWithInit(input: SetupPrInput): Promise<string> 
     const url = await setupRepo(
       {
         repo: input.repo,
+        host: input.host,
         dir: tree,
         signers: [`${input.login} ${input.publicKey}`],
         signerKeys: [],

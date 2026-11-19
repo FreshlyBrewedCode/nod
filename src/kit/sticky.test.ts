@@ -133,6 +133,43 @@ test("prDeepLink", () => {
   );
 });
 
+test("deep links name the host off github.com, in the sticky comment too", () => {
+  expect(prDeepLink("https://ui.example.test", "acme/widgets", 12, "https://acme.ghe.com")).toBe(
+    "https://ui.example.test/#/pr/acme.ghe.com/acme/widgets/12",
+  );
+  expect(prDeepLink("https://ui.example.test", "acme/widgets", 12, "https://github.com")).toBe(
+    "https://ui.example.test/#/pr/acme/widgets/12",
+  );
+  expect(batchDeepLink("https://ui.example.test", "acme/widgets", [1, 2], "git.example.test")).toBe(
+    "https://ui.example.test/#/batch/git.example.test/acme/widgets/1,2",
+  );
+  expect(() => prDeepLink("https://ui.example.test", "acme/widgets", 1, "not a host")).toThrow();
+  const summary = buildSummary({
+    pr: {
+      repo: "acme/widgets",
+      number: 2,
+      author: "mona_acme",
+      base: "main",
+      head_sha: "a".repeat(40),
+      patch_id: "",
+    },
+    policy: {
+      category: "decide",
+      risk: 3,
+      requirement: { level: "peer", named: [] },
+      fyi: false,
+      reasons: [],
+      rules: [],
+      errors: [],
+    },
+    nods: { nods: [], satisfied: false, missing: [{ kind: "peer" }] },
+    signers: [],
+  });
+  expect(
+    renderSticky(summary, { uiBase: "https://ui.example.test", host: "https://acme.ghe.com" }),
+  ).toContain("(https://ui.example.test/#/pr/acme.ghe.com/acme/widgets/2)");
+});
+
 test("batchDeepLink", () => {
   expect(batchDeepLink("https://ui.nod.frebreco.de/next/", "acme/widgets", [12, 7, 12])).toBe(
     "https://ui.nod.frebreco.de/next/#/batch/acme/widgets/12,7",

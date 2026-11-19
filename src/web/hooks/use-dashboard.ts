@@ -6,12 +6,14 @@
 
 import { createContext, useContext } from "react";
 
-import type { Person, Snapshot } from "../../shared/protocol";
+import type { GitHubInfo, Person, Snapshot } from "../../shared/protocol";
 import type { FocusKey } from "@/lib/focus";
 import type { Selection } from "@/lib/selection";
 
 export interface DashboardState {
   readonly snapshot: Snapshot;
+  /** The GitHub host the snapshot's repo is on. */
+  readonly github: GitHubInfo;
   readonly me: string;
   readonly people: ReadonlyArray<Person>;
   readonly focus: FocusKey | null;

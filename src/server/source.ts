@@ -14,6 +14,7 @@
 import type {
   Account,
   Enrolment,
+  GitHubInfo,
   PrLink,
   PrState,
   RepoChoice,
@@ -91,6 +92,8 @@ export interface Source {
   listRepos(): Promise<ReadonlyArray<RepoChoice>>;
   /** The picked repo; null before onboarding step 1. */
   repo(): RepoName | null;
+  /** The GitHub host the repo is on (from the clone's origin; the fake: github.com). */
+  github(): GitHubInfo;
   /** Throws `SourceError` `not-found` / `forbidden`. */
   pickRepo(repo: RepoName): Promise<void>;
   /** The dashboard's state for the account, from the last read; null without a repo. */

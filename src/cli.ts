@@ -6,6 +6,7 @@
 import { parseArgs as parseFlags } from "node:util";
 
 import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
+import { githubHost } from "./kit/host.ts";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
@@ -24,6 +25,8 @@ export interface ServeFlags {
   readonly frozen: boolean;
   readonly port: number;
   readonly repo: string | null;
+  /** The GitHub host (default: the clone's origin's). */
+  readonly host: string | null;
   /** The clone to read (default: the current folder). */
   readonly dir: string | null;
   /** Seconds between two reads of GitHub (default 60). */
@@ -57,6 +60,9 @@ serve options:
                       fetches PR objects into it (refs/nod/*) to compute
                       patch-ids, and never checks anything out
   --repo <owner/name> the repository (default: the clone's origin)
+  --host <host>       its GitHub host: github.com, <name>.ghe.com or a GitHub
+                      Enterprise Server (default: the host of the clone's
+                      origin; needed when origin names an ssh alias)
   --poll <seconds>    how often to read GitHub (default 60, at least 10)
   --web-url <url>     the web app to pair with (default: this release's, or
                       the Vite dev server for a checkout; env NOD_WEB_URL)
@@ -103,6 +109,7 @@ function parseServe(args: string[]): Command {
         frozen: { type: "boolean", default: false },
         port: { type: "string" },
         repo: { type: "string" },
+        host: { type: "string" },
         dir: { type: "string" },
         poll: { type: "string" },
         "web-url": { type: "string" },
@@ -129,8 +136,15 @@ function parseServe(args: string[]): Command {
   const poll = values.poll === undefined ? null : Number(values.poll);
   if (poll !== null && (!Number.isFinite(poll) || poll < 10 || poll > 3600))
     return { kind: "error", message: "--poll is a number of seconds from 10 to 3600" };
-  if (values.fake && (values.dir !== undefined || poll !== null))
-    return { kind: "error", message: "--dir and --poll read GitHub; not with --fake" };
+  if (values.fake && (values.dir !== undefined || poll !== null || values.host !== undefined))
+    return { kind: "error", message: "--dir, --host and --poll read GitHub; not with --fake" };
+  if (values.host !== undefined) {
+    try {
+      githubHost(values.host);
+    } catch (error) {
+      return { kind: "error", message: `--host: ${(error as Error).message}` };
+    }
+  }
   const webUrl = values["web-url"] ?? null;
   if (webUrl !== null && !/^https?:\/\/[^/]+/.test(webUrl))
     return { kind: "error", message: "--web-url is an http(s) URL" };
@@ -142,6 +156,7 @@ function parseServe(args: string[]): Command {
       frozen: values.frozen,
       port,
       repo: values.repo ?? null,
+      host: values.host ?? null,
       dir: values.dir ?? null,
       poll,
       webUrl,
@@ -167,6 +182,7 @@ async function runServe(flags: ServeFlags): Promise<number> {
       version: VERSION,
       fake: flags.fake ? { scenario: flags.scenario, live: !flags.frozen } : null,
       repo: flags.repo,
+      host: flags.host,
       ...(flags.dir !== null && { dir: flags.dir }),
       ...(flags.poll !== null && { pollMs: flags.poll * 1000 }),
     });
@@ -180,7 +196,12 @@ async function runServe(flags: ServeFlags): Promise<number> {
     return 1;
   }
 
-  const what = flags.fake ? `fake data (scenario ${flags.scenario})` : "GitHub";
+  const { host } = started.source.github();
+  const what = flags.fake
+    ? `fake data (scenario ${flags.scenario})`
+    : host === "github.com"
+      ? "GitHub"
+      : `GitHub on ${host}`;
   console.log(
     `nod serve on ${started.wsUrl} · ${what} · ${started.source.repo() ?? "no repo yet"}`,
   );

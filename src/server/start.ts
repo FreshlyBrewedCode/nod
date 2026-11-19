@@ -26,6 +26,8 @@ export interface StartOptions {
   /** Serve the fake data set instead of GitHub. */
   readonly fake?: { readonly scenario: FakeScenario; readonly live: boolean } | null;
   readonly repo?: string | null;
+  /** The GitHub host; default: the one of the clone's remote (`--host`, for an ssh alias). */
+  readonly host?: string | null;
   /** The clone the GitHub source reads patch-ids from (default: the current folder). */
   readonly dir?: string;
   /** How often the GitHub source polls (default 60 s). */
@@ -64,6 +66,7 @@ export function start(options: StartOptions): Started {
     : githubSource({
         clock,
         repo: options.repo ?? null,
+        host: options.host ?? null,
         ...(options.dir !== undefined && { dir: options.dir }),
         ...(options.pollMs !== undefined && { pollMs: options.pollMs }),
         ...(options.version && { version: options.version }),

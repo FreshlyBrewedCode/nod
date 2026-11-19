@@ -2,7 +2,7 @@
  * `nod init` with real git and a fake `gh` and `bun`: the files land on
  * `nod/setup`, get committed and pushed, and the setup PR is opened.
  */
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -18,6 +18,7 @@ const SHA = "5a6fb495d7936dbe15069979607003fab4dc71e5";
 
 const flags = (over: Partial<InitFlags> = {}): InitFlags => ({
   repo: null,
+  host: null,
   dir: null,
   signers: [`alice ${KEY}`],
   signerKeys: [],
@@ -32,6 +33,8 @@ const flags = (over: Partial<InitFlags> = {}): InitFlags => ({
 let repo: Awaited<ReturnType<typeof tempRepo>>;
 let origin: Awaited<ReturnType<typeof tempDir>>;
 let calls: string[][];
+/** Each call's `GH_HOST` and stdin, in the order of `calls`. */
+let seen: Array<{ host: string | undefined; input: string | undefined }>;
 let prBody: string;
 let lines: string[];
 /** Answers for `gh api …` calls, by the endpoint argument. */
@@ -41,6 +44,7 @@ let api: Record<string, { status: number; stdout: string; stderr?: string }>;
 const runner: Runner = {
   async run(cmd, options) {
     calls.push([...cmd]);
+    seen.push({ host: options?.env?.GH_HOST, input: options?.input });
     if (cmd[0] === "git") return processRunner.run(cmd, options);
     if (cmd[0] === "bun") {
       await writeFile(join(options!.cwd!, "bun.lock"), '{ "lockfileVersion": 1 }\n');
@@ -62,8 +66,11 @@ const runner: Runner = {
       return { status: 0, stdout: "https://github.com/acme/widgets/pull/1\n", stderr: "" };
     }
     if (cmd[1] === "api") {
+      // Every `gh api` names the host it is for.
+      const at = cmd.indexOf("--hostname");
+      if (at < 0 || !cmd[at + 1]) return { status: 2, stdout: "", stderr: "no --hostname" };
       const endpoint = cmd
-        .slice(2)
+        .slice(2, at)
         .find((a) => !a.startsWith("-") && a !== "PUT" && a !== "POST" && a !== "PATCH")!;
       if (endpoint === "user") return { status: 0, stdout: "alice\n", stderr: "" };
       const answer = api[endpoint];
@@ -83,6 +90,7 @@ const deps = () => ({
 
 beforeEach(async () => {
   calls = [];
+  seen = [];
   lines = [];
   prBody = "";
   api = {};
@@ -206,4 +214,77 @@ test("--ruleset says plainly when the plan refuses", async () => {
   };
   expect(await runInit(flags({ ruleset: true }), deps())).toBe(1);
   expect(lines.join("\n")).toContain("Private repositories need GitHub Pro, Team or Enterprise");
+});
+
+describe("on a GitHub Enterprise host", () => {
+  const ruleset = (appId: { status: number; stdout: string; stderr?: string }) => {
+    api = {
+      "repos/acme/widgets/contents/.nod/verify.ts?ref=main": { status: 0, stdout: "" },
+      "apps/github-actions": appId,
+      "repos/acme/widgets/rulesets": { status: 0, stdout: "\n" },
+      "repos/acme/widgets": { status: 0, stdout: "true\n" },
+    };
+  };
+  const ghCalls = () =>
+    calls.map((c, i) => ({ cmd: c, ...seen[i]! })).filter((c) => c.cmd[0] === "gh");
+
+  test("the host comes from origin; every gh call names it; the ruleset pins that host's Actions app", async () => {
+    await repo.git("remote", "set-url", "origin", "https://acme.ghe.com/acme/widgets.git");
+    ruleset({ status: 0, stdout: "31337\n" });
+    expect(await runInit(flags({ ruleset: true }), deps())).toBe(0);
+    const gh = ghCalls();
+    expect(gh.length).toBeGreaterThan(3);
+    for (const c of gh) {
+      expect(c.host).toBe("acme.ghe.com");
+      if (c.cmd[1] === "api") expect(c.cmd.slice(-2)).toEqual(["--hostname", "acme.ghe.com"]);
+    }
+    const post = gh.find((c) => c.cmd.includes("POST"))!;
+    const body = JSON.parse(post.input!) as {
+      rules: Array<{
+        parameters?: {
+          required_status_checks?: Array<{ context: string; integration_id: number }>;
+        };
+      }>;
+    };
+    const checks = body.rules.find((r) => r.parameters?.required_status_checks)!;
+    expect(checks.parameters!.required_status_checks).toEqual([
+      { context: "nod", integration_id: 31337 },
+    ]);
+    expect(lines.join("\n")).toContain("(app 31337)");
+  });
+
+  test("the Actions app cannot be looked up: nothing is pinned, nothing changed", async () => {
+    ruleset({ status: 1, stdout: "", stderr: "gh: Not Found (HTTP 404)" });
+    expect(await runInit(flags({ ruleset: true, host: "git.example.test" }), deps())).toBe(1);
+    expect(lines.join("\n")).toContain(
+      "could not look up the GitHub Actions app on git.example.test",
+    );
+    expect(calls.some((c) => c.includes("POST") || c.includes("PUT"))).toBe(false);
+    expect(ghCalls().every((c) => c.host === "git.example.test")).toBe(true);
+  });
+
+  test("on github.com a failed lookup falls back to the known id 15368", async () => {
+    ruleset({ status: 1, stdout: "", stderr: "gh: timeout" });
+    expect(await runInit(flags({ ruleset: true }), deps())).toBe(0);
+    expect(lines.join("\n")).toContain("(app 15368)");
+    expect(ghCalls().every((c) => c.host === "github.com")).toBe(true);
+  });
+
+  test("the setup PR on GHE.com: -R host/owner/repo, the --host step and the kit pin's needs", async () => {
+    expect(await runInit(flags({ host: "acme.ghe.com" }), deps())).toBe(0);
+    const create = ghCalls().find((c) => c.cmd[1] === "pr")!;
+    expect(create.cmd).toEqual(expect.arrayContaining(["--repo", "acme.ghe.com/acme/widgets"]));
+    expect(create.host).toBe("acme.ghe.com");
+    expect(ghCalls().find((c) => c.cmd[2] === "view")!.host).toBe("acme.ghe.com");
+    expect(prBody).toContain("nod init --ruleset --repo acme/widgets --host acme.ghe.com");
+    expect(prBody).toContain("installs the kit pin from github.com");
+    expect(lines.join("\n")).toContain("--host acme.ghe.com");
+  });
+
+  test("an ssh alias as origin needs --host", async () => {
+    await repo.git("remote", "set-url", "origin", "git@work:acme/widgets.git");
+    expect(await runInit(flags({ ruleset: true }), deps())).toBe(1);
+    expect(lines.join("\n")).toMatch(/ssh host "work".*--host/);
+    expect(calls.some((c) => c[0] === "gh")).toBe(false);
+  });
 });

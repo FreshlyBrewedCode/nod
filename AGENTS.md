@@ -63,7 +63,16 @@ nod
     `lib/deep-link.ts`): `#/pr/<owner>/<repo>/<n>` and `#/batch/<owner>/<repo>/<n>,<n>` (kit:
     `prDeepLink`, `batchDeepLink`) only open views; a link opened before pairing is remembered
     and the host link lands on it (`rememberLink`/`takeLink` in `lib/connection.ts`). The host
-    link may carry a route: `#/pr/…?host=…&token=…`
+    link may carry a route: `#/pr/…?host=…&token=…`. A repo off github.com puts its GitHub host
+    first: `#/pr/<host>/<owner>/<repo>/<n>`, `#/batch/<host>/<owner>/<repo>/…`; a link without
+    one is a github.com link, and the landing compares host and repo with `welcome.github`
+  - GitHub hosts (github.com, `<name>.ghe.com`, GHES; `docs/enterprise.md`): the host comes from
+    the clone's `origin`, once (`--host` overrides; an ssh alias needs it), and
+    `src/kit/host.ts` is the only place that knows the endpoint shapes. The token is
+    `gh auth token --hostname <host>` and goes only to that host's API (`fetchWithToken`,
+    redirects included); `nod init` runs every `gh` with `GH_HOST` and `--hostname`. Tests: the
+    fake GitHub plays a host (`new FakeGitHub(githubHost("acme.ghe.com"))`) and answers only its
+    URL shapes (`misdirected`). Fictional hosts only: `acme.ghe.com`, `git.example.test`
   - the real source without touching `~/.config/nod`: start it from a script calling `start()`
     (`src/server/start.ts`) with `keyFile` and `tokenFile` in a temp folder
   - stale and posting-failure states can't be produced by `--fake`: in a browser check, route
@@ -88,4 +97,5 @@ nod
     the repo or its PRs; fake data uses fictional people and repos
 
 - docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions; `docs/release.md` how releases work and the owner's setup checklist;
+  `docs/enterprise.md` GHE.com and GHES: what works, what it needs, the owner's checklist;
   `docs/findings/` spike and validation evidence; `docs/design/` design system and mockups

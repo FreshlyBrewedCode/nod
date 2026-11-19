@@ -9,8 +9,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+import { GITHUB_COM, githubHost, parseRemote, type GitHubHost } from "../kit/host.ts";
 import type { InitFlags } from "./args.ts";
-import { SETUP_BRANCH, SETUP_PR_TITLE, setupPrBody } from "./pr-body.ts";
+import { rulesetCommand, SETUP_BRANCH, SETUP_PR_TITLE, setupPrBody } from "./pr-body.ts";
 import {
   GITHUB_ACTIONS_APP_ID,
   isPlanRefusal,
@@ -18,7 +19,7 @@ import {
   PLAN_REFUSAL,
   RULESET_NAME,
 } from "./ruleset.ts";
-import { must, processRunner, type Runner } from "./runner.ts";
+import { must, onHost, processRunner, type Runner } from "./runner.ts";
 import {
   defaultKitSpec,
   isRelease,
@@ -73,12 +74,14 @@ export async function setupRepo(
   deps: InitDeps,
   log: (l: string) => void = deps.log ?? ((line: string) => console.log(line)),
 ): Promise<string | null> {
-  const runner = deps.runner ?? processRunner;
+  const plain = deps.runner ?? processRunner;
   const dir = resolve(deps.cwd ?? process.cwd(), flags.dir ?? ".");
-  const root = await must(runner, ["git", "-C", dir, "rev-parse", "--show-toplevel"]);
-  const info = await repoInfo(runner, root, flags.repo);
+  const root = await must(plain, ["git", "-C", dir, "rev-parse", "--show-toplevel"]);
+  const host = await resolveHost(plain, root, flags.host);
+  const runner = onHost(plain, host.name);
+  const info = await repoInfo(runner, host, root, flags.repo);
 
-  const signers = await resolveSigners(runner, root, flags);
+  const signers = await resolveSigners(runner, host, root, flags);
   if (signers.length === 0 && !flags.dryRun) {
     throw new Error(
       'nod needs at least one signer\'s public key: --signer "<login> ssh-ed25519 AAAA…" or --signer-key <file.pub>. Without one, nothing can ever be nodded.',
@@ -89,7 +92,7 @@ export async function setupRepo(
     kitSpec,
     signers,
   });
-  const body = setupPrBody({ ...info, signers, kitSpec });
+  const body = setupPrBody({ ...info, host: host.name, signers, kitSpec });
 
   if (flags.dryRun) {
     await refuseExisting(runner, root, null, flags.force);
@@ -156,7 +159,9 @@ export async function setupRepo(
     await switchBack(runner, root, previous);
     log("--no-pr: not pushed. To open the setup PR:");
     log(`  git push -u origin ${SETUP_BRANCH}`);
-    log(`  gh pr create --repo ${info.repo} --base ${info.defaultBranch} --head ${SETUP_BRANCH}`);
+    log(
+      `  gh pr create --repo ${ghRepo(host, info.repo)} --base ${info.defaultBranch} --head ${SETUP_BRANCH}`,
+    );
     return null;
   }
 
@@ -183,7 +188,7 @@ export async function setupRepo(
         "pr",
         "create",
         "--repo",
-        info.repo,
+        ghRepo(host, info.repo),
         "--base",
         info.defaultBranch,
         "--head",
@@ -202,7 +207,7 @@ export async function setupRepo(
   const prUrl = url.split("\n").pop() ?? url;
   log(`opened the setup PR: ${prUrl}`);
   log("It merges under this repository's current rules. After the merge, a repo admin runs:");
-  log(`  nod init --ruleset --repo ${info.repo}`);
+  log(`  ${rulesetCommand(host.name, info.repo)}`);
   return prUrl;
 }
 
@@ -216,17 +221,21 @@ async function applyRuleset(
   deps: InitDeps,
   log: (l: string) => void,
 ): Promise<number> {
-  const runner = deps.runner ?? processRunner;
-  const dir = resolve(deps.cwd ?? process.cwd(), flags.dir ?? ".");
-  const info = await repoInfo(runner, existsSync(dir) ? dir : undefined, flags.repo);
+  const plain = deps.runner ?? processRunner;
+  const resolved = resolve(deps.cwd ?? process.cwd(), flags.dir ?? ".");
+  const dir = existsSync(resolved) ? resolved : undefined;
+  const host = await resolveHost(plain, dir, flags.host);
+  const runner = onHost(plain, host.name);
+  const api = (...args: string[]) => ghApi(host, args);
+  const info = await repoInfo(runner, host, dir, flags.repo);
   const { repo, defaultBranch } = info;
 
-  const verifier = await runner.run([
-    "gh",
-    "api",
-    `repos/${repo}/contents/.nod/verify.ts?ref=${encodeURIComponent(defaultBranch)}`,
-    "--silent",
-  ]);
+  const verifier = await runner.run(
+    api(
+      `repos/${repo}/contents/.nod/verify.ts?ref=${encodeURIComponent(defaultBranch)}`,
+      "--silent",
+    ),
+  );
   if (verifier.status !== 0 && !flags.force) {
     log(
       `nod init --ruleset: ${repo} has no .nod/verify.ts on ${defaultBranch} yet. Merge the setup PR first: requiring nod before the verifier runs would block every merge. (--force applies it anyway.)`,
@@ -234,15 +243,27 @@ async function applyRuleset(
     return 1;
   }
 
-  const appId = await runner.run(["gh", "api", "apps/github-actions", "--jq", ".id"]);
-  const integrationId = Number(appId.stdout.trim()) || GITHUB_ACTIONS_APP_ID;
-  const existing = await must(runner, [
-    "gh",
-    "api",
-    `repos/${repo}/rulesets`,
-    "--jq",
-    `[.[] | select(.name == "${RULESET_NAME}") | .id] | first // ""`,
-  ]).catch((e: Error) => {
+  // The `nod` check comes from this host's GitHub Actions app; its id differs per host.
+  const app = await runner.run(api("apps/github-actions", "--jq", ".id"));
+  const found = Number(app.stdout.trim());
+  let integrationId: number;
+  if (app.status === 0 && Number.isSafeInteger(found) && found > 0) integrationId = found;
+  else if (host.kind === "github.com") integrationId = GITHUB_ACTIONS_APP_ID;
+  else {
+    const why = (app.stderr.trim() || app.stdout.trim() || `exit ${app.status}`).split("\n")[0];
+    log(
+      `nod init --ruleset: could not look up the GitHub Actions app on ${host.name} (GET /apps/github-actions: ${why}). The ruleset pins the nod check to that app, and a wrong id would block every merge, so nothing was changed.`,
+    );
+    return 1;
+  }
+  const existing = await must(
+    runner,
+    api(
+      `repos/${repo}/rulesets`,
+      "--jq",
+      `[.[] | select(.name == "${RULESET_NAME}") | .id] | first // ""`,
+    ),
+  ).catch((e: Error) => {
     if (isPlanRefusal(e.message)) return "refused";
     throw e;
   });
@@ -252,8 +273,8 @@ async function applyRuleset(
   }
   const payload = JSON.stringify(nodRuleset(integrationId));
   const write = existing
-    ? ["gh", "api", "-X", "PUT", `repos/${repo}/rulesets/${existing}`, "--input", "-"]
-    : ["gh", "api", "-X", "POST", `repos/${repo}/rulesets`, "--input", "-"];
+    ? api("-X", "PUT", `repos/${repo}/rulesets/${existing}`, "--input", "-")
+    : api("-X", "POST", `repos/${repo}/rulesets`, "--input", "-");
   const r = await runner.run(write, { input: payload });
   if (r.status !== 0) {
     const text = `${r.stdout}\n${r.stderr}`;
@@ -268,30 +289,22 @@ async function applyRuleset(
     `${existing ? "updated" : "created"} the ruleset "${RULESET_NAME}" on ${repo}: ${defaultBranch} needs a PR with 0 approvals and a green nod check from GitHub Actions (app ${integrationId}); nobody can bypass it.`,
   );
 
-  const merge = await runner.run([
-    "gh",
-    "api",
-    "-X",
-    "PATCH",
-    `repos/${repo}`,
-    "-F",
-    "allow_auto_merge=true",
-    "--jq",
-    ".allow_auto_merge",
-  ]);
+  const merge = await runner.run(
+    api("-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=true", "--jq", ".allow_auto_merge"),
+  );
   if (merge.status === 0 && merge.stdout.trim() === "true") log("auto-merge is enabled.");
   else
     log(
       "could not enable auto-merge (GitHub kept it off; on private repositories it needs a paid plan). Enable it under Settings → General → Pull Requests.",
     );
 
-  const protection = await runner.run([
-    "gh",
-    "api",
-    `repos/${repo}/branches/${encodeURIComponent(defaultBranch)}/protection`,
-    "--jq",
-    ".required_pull_request_reviews.required_approving_review_count // 0",
-  ]);
+  const protection = await runner.run(
+    api(
+      `repos/${repo}/branches/${encodeURIComponent(defaultBranch)}/protection`,
+      "--jq",
+      ".required_pull_request_reviews.required_approving_review_count // 0",
+    ),
+  );
   if (protection.status === 0 && Number(protection.stdout.trim()) > 0) {
     log(
       `note: classic branch protection on ${defaultBranch} still requires ${protection.stdout.trim()} approval(s). Lower it to 0, or auto-merge keeps waiting for them.`,
@@ -300,8 +313,41 @@ async function applyRuleset(
   return 0;
 }
 
+/**
+ * The GitHub host `nod init` works on: `--host`, else the host of the
+ * clone's origin, else github.com (no clone, or a remote that is a path).
+ */
+async function resolveHost(
+  runner: Runner,
+  dir: string | undefined,
+  flag: string | null,
+): Promise<GitHubHost> {
+  if (flag) return githubHost(flag);
+  if (dir) {
+    const r = await runner.run(["git", "-C", dir, "remote", "get-url", "origin"]);
+    const remote = r.status === 0 ? parseRemote(r.stdout.trim()) : null;
+    if (remote?.alias)
+      throw new Error(
+        `origin points at the ssh host "${remote.host}", which looks like an alias from your ssh config, and nod cannot resolve it. Pass --host with the real host: github.com, <name>.ghe.com or your GitHub Enterprise Server.`,
+      );
+    if (remote) return githubHost(remote.host);
+  }
+  return githubHost(GITHUB_COM);
+}
+
+/** `gh api <args> --hostname <host>`. */
+function ghApi(host: GitHubHost, args: readonly string[]): string[] {
+  return ["gh", "api", ...args, "--hostname", host.name];
+}
+
+/** The repo as `gh --repo` takes it: `HOST/OWNER/REPO` off github.com. */
+function ghRepo(host: GitHubHost, repo: string): string {
+  return host.kind === "github.com" ? repo : `${host.name}/${repo}`;
+}
+
 async function repoInfo(
   runner: Runner,
+  host: GitHubHost,
   cwd: string | undefined,
   repo: string | null,
 ): Promise<RepoInfo> {
@@ -311,7 +357,7 @@ async function repoInfo(
       "gh",
       "repo",
       "view",
-      ...(repo ? [repo] : []),
+      ...(repo ? [ghRepo(host, repo)] : []),
       "--json",
       "nameWithOwner,defaultBranchRef,isPrivate",
     ],
@@ -326,10 +372,15 @@ async function repoInfo(
   return { repo: v.nameWithOwner, defaultBranch: v.defaultBranchRef.name, isPrivate: v.isPrivate };
 }
 
-async function resolveSigners(runner: Runner, cwd: string, flags: InitFlags): Promise<Signer[]> {
+async function resolveSigners(
+  runner: Runner,
+  host: GitHubHost,
+  cwd: string,
+  flags: InitFlags,
+): Promise<Signer[]> {
   const signers = flags.signers.map((s) => parseSigner(s));
   if (flags.signerKeys.length) {
-    const login = await must(runner, ["gh", "api", "user", "--jq", ".login"], { cwd });
+    const login = await must(runner, ghApi(host, ["user", "--jq", ".login"]), { cwd });
     for (const path of flags.signerKeys)
       signers.push(parseSigner(await readFile(resolve(cwd, path), "utf8"), login));
   }

@@ -66,6 +66,7 @@ test("opens the setup PR with my key as the first signer, leaving my clone as it
   const url = await openSetupPrWithInit({
     dir: repo.dir,
     repo: "acme/widgets",
+    host: "github.com",
     login: "alice",
     publicKey: `${KEY} nod`,
     version: "0.0.0-development",
@@ -92,6 +93,7 @@ test("a failing nod init still removes the worktree", async () => {
     openSetupPrWithInit({
       dir: repo.dir,
       repo: "acme/widgets",
+      host: "github.com",
       login: "alice",
       publicKey: KEY,
       version: "0.0.0-development",
@@ -99,4 +101,33 @@ test("a failing nod init still removes the worktree", async () => {
     }),
   ).rejects.toThrow(/not allowed/);
   expect((await repo.git("worktree", "list")).trim().split("\n")).toHaveLength(1);
+});
+
+test("on GHE.com every gh call names the host", async () => {
+  const seen: Array<{ cmd: string[]; host: string | undefined }> = [];
+  const recording: Runner = {
+    run: (cmd, options) => {
+      seen.push({ cmd: [...cmd], host: options?.env?.GH_HOST });
+      return runner.run(cmd, options);
+    },
+  };
+  await openSetupPrWithInit({
+    dir: repo.dir,
+    repo: "acme/widgets",
+    host: "acme.ghe.com",
+    login: "mona_acme",
+    publicKey: KEY,
+    version: "0.0.0-development",
+    runner: recording,
+  });
+  const gh = seen.filter((s) => s.cmd[0] === "gh");
+  expect(gh.length).toBeGreaterThan(0);
+  expect(gh.every((s) => s.host === "acme.ghe.com")).toBe(true);
+  expect(gh.find((s) => s.cmd[1] === "pr")!.cmd).toEqual(
+    expect.arrayContaining(["--repo", "acme.ghe.com/acme/widgets"]),
+  );
+  expect(seen.filter((s) => s.cmd[0] !== "gh").every((s) => s.host === undefined)).toBe(true);
+  expect(await git(origin.dir, ["show", "nod/setup:.nod/allowed_signers"])).toContain(
+    `mona_acme namespaces="nod" ${KEY}`,
+  );
 });

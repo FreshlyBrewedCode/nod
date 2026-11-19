@@ -14,6 +14,7 @@ import { useState } from "react";
 import { ClockProvider } from "@/hooks/use-clock";
 import { ConnectionProvider, useConnection } from "@/hooks/use-connection";
 import { useRoute } from "@/hooks/use-route";
+import { githubOf } from "@/lib/deep-link";
 import { progressOf } from "@/lib/onboarding";
 import { isLinkRoute } from "@/lib/route";
 import { STORAGE_KEYS, browserStorage, readJson, writeJson } from "@/lib/storage";
@@ -62,6 +63,7 @@ function Gate() {
     return (
       <Onboarding
         me={welcome.me}
+        github={githubOf(welcome)}
         setup={setup}
         signer={signer}
         people={snapshot?.people ?? []}

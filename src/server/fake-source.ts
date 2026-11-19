@@ -14,6 +14,7 @@
 import type {
   Account,
   Enrolment,
+  GitHubInfo,
   JourneyEvent,
   PrLink,
   RepoChoice,
@@ -23,6 +24,7 @@ import type {
   Signature,
   Snapshot,
 } from "../shared/protocol";
+import { GITHUB_COM, githubHost } from "../kit/host.ts";
 import type { Clock, Timer } from "./clock";
 import { FAKE_KEY } from "./signer";
 import { publicKeyId } from "./signer/ssh-wire";
@@ -151,6 +153,11 @@ export class FakeSource implements Source {
 
   repo(): RepoName | null {
     return this.repoName;
+  }
+
+  github(): GitHubInfo {
+    const { name, webUrl } = githubHost(GITHUB_COM);
+    return { host: name, webUrl };
   }
 
   async pickRepo(repo: RepoName): Promise<void> {

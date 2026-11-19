@@ -3,27 +3,24 @@ import { join } from "node:path";
 
 import { afterEach, expect, test } from "bun:test";
 
-import { git, patchId } from "../../kit/patch-id.ts";
+import { fetchPullRequestObjects, git, patchId } from "../../kit/patch-id.ts";
 import { tempDir, tempRepo } from "../../kit/test-support.ts";
-import { CloneError, clonePatchIds, githubRepoOf, resolveClone } from "./clone";
+import { githubHost } from "../../kit/host.ts";
+import { CloneError, clonePatchIds, resolveClone, type Clone } from "./clone";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const c of cleanups.splice(0)) await c();
 });
 
-test("GitHub remote URLs in every spelling", () => {
-  for (const url of [
-    "https://github.com/acme/widgets.git",
-    "https://github.com/acme/widgets",
-    "https://someone@github.com/acme/widgets.git",
-    "git@github.com:acme/widgets.git",
-    "ssh://git@github.com/acme/widgets.git",
-    "git://github.com/acme/widgets",
-  ])
-    expect(githubRepoOf(url)).toBe("acme/widgets");
-  expect(githubRepoOf("https://gitlab.com/acme/widgets.git")).toBeNull();
-  expect(githubRepoOf("/srv/git/widgets.git")).toBeNull();
+const GITHUB_COM = githubHost("github.com");
+
+/** A clone of `remote` (a local path) as `resolveClone` would describe it. */
+const cloneOf = (dir: string, remote: string): Clone => ({
+  dir,
+  repo: "acme/widgets",
+  host: GITHUB_COM,
+  remoteUrl: remote,
 });
 
 test("the clone and its repo: origin by default, or the named repo among the remotes", async () => {
@@ -34,9 +31,52 @@ test("the clone and its repo: origin by default, or the named repo among the rem
   await r.write("a.txt", "a\n");
   await r.commit("a");
   await r.git("switch", "-q", "-c", "sub");
-  expect(resolveClone(r.dir, null)).toMatchObject({ repo: "acme/widgets" });
-  expect(resolveClone(join(r.dir), "ACME-ORG/widgets")).toMatchObject({ repo: "acme-org/widgets" });
+  expect(resolveClone(r.dir, null)).toMatchObject({
+    repo: "acme/widgets",
+    host: GITHUB_COM,
+    remoteUrl: "git@github.com:acme/widgets.git",
+  });
+  expect(resolveClone(join(r.dir), "ACME-ORG/widgets")).toMatchObject({
+    repo: "acme-org/widgets",
+    remoteUrl: "https://github.com/acme-org/widgets.git",
+  });
   expect(() => resolveClone(r.dir, "acme/other")).toThrow(/is not a clone of acme\/other/);
+});
+
+test("the host comes from the origin, once: GHE.com and GitHub Enterprise Server", async () => {
+  const r = await tempRepo();
+  cleanups.push(r.cleanup);
+  const at = async (url: string) => {
+    await r.git("remote", "remove", "origin").catch(() => "");
+    await r.git("remote", "add", "origin", url);
+    return resolveClone(r.dir, null);
+  };
+  expect(await at("https://acme.ghe.com/acme/widgets.git")).toMatchObject({
+    repo: "acme/widgets",
+    host: { name: "acme.ghe.com", apiUrl: "https://api.acme.ghe.com" },
+  });
+  expect((await at("acme@acme.ghe.com:mona_acme/widgets.git")).repo).toBe("mona_acme/widgets");
+  expect((await at("ssh://git@git.example.test:2222/acme/widgets")).host).toMatchObject({
+    name: "git.example.test",
+    apiUrl: "https://git.example.test/api/v3",
+    graphqlUrl: "https://git.example.test/api/graphql",
+  });
+  expect((await at("https://git.example.test:8443/acme/widgets")).host.webUrl).toBe(
+    "https://git.example.test:8443",
+  );
+});
+
+test("an ssh alias cannot be resolved: a sentence that names --host, and --host overrides", async () => {
+  const r = await tempRepo();
+  cleanups.push(r.cleanup);
+  await r.git("remote", "add", "origin", "git@work:acme/widgets.git");
+  expect(() => resolveClone(r.dir, null)).toThrow(/ssh host "work".*alias.*--host/);
+  expect(resolveClone(r.dir, null, "acme.ghe.com")).toMatchObject({
+    repo: "acme/widgets",
+    host: { name: "acme.ghe.com" },
+    remoteUrl: "git@work:acme/widgets.git",
+  });
+  expect(() => resolveClone(r.dir, null, "api.github.com")).toThrow(/--host/);
 });
 
 test("clear errors for a folder that is not a clone", async () => {
@@ -47,7 +87,7 @@ test("clear errors for a folder that is not a clone", async () => {
   const r = await tempRepo();
   cleanups.push(r.cleanup);
   expect(() => resolveClone(r.dir, null)).toThrow(/no remote named origin/);
-  await r.git("remote", "add", "origin", "https://gitlab.com/acme/widgets.git");
+  await r.git("remote", "add", "origin", "/srv/git/widgets.git");
   expect(() => resolveClone(r.dir, null)).toThrow(/not a GitHub repository/);
 });
 
@@ -77,7 +117,7 @@ test("patch-ids from the clone: fetched into refs/nod/*, the working tree and br
     status: await user.git("status", "--porcelain"),
   };
 
-  const ids = clonePatchIds({ dir: user.dir, repo: "acme/widgets" }, () => null, remote.dir);
+  const ids = clonePatchIds(cloneOf(user.dir, remote.dir), () => null);
   const [one, two] = await Promise.all([
     ids.compute({ base: "main", headSha: head }),
     ids.compute({ base: "main", headSha: head }),
@@ -103,7 +143,52 @@ test("a failed fetch rejects that one job, the queue goes on", async () => {
   const base = await remote.commit("a");
   const user = await tempRepo();
   cleanups.push(user.cleanup);
-  const ids = clonePatchIds({ dir: user.dir, repo: "acme/widgets" }, () => null, remote.dir);
+  const ids = clonePatchIds(cloneOf(user.dir, remote.dir), () => null);
   await expect(ids.compute({ base: "nope", headSha: base })).rejects.toThrow(/fetch failed/);
   expect(await ids.compute({ base: "main", headSha: base })).toBe("");
+});
+
+test("git sends the token only to the host's web URL", async () => {
+  // A stand-in for a git server: records what each request carried, answers 404.
+  const seen: Array<string | null> = [];
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (req) => {
+      seen.push(req.headers.get("authorization"));
+      return new Response("not here", { status: 404 });
+    },
+  });
+  cleanups.push(async () => void server.stop(true));
+  const user = await tempRepo();
+  cleanups.push(user.cleanup);
+  const head = "a".repeat(40);
+  const remoteUrl = `http://127.0.0.1:${server.port}/acme/widgets.git`;
+
+  // The clone's host is acme.ghe.com; the remote is somewhere else: no token goes there.
+  const elsewhere: Clone = {
+    dir: user.dir,
+    repo: "acme/widgets",
+    host: githubHost("acme.ghe.com"),
+    remoteUrl,
+  };
+  await expect(
+    clonePatchIds(elsewhere, () => "secret-token").compute({ base: "main", headSha: head }),
+  ).rejects.toThrow();
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen.every((a) => a === null)).toBe(true);
+
+  // The control: scoped to that server, git does send it.
+  seen.length = 0;
+  await expect(
+    fetchPullRequestObjects({
+      repoDir: user.dir,
+      base: "main",
+      headSha: head,
+      remote: remoteUrl,
+      token: "secret-token",
+      serverUrl: `http://127.0.0.1:${server.port}/`,
+    }),
+  ).rejects.toThrow();
+  expect(seen.some((a) => a?.startsWith("basic "))).toBe(true);
 });

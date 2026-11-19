@@ -10,8 +10,15 @@ export interface RunResult {
   stderr: string;
 }
 
+export interface RunOptions {
+  cwd?: string;
+  input?: string;
+  /** Added to the environment (the rest is inherited). */
+  env?: Record<string, string>;
+}
+
 export interface Runner {
-  run(cmd: readonly string[], options?: { cwd?: string; input?: string }): Promise<RunResult>;
+  run(cmd: readonly string[], options?: RunOptions): Promise<RunResult>;
 }
 
 /** The real runner: `Bun.spawn`. The user's own `gh` credentials, no new scopes. */
@@ -19,6 +26,7 @@ export const processRunner: Runner = {
   async run(cmd, options = {}) {
     const proc = Bun.spawn([...cmd], {
       cwd: options.cwd,
+      ...(options.env && { env: { ...process.env, ...options.env } }),
       stdin: options.input === undefined ? "ignore" : new TextEncoder().encode(options.input),
       stdout: "pipe",
       stderr: "pipe",
@@ -32,11 +40,26 @@ export const processRunner: Runner = {
   },
 };
 
+/**
+ * `runner`, with every `gh` call aimed at `host`: `GH_HOST` in its
+ * environment, for the subcommands that take no `--hostname`. The callers
+ * name the host on the command line as well where `gh` takes it.
+ */
+export function onHost(runner: Runner, host: string): Runner {
+  return {
+    run: (cmd, options = {}) =>
+      runner.run(
+        cmd,
+        cmd[0] === "gh" ? { ...options, env: { ...options.env, GH_HOST: host } } : options,
+      ),
+  };
+}
+
 /** Runs a command and returns its trimmed stdout, or throws with its stderr. */
 export async function must(
   runner: Runner,
   cmd: readonly string[],
-  options?: { cwd?: string; input?: string },
+  options?: RunOptions,
 ): Promise<string> {
   const r = await runner.run(cmd, options);
   if (r.status !== 0) {
