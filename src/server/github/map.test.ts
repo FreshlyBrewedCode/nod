@@ -326,6 +326,47 @@ test("a verifier error: the summary's fail-safe requirement, tagged first", () =
   expect(unreadable.facts.requirement.label).toBe("Unknown: verifier error");
 });
 
+test("a merged or closed PR without a readable summary is quiet history, not an error", () => {
+  for (const state of ["MERGED", "CLOSED"] as const) {
+    const raw = rawPr({ number: 41, state, merged: 60 });
+    for (const read of [
+      { kind: "none" },
+      { kind: "unreadable", title: "verifier error: boom" },
+      { kind: "outdated", summary: summaryFor(raw, { base: "develop" }) },
+    ] as const) {
+      const mapped = mapPr(raw, ctx(read));
+      expect(mapped.unclassified).toBeNull();
+      expect(mapped.facts).toMatchObject({
+        category: "auto",
+        risk: 0,
+        tags: [],
+        reasons: [],
+        requirement: { slots: [] },
+      });
+      const [view] = toViews([mapped.facts], { me: ALICE, now: T0, people: [] });
+      expect(tier(view!)).toBe(4);
+      expect(view!.needsMe).toBe(false);
+    }
+  }
+});
+
+test("an open PR without a readable summary stays an honest error, high risk", () => {
+  for (const draft of [false, true]) {
+    const mapped = mapPr(rawPr({ number: 42, draft }), ctx({ kind: "unreadable", title: "boom" }));
+    expect(mapped.unclassified).toBe("verifier-error");
+    expect(mapped.facts).toMatchObject({ risk: 3, tags: ["verifier error"] });
+  }
+});
+
+test("a merged PR whose summary recorded a verifier error does not carry the error tag", () => {
+  const raw = rawPr({ number: 43, state: "MERGED", merged: 60 });
+  const { facts, unclassified } = seen(raw, {
+    errors: [{ source: "verifier", message: "fetching the head failed" }],
+  });
+  expect(unclassified).toBeNull();
+  expect(facts.tags).not.toContain("verifier error");
+});
+
 test("a summary for another base is not used: the verifier runs again", () => {
   const raw = rawPr({ number: 38 });
   const outdated = mapPr(

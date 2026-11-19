@@ -483,6 +483,7 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
   const mine = sameLogin(author, ctx.me);
   const summary = ctx.summary.kind === "ok" ? ctx.summary.summary : null;
   const { signatures, evaluated } = signaturesOf(pr, summary, pr.headRefOid, ctx.patchId, author);
+  const isLive = state === "open" || state === "draft";
 
   // -- the verifier's word, or an honest "not yet" --------------------------
   let unclassified: Mapped["unclassified"] = null;
@@ -495,7 +496,7 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
   if (summary) {
     category = summary.category;
     risk = summary.risk;
-    tags = tagsOf(summary);
+    tags = isLive ? tagsOf(summary) : tagsOf(summary).filter((t) => t !== "verifier error");
     reasons = [
       ...summary.errors.map((e) => ({
         classifier: e.source === "verifier" ? "verifier" : "policy",
@@ -511,7 +512,16 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
       slots: slotsOf(summary, evaluated, author),
     };
     fyi = fyiOf(pr, summary, ctx.team, author);
-    if (summary.errors.some((e) => e.source === "verifier")) unclassified = "verifier-error";
+    if (isLive && summary.errors.some((e) => e.source === "verifier"))
+      unclassified = "verifier-error";
+  } else if (!isLive) {
+    // Merged or closed before the verifier wrote a summary we can read: nobody
+    // can act on it, so it is a plain quiet item, not an error.
+    category = "auto";
+    risk = 0;
+    tags = [];
+    reasons = [];
+    requirement = { policy: "none", label: "No summary recorded", slots: [] };
   } else {
     const r = ctx.summary;
     unclassified = r.kind === "unreadable" ? "verifier-error" : "pending";
