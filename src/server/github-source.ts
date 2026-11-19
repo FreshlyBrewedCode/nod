@@ -8,6 +8,10 @@
  *   is the `text` of the `nod` check run on each head, fetched once per
  *   check run id and cached. `github/map.ts` turns each PR into `PrFacts`;
  *   `view.ts` makes them relative to me.
+ * - **The host.** github.com, `<name>.ghe.com` or a GitHub Enterprise
+ *   Server: read once from the clone's remote (`--host` overrides it), and
+ *   every URL derives from it (`kit/host.ts`). The token is `gh`'s for that
+ *   host and the API sends it there only.
  * - **The clone.** `nod serve` runs in a clone of the repo. Patch-ids are
  *   computed there (ADR 0001 rule 6), from objects fetched into
  *   `refs/nod/base`; the working tree and the user's branches are never
@@ -23,11 +27,13 @@
  * No state beyond this cache: everything shared lives in GitHub.
  */
 
+import { GITHUB_COM, ghLoginCommand, githubHost, type GitHubHost } from "../kit/host.ts";
 import { decodeSummary, type CheckSummary } from "../kit/summary.ts";
 import { enrolledLogins } from "../kit/sshsig.ts";
 import type {
   Account,
   Enrolment,
+  GitHubInfo,
   Person,
   PrLink,
   PrView,
@@ -92,6 +98,8 @@ export interface GitHubSourceOptions {
   readonly clock: Clock;
   /** `owner/name`. */
   readonly repo: RepoName;
+  /** The host the repo is on (default github.com); `api` must be bound to the same one. */
+  readonly host?: GitHubHost;
   /** null: `gh` is not logged in; the source shows that and reads nothing. */
   readonly api: GitHubApi | null;
   /** null: no clone, so no patch-ids (nothing can be signed). */
@@ -116,6 +124,7 @@ export interface GitHubSourceOptions {
 export class GitHubSource implements Source {
   private readonly clock: Clock;
   private readonly api: GitHubApi | null;
+  private readonly host: GitHubHost;
   private readonly owner: string;
   private readonly name: string;
   private readonly pollMs: number;
@@ -167,6 +176,9 @@ export class GitHubSource implements Source {
   constructor(private readonly options: GitHubSourceOptions) {
     this.clock = options.clock;
     this.api = options.api;
+    this.host = options.host ?? options.api?.host ?? githubHost(GITHUB_COM);
+    if (options.api && options.api.host.name !== this.host.name)
+      throw new Error(`the API is bound to ${options.api.host.name}, not ${this.host.name}`);
     [this.owner, this.name] = options.repo.split("/") as [string, string];
     this.pollMs = options.pollMs ?? DEFAULT_POLL_MS;
     this.fastMs = options.fastMs ?? FAST_POLL_MS;
@@ -177,7 +189,7 @@ export class GitHubSource implements Source {
     if (!this.api) {
       this.sync = {
         at: null,
-        error: "`gh` is not logged in. Run `gh auth login`, then restart nod serve.",
+        error: `\`gh\` is not logged in to ${this.host.name}. Run \`${ghLoginCommand(this.host.name)}\`, then restart nod serve.`,
       };
       this.log(`nod serve: ${this.sync.error}`);
       this.markReady();
@@ -223,6 +235,10 @@ export class GitHubSource implements Source {
 
   repo(): RepoName {
     return this.info?.nameWithOwner ?? this.options.repo;
+  }
+
+  github(): GitHubInfo {
+    return { host: this.host.name, webUrl: this.host.webUrl };
   }
 
   async pickRepo(repo: RepoName): Promise<void> {
@@ -852,6 +868,8 @@ export interface GithubSourceSetup {
   readonly clock: Clock;
   /** `owner/name`; null: the clone's `origin`. */
   readonly repo: string | null;
+  /** The GitHub host; null: the remote's (`--host`, for an ssh alias). */
+  readonly host?: string | null;
   /** The clone (default: the current folder). */
   readonly dir?: string;
   /** The CLI's version, for the setup PR's kit pin. */
@@ -861,12 +879,20 @@ export interface GithubSourceSetup {
   /** Test seams. */
   readonly token?: string | null;
   readonly fetch?: typeof fetch;
+  readonly patchIds?: PatchIds;
+  readonly log?: (line: string) => void;
 }
 
-/** The token `gh` holds (`gh auth token`); null when it is not logged in. Never logged. */
-export function ghToken(): string | null {
+/**
+ * The token `gh` holds for `host` (`gh auth token --hostname <host>`); null
+ * when it is not logged in there. Never logged.
+ */
+export function ghToken(host: string): string | null {
   try {
-    const r = Bun.spawnSync(["gh", "auth", "token"], { stdout: "pipe", stderr: "pipe" });
+    const r = Bun.spawnSync(["gh", "auth", "token", "--hostname", host], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const token = r.stdout.toString().trim();
     return r.exitCode === 0 && token ? token : null;
   } catch {
@@ -890,15 +916,17 @@ function gitIdentity(dir: string): { name: string; email: string } | null {
 
 /**
  * The GitHub source for `nod serve`: the clone in `dir`, the repo it is a
- * clone of, the `gh` token. Throws `CloneError` with a sentence for the
- * user when `dir` is not a clone of the repo.
+ * clone of, the host of its remote and `gh`'s token for that host. Throws
+ * `CloneError` with a sentence for the user when `dir` is not a clone of
+ * the repo or its host cannot be told.
  */
 export function githubSource(setup: GithubSourceSetup): GitHubSource {
-  const clone = resolveClone(setup.dir ?? process.cwd(), setup.repo);
-  const token = setup.token !== undefined ? setup.token : ghToken();
+  const clone = resolveClone(setup.dir ?? process.cwd(), setup.repo, setup.host ?? null);
+  const token = setup.token !== undefined ? setup.token : ghToken(clone.host.name);
   const api = token
     ? new GitHubApi({
         token,
+        host: clone.host,
         now: () => setup.clock.now(),
         ...(setup.fetch && { fetch: setup.fetch }),
       })
@@ -906,9 +934,11 @@ export function githubSource(setup: GithubSourceSetup): GitHubSource {
   const source = new GitHubSource({
     clock: setup.clock,
     repo: clone.repo,
+    host: clone.host,
     api,
-    patchIds: clonePatchIds(clone, () => token),
+    patchIds: setup.patchIds ?? clonePatchIds(clone, () => token),
     dir: clone.dir,
+    ...(setup.log && { log: setup.log }),
     ...(setup.myKey && { myKey: setup.myKey }),
     ...(setup.pollMs !== undefined && { pollMs: setup.pollMs }),
     identity: gitIdentity(clone.dir),
@@ -917,6 +947,7 @@ export function githubSource(setup: GithubSourceSetup): GitHubSource {
       openSetupPrWithInit({
         dir: clone.dir,
         repo: clone.repo,
+        host: clone.host.name,
         login,
         publicKey,
         version: setup.version ?? "0.0.0-development",

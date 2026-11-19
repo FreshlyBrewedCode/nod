@@ -11,8 +11,29 @@
 /** The SSHSIG namespace every nod is signed under. */
 export const NOD_NAMESPACE = "nod";
 
-/** A GitHub login, as accepted for `reviewer` and passed to `ssh-keygen -I`. */
-export const LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+/**
+ * A GitHub login, as accepted for `reviewer` and passed to `ssh-keygen -I`;
+ * 39 characters at most:
+ *
+ * - a plain login: a letter or digit, then letters, digits and `-`;
+ * - a managed user (Enterprise Managed Users; every account on GHE.com): the
+ *   handle, one `_` and the enterprise's shortcode of 3 to 8 letters or
+ *   digits, e.g. `mona-cat_octo` or the setup user `octo_admin`.
+ *
+ * Never whitespace, `*`, `?`, `!`, `,` or a leading `-`: `ssh-keygen` reads
+ * the principals in `allowed_signers` as patterns, and `-I` takes this as an
+ * argument.
+ */
+export const LOGIN_RE =
+  /^(?=[A-Za-z0-9_-]{1,39}$)[A-Za-z0-9](?:[A-Za-z0-9-]*|(?:[A-Za-z0-9-]*[A-Za-z0-9])?_[A-Za-z0-9]{3,8})$/;
+
+const REPO_NAME_RE = /^(?!\.\.?$)[A-Za-z0-9._-]{1,100}$/;
+
+/** Whether `repo` is `owner/name`: the owner a {@link LOGIN_RE} login, the name GitHub's. */
+export function isRepoName(repo: string): boolean {
+  const parts = repo.split("/");
+  return parts.length === 2 && LOGIN_RE.test(parts[0]!) && REPO_NAME_RE.test(parts[1]!);
+}
 
 /** Payloads longer than this (in bytes) are ignored. */
 export const MAX_PAYLOAD_BYTES = 32 * 1024;
@@ -177,13 +198,12 @@ export function decodePayload(payloadLine: string): DecodedPayload {
   return { ok: true, payload };
 }
 
-const REPO_RE = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/;
 const SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const PATCH_ID_RE = /^(?:|[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 function payloadProblem(p: NodPayload): string | null {
   if (p.v !== 1) return "v must be 1";
-  if (typeof p.repo !== "string" || !REPO_RE.test(p.repo)) return "repo must be owner/name";
+  if (typeof p.repo !== "string" || !isRepoName(p.repo)) return "repo must be owner/name";
   if (!Array.isArray(p.entries) || p.entries.length === 0)
     return "entries must be a non-empty list";
   for (const e of p.entries) {

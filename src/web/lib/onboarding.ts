@@ -226,8 +226,13 @@ export function onboardingError(failure: Failure): string {
     case "no-repo":
       return "nod serve has no repository yet. Pick one in step 1.";
     case "github":
-      if (/not logged in/i.test(failure.message))
-        return "nod serve is not signed in to GitHub. Run `gh auth login` in a terminal, then restart nod serve.";
+      if (/not logged in/i.test(failure.message)) {
+        // The server names the host off github.com: `gh auth login --hostname acme.ghe.com`.
+        const host = /--hostname ([\w.:-]+)/.exec(failure.message)?.[1];
+        return host
+          ? `nod serve is not signed in to ${host}. Run \`gh auth login --hostname ${host}\` in a terminal, then restart nod serve.`
+          : "nod serve is not signed in to GitHub. Run `gh auth login` in a terminal, then restart nod serve.";
+      }
       if (
         /upgrade to github pro|make this repository public|pro, team or enterprise/i.test(
           failure.message,

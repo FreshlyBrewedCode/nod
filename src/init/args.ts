@@ -1,9 +1,14 @@
 /** `nod init` flags. */
 import { parseArgs } from "node:util";
 
+import { githubHost } from "../kit/host.ts";
+import { isRepoName } from "../kit/nod.ts";
+
 export interface InitFlags {
   /** `owner/name`; default: the repo of `dir`. */
   readonly repo: string | null;
+  /** The GitHub host (`acme.ghe.com`); default: the one of `dir`'s origin, else github.com. */
+  readonly host: string | null;
   /** The local clone; default: the current folder. */
   readonly dir: string | null;
   /** `--signer "<login> <ssh-ed25519 …>"`, repeatable. */
@@ -25,6 +30,9 @@ export const INIT_HELP = `init options:
                       public key (repeatable)
   --signer-key <file> a public key file; the login is your gh user's
   --repo <owner/name> the repository (default: the one of --dir)
+  --host <host>       its GitHub host, e.g. acme.ghe.com (default: the host of
+                      --dir's origin, else github.com); gh must be logged in
+                      there (gh auth login --hostname <host>)
   --dir <path>        the local clone (default: this folder)
   --kit <spec>        the kit dependency (default: this nod's version, or
                       github:FreshlyBrewedCode/nod#<commit> for a checkout)
@@ -48,6 +56,7 @@ export function parseInitArgs(
       allowNegative: true,
       options: {
         repo: { type: "string" },
+        host: { type: "string" },
         dir: { type: "string" },
         signer: { type: "string", multiple: true },
         "signer-key": { type: "string", multiple: true },
@@ -63,8 +72,15 @@ export function parseInitArgs(
     return { kind: "error", message: error instanceof Error ? error.message : String(error) };
   }
   if (values.help) return { kind: "help" };
-  if (values.repo !== undefined && !/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(values.repo))
+  if (values.repo !== undefined && !isRepoName(values.repo))
     return { kind: "error", message: "--repo is owner/name" };
+  if (values.host !== undefined) {
+    try {
+      githubHost(values.host);
+    } catch (error) {
+      return { kind: "error", message: `--host: ${(error as Error).message}` };
+    }
+  }
   if (values.kit !== undefined && (!values.kit || /\s|"/.test(values.kit)))
     return {
       kind: "error",
@@ -74,6 +90,7 @@ export function parseInitArgs(
     kind: "init",
     flags: {
       repo: values.repo ?? null,
+      host: values.host ?? null,
       dir: values.dir ?? null,
       signers: values.signer ?? [],
       signerKeys: values["signer-key"] ?? [],

@@ -16,10 +16,19 @@
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { PrView, SignerState, Snapshot } from "../../shared/protocol";
+import type { GitHubInfo, PrView, SignerState, Snapshot } from "../../shared/protocol";
 import { MINUTE, useNow } from "@/hooks/use-clock";
 import { rememberLink } from "@/lib/connection";
-import { afterwards, asWhat, githubPrUrl, landingOf, type LinkTarget } from "@/lib/deep-link";
+import {
+  afterwards,
+  asWhat,
+  githubPrUrl,
+  githubPullsUrl,
+  landingOf,
+  repoLabel,
+  webUrlOf,
+  type LinkTarget,
+} from "@/lib/deep-link";
 import { formatRoute, linkNumbers, type LinkRoute } from "@/lib/route";
 import { browserStorage } from "@/lib/storage";
 import { cn } from "@/lib/utils";
@@ -37,12 +46,13 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 function Banner({ route, children }: { route: LinkRoute; children?: ReactNode }) {
   const numbers = linkNumbers(route);
+  const repo = repoLabel(route.host, route.repo);
   return (
     <div className="border-[#74a9ff44] bg-know-bg col-span-full rounded-xl border px-5 py-4">
       <b className="text-know font-semibold">Opened from a link</b> ·{" "}
       {numbers.length === 1
-        ? `#${numbers[0]} in ${route.repo}`
-        : `${plural(numbers.length, "pull request")} in ${route.repo}: ${numbers.map((n) => `#${n}`).join(", ")}`}
+        ? `#${numbers[0]} in ${repo}`
+        : `${plural(numbers.length, "pull request")} in ${repo}: ${numbers.map((n) => `#${n}`).join(", ")}`}
       {children}
       <span className="text-tx3 block text-[12.5px] leading-[1.55]">
         Nothing is signed yet. A link only opens this view.
@@ -178,12 +188,15 @@ function NoteCard({ title, children }: { title: ReactNode; children: ReactNode }
 export function LinkLanding({
   route,
   snapshot,
+  github,
   signer,
   onOpen,
   onList,
 }: {
   route: LinkRoute;
   snapshot: Snapshot;
+  /** The GitHub host `nod serve` reads. */
+  github: GitHubInfo;
   signer: SignerState | null;
   /** Show a PR in the full list, with its details open. */
   onOpen: (pr: number) => void;
@@ -191,7 +204,10 @@ export function LinkLanding({
 }) {
   const { openBatch } = useBatch();
   const now = useNow(MINUTE);
-  const landing = useMemo(() => landingOf(route, snapshot, now), [route, snapshot, now]);
+  const landing = useMemo(
+    () => landingOf(route, snapshot, now, github),
+    [route, snapshot, now, github],
+  );
   const targets = landing.kind === "found" ? landing.targets : [];
   const needing = targets.filter((t) => t.needsMe).map((t) => t.pr.number);
   const [left, setLeft] = useState<ReadonlySet<number>>(new Set());
@@ -238,7 +254,7 @@ export function LinkLanding({
                 {i > 0 && ", "}
                 <a
                   className={LINK}
-                  href={githubPrUrl(landing.repo, n)}
+                  href={githubPrUrl(landing.webUrl, route.repo, n)}
                   target="_blank"
                   rel="noreferrer"
                 >
@@ -296,7 +312,7 @@ export function LinkLanding({
             the last 14 days: it may have merged long ago, or the number is wrong.{" "}
             <a
               className={LINK}
-              href={githubPrUrl(snapshot.repo, n)}
+              href={githubPrUrl(github.webUrl, snapshot.repo, n)}
               target="_blank"
               rel="noreferrer"
             >
@@ -402,7 +418,7 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
                 1
               </span>
               <div>
-                In a terminal, in your clone of {route.repo}:
+                In a terminal, in your clone of {repoLabel(route.host, route.repo)}:
                 <div className="bg-bg border-line text-tx my-2 flex items-center gap-2.5 rounded-lg border px-3.5 py-2.5 font-mono text-[12.5px]">
                   nod serve
                 </div>
@@ -430,8 +446,8 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
               className={GHOST}
               href={
                 numbers.length === 1
-                  ? githubPrUrl(route.repo, first)
-                  : `https://github.com/${route.repo}/pulls`
+                  ? githubPrUrl(webUrlOf(route.host), route.repo, first)
+                  : githubPullsUrl(webUrlOf(route.host), route.repo)
               }
               target="_blank"
               rel="noreferrer"

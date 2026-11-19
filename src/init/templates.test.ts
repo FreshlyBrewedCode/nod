@@ -262,7 +262,12 @@ describe(".nod/verify.ts", () => {
     for (const d of [keys, work, bare, checkout]) await d.cleanup();
   });
 
-  async function verify(event: Record<string, unknown>) {
+  /**
+   * One run, as Actions starts it. The API is the fake (`GITHUB_API_URL`);
+   * `GITHUB_SERVER_URL` only names the host (the checkout's remote is a
+   * local path), github.com unless `serverUrl` says otherwise.
+   */
+  async function verify(event: Record<string, unknown>, serverUrl = "https://github.com") {
     const eventPath = join(keys.dir, "event.json");
     await writeFile(eventPath, JSON.stringify(event));
     const before = gh.checks.length;
@@ -275,7 +280,7 @@ describe(".nod/verify.ts", () => {
         GITHUB_TOKEN: "test-token",
         GITHUB_EVENT_PATH: eventPath,
         GITHUB_API_URL: gh.url,
-        GITHUB_SERVER_URL: gh.url,
+        GITHUB_SERVER_URL: serverUrl,
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -332,6 +337,18 @@ describe(".nod/verify.ts", () => {
     expect(sticky.body).toContain("https://ui.nod.frebreco.de/#/pr/acme/widgets/2");
     expect(gh.labels.get(2)!.sort()).toEqual(["nod:decide", "nod:risk-3"]);
     expect(gh.createdLabels).toContain("nod:decide");
+  });
+
+  test("on GHE.com the check's details link and the sticky comment name the host", async () => {
+    const r = await verify(
+      { pull_request: { number: 2, head: { sha: heads[2] } } },
+      "https://acme.ghe.com",
+    );
+    expect(r.code).toBe(0);
+    const link = "https://ui.nod.frebreco.de/#/pr/acme.ghe.com/acme/widgets/2";
+    expect(r.check).toMatchObject({ details_url: link });
+    const sticky = gh.comments.get(2)!.find((c) => c.body.startsWith(STICKY_MARKER))!;
+    expect(sticky.body).toContain(link);
   });
 
   test("alice's self nod is not enough; bob's peer nod turns it green, the sticky is updated in place", async () => {

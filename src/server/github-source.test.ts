@@ -1,7 +1,9 @@
 import { generateKeyPairSync } from "node:crypto";
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
+import { githubHost } from "../kit/host.ts";
+import { tempRepo } from "../kit/test-support.ts";
 import type { Reply, ServerToClient } from "../shared/protocol";
 import { ManualClock } from "./clock";
 import { GitHubApi } from "./github/api";
@@ -21,7 +23,7 @@ import {
   summaryFor,
   summaryText,
 } from "./github/test-support";
-import { GitHubSource } from "./github-source";
+import { GitHubSource, githubSource } from "./github-source";
 import { Session } from "./session";
 import { FAKE_KEY, FakeSigner } from "./signer";
 import { ed25519PublicKeyBlob, publicKeyLine } from "./signer/ssh-wire";
@@ -683,5 +685,110 @@ test("the verifier's nods show up with what still matches", async () => {
     requirement: { satisfied: true },
     signatures: [{ by: CAROL, level: "peer", matchedBy: "patch_id", counts: true }],
     waitingOn: [{ kind: "merge" }],
+  });
+});
+
+describe("on GitHub Enterprise hosts: everything from the clone's origin", () => {
+  const cleanups: Array<() => Promise<void>> = [];
+  afterEach(async () => {
+    for (const c of cleanups.splice(0)) await c();
+  });
+
+  async function enterprise(origin: string, host: string, token: string | null = "t0ken") {
+    const clone = await tempRepo();
+    cleanups.push(clone.cleanup);
+    await clone.git("remote", "add", "origin", origin);
+    const gh = new FakeGitHub(githubHost(host));
+    team(gh);
+    const clock = new ManualClock(T0);
+    const lines: string[] = [];
+    const source = githubSource({
+      clock,
+      repo: null,
+      dir: clone.dir,
+      token,
+      fetch: gh.fetch,
+      patchIds: { compute: async (input) => sha(`pid-${input.headSha}`) },
+      log: (l) => lines.push(l),
+      myKey: () => FAKE_KEY.publicKey,
+    });
+    cleanups.push(async () => source.stop());
+    await source.ready;
+    await settle();
+    return { gh, source, clock, lines };
+  }
+
+  for (const [kind, origin, host, webUrl] of [
+    ["GHE.com", "https://acme.ghe.com/acme/widgets.git", "acme.ghe.com", "https://acme.ghe.com"],
+    [
+      "GHES",
+      "ssh://git@git.example.test:2222/acme/widgets.git",
+      "git.example.test",
+      "https://git.example.test",
+    ],
+  ] as const)
+    test(`${kind}: reads, signs and posts through ${host}'s API only`, async () => {
+      const { gh, source, clock } = await enterprise(origin, host);
+      expect(source.github()).toEqual({ host, webUrl });
+      expect(source.snapshot()!.prs.map((p) => p.number)).toEqual([26, 27, 28]);
+      expect(await source.account()).toMatchObject({ login: ALICE });
+      // Signing goes through the same API: the comment lands on this host.
+      const signer = new FakeSigner(clock);
+      const s = new Session({ source, signer, clock, version: null, fake: false });
+      const messages: ServerToClient[] = [];
+      const client = { send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient) };
+      await s.handle(client, JSON.stringify({ t: "unlock", id: "u", passphrase: "anything" }));
+      await s.handle(
+        client,
+        JSON.stringify({
+          t: "sign",
+          id: "s",
+          verdict: "approve",
+          entries: [{ pr: 26, head_sha: sha("head-26") }],
+        }),
+      );
+      const reply = messages.find((m) => m.t === "reply" && m.id === "s") as Extract<
+        Reply,
+        { ok: true; to: "sign" }
+      >;
+      expect(reply.ok).toBe(true);
+      expect(reply.result.posted[0]!.url).toStartWith(`${webUrl}/acme/widgets/pull/26`);
+      // The welcome tells the web app the host.
+      await s.attach(client);
+      const welcome = messages.find((m) => m.t === "welcome");
+      expect(welcome).toMatchObject({ github: { host, webUrl } });
+      expect(gh.queries("Poll").length).toBeGreaterThan(0);
+      expect(gh.misdirected).toEqual([]);
+      s.stop();
+    });
+
+  test("not logged in to that host: a sentence that names it", async () => {
+    const { source, lines } = await enterprise(
+      "git@acme.ghe.com:acme/widgets.git",
+      "acme.ghe.com",
+      null,
+    );
+    expect(lines.join("\n")).toContain(
+      "`gh` is not logged in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com`",
+    );
+    expect(source.snapshot()).toBeNull();
+    const setup = await source.setup();
+    expect(setup.checks.every((c) => c.state === "unknown")).toBe(true);
+    expect(await source.account()).toBeNull();
+  });
+
+  test("an API bound to another host than the repo's is refused", () => {
+    const api = new GitHubApi({ token: "t0ken", fetch: new FakeGitHub().fetch });
+    expect(
+      () =>
+        new GitHubSource({
+          clock: new ManualClock(T0),
+          repo: REPO,
+          host: githubHost("acme.ghe.com"),
+          api,
+          patchIds: null,
+          log: () => {},
+        }),
+    ).toThrow(/bound to github.com/);
   });
 });

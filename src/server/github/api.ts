@@ -6,12 +6,22 @@
  * - The token goes into the `authorization` header and nowhere else: never
  *   into a URL, a log line or an error message (it is scrubbed from GitHub's
  *   messages too).
+ * - The token belongs to one host (`gh auth token --hostname <host>`), and
+ *   every request goes through the kit's `fetchWithToken` bound to that
+ *   host's API (`isApiUrl`): a URL or a redirect elsewhere is refused, so a
+ *   github.com token never reaches a GHE.com URL, nor the reverse.
  * - Rate limits surface as {@link RateLimited}, with the time GitHub said
  *   to come back (`retry-after`, `x-ratelimit-reset`) when it said one. The
  *   GraphQL budget left is kept in {@link GitHubApi.budget}.
  */
 
-export const GITHUB_API = "https://api.github.com";
+import {
+  fetchWithToken,
+  githubHost,
+  isApiUrl,
+  TokenHostError,
+  type GitHubHost,
+} from "../../kit/host.ts";
 
 /** A failed call. `status` 0: the request never got an answer. */
 export class GitHubApiError extends Error {
@@ -39,7 +49,8 @@ export class RateLimited extends GitHubApiError {
 export interface GitHubApiOptions {
   readonly token: string;
   readonly fetch?: typeof fetch;
-  readonly apiUrl?: string;
+  /** The host the token belongs to (default github.com): its API URLs are the only ones used. */
+  readonly host?: GitHubHost;
   /** Epoch ms now; for `retry-after`. */
   readonly now?: () => number;
   /** Per request (default 30 s). */
@@ -63,7 +74,7 @@ export interface Budget {
 
 export class GitHubApi {
   private readonly doFetch: typeof fetch;
-  private readonly apiUrl: string;
+  readonly host: GitHubHost;
   private readonly now: () => number;
   /** The GraphQL budget after the last query that asked for `rateLimit`. */
   budget: Budget | null = null;
@@ -72,14 +83,14 @@ export class GitHubApi {
 
   constructor(private readonly options: GitHubApiOptions) {
     this.doFetch = options.fetch ?? fetch;
-    this.apiUrl = (options.apiUrl ?? GITHUB_API).replace(/\/+$/, "");
+    this.host = options.host ?? githubHost("github.com");
     this.now = options.now ?? Date.now;
   }
 
   /** One GraphQL query. Throws on transport errors, rate limits and any GraphQL error. */
   async graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
     this.calls.graphql++;
-    const res = await this.send("POST", "/graphql", { query, variables });
+    const res = await this.send("POST", this.host.graphqlUrl, "/graphql", { query, variables });
     const json = (await this.json(res, "/graphql")) as {
       data?: T & {
         rateLimit?: { cost: number; remaining: number; limit: number; resetAt: string };
@@ -109,27 +120,35 @@ export class GitHubApi {
   /** One REST call; `path` starts with `/`. Throws `GitHubApiError` on a non-2xx answer. */
   async rest<T = unknown>(method: string, path: string, body?: unknown): Promise<RestResponse<T>> {
     this.calls.rest++;
-    const res = await this.send(method, path, body);
+    const res = await this.send(method, `${this.host.apiUrl}${path}`, path, body);
     const data = (await this.json(res, path)) as T;
     return { status: res.status, data, headers: res.headers };
   }
 
-  private async send(method: string, path: string, body: unknown): Promise<Response> {
+  private async send(method: string, url: string, path: string, body: unknown): Promise<Response> {
     let res: Response;
     try {
-      res = await this.doFetch(`${this.apiUrl}${path}`, {
-        method,
-        headers: {
-          authorization: `Bearer ${this.options.token}`,
-          accept: "application/vnd.github+json",
-          "x-github-api-version": "2022-11-28",
-          "user-agent": "nod-serve",
-          ...(body === undefined ? {} : { "content-type": "application/json" }),
+      res = await fetchWithToken(
+        url,
+        {
+          method,
+          headers: {
+            accept: "application/vnd.github+json",
+            "x-github-api-version": "2022-11-28",
+            "user-agent": "nod-serve",
+            ...(body === undefined ? {} : { "content-type": "application/json" }),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000),
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(this.options.timeoutMs ?? 30_000),
-      });
+        {
+          token: this.options.token,
+          fetch: this.doFetch,
+          allowed: (target) => isApiUrl(this.host, target),
+        },
+      );
     } catch (error) {
+      if (error instanceof TokenHostError) throw new GitHubApiError(0, error.message);
       throw new GitHubApiError(
         0,
         `GitHub did not answer: ${this.scrub(error instanceof Error ? error.message : String(error))}`,

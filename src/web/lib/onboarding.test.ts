@@ -163,6 +163,14 @@ describe("words", () => {
     const say = (code: Parameters<typeof onboardingError>[0]["code"], message = "") =>
       onboardingError({ code, message });
     expect(say("github", "`gh` is not logged in.")).toContain("gh auth login");
+    expect(
+      say(
+        "github",
+        "`gh` is not logged in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com`.",
+      ),
+    ).toBe(
+      "nod serve is not signed in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com` in a terminal, then restart nod serve.",
+    );
     expect(say("key-exists")).toContain("never replaces");
     expect(say("bad-key-file")).toContain("nod key show");
     expect(say("offline")).toContain("still running");

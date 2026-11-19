@@ -8,6 +8,13 @@
  *   #/pr/<owner>/<repo>/<n>            a deep link to one PR: its landing
  *   #/batch/<owner>/<repo>/<n>,<n>,…   a deep link to a batch: the landing and the
  *                                      batch dialog's review step
+ *   #/pr/<host>/<owner>/<repo>/<n>     the same for a repo on another host than
+ *   #/batch/<host>/<owner>/<repo>/…    github.com (`acme.ghe.com`, a GHES host)
+ *
+ * A deep link without a host is a github.com link (all links before hosts
+ * existed were), and the kit's `prDeepLink`/`batchDeepLink` name every other
+ * host. So a link for one host never lands on a repo of the same name on
+ * another: the landing compares host and repo with the server's.
  *
  * Deep links are stable URLs that do nothing by themselves: a link never
  * approves, it only opens a view (concept decision 7).
@@ -20,13 +27,26 @@
  * is the list.
  */
 
+import { GITHUB_COM, hostName } from "../../kit/host.ts";
+
 export type Route =
   | { readonly view: "list" }
   | { readonly view: "chrono" }
   | { readonly view: "board" }
   | { readonly view: "setup" }
-  | { readonly view: "pr"; readonly repo: string; readonly number: number }
-  | { readonly view: "batch"; readonly repo: string; readonly numbers: ReadonlyArray<number> };
+  | {
+      readonly view: "pr";
+      /** The GitHub host, lowercase: `github.com` for a link without one. */
+      readonly host: string;
+      readonly repo: string;
+      readonly number: number;
+    }
+  | {
+      readonly view: "batch";
+      readonly host: string;
+      readonly repo: string;
+      readonly numbers: ReadonlyArray<number>;
+    };
 
 export type View = "list" | "chrono" | "board";
 
@@ -66,22 +86,26 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 1 && parts[0] === "chrono") return { view: "chrono" };
   if (parts.length === 1 && parts[0] === "board") return { view: "board" };
   if (parts.length === 1 && parts[0] === "setup") return { view: "setup" };
-  if (parts.length !== 4 || !NAME.test(parts[1]!) || !NAME.test(parts[2]!)) return LIST;
-  const repo = `${parts[1]}/${parts[2]}`;
-  if (parts[0] === "pr" && NUMBER.test(parts[3]!))
-    return { view: "pr", repo, number: Number(parts[3]) };
-  if (parts[0] === "batch") {
-    const items = parts[3]!.split(",").filter(Boolean);
+  const [kind, ...rest] = parts;
+  let host: string | null = GITHUB_COM;
+  if (rest.length === 4) host = hostName(rest.shift()!);
+  if (!host || rest.length !== 3 || !NAME.test(rest[0]!) || !NAME.test(rest[1]!)) return LIST;
+  const repo = `${rest[0]}/${rest[1]}`;
+  if (kind === "pr" && NUMBER.test(rest[2]!))
+    return { view: "pr", host, repo, number: Number(rest[2]) };
+  if (kind === "batch") {
+    const items = rest[2]!.split(",").filter(Boolean);
     if (!items.length || items.length > MAX_LINK_PRS || !items.every((n) => NUMBER.test(n)))
       return LIST;
-    return { view: "batch", repo, numbers: [...new Set(items.map(Number))] };
+    return { view: "batch", host, repo, numbers: [...new Set(items.map(Number))] };
   }
   return LIST;
 }
 
-const repoPath = (repo: string) => {
+const repoPath = (host: string, repo: string) => {
   const [owner = "", name = ""] = repo.split("/");
-  return `${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  const path = `${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  return host === GITHUB_COM ? path : `${encodeURIComponent(host)}/${path}`;
 };
 
 export function formatRoute(route: Route): string {
@@ -95,9 +119,9 @@ export function formatRoute(route: Route): string {
     case "setup":
       return "#/setup";
     case "pr":
-      return `#/pr/${repoPath(route.repo)}/${route.number}`;
+      return `#/pr/${repoPath(route.host, route.repo)}/${route.number}`;
     case "batch":
-      return `#/batch/${repoPath(route.repo)}/${route.numbers.join(",")}`;
+      return `#/batch/${repoPath(route.host, route.repo)}/${route.numbers.join(",")}`;
   }
 }
 

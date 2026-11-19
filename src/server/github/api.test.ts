@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { githubHost } from "../../kit/host.ts";
 import { GitHubApi, GitHubApiError, RateLimited } from "./api";
 
 const TOKEN = "fake-token-for-tests-only";
@@ -105,4 +106,45 @@ test("REST: JSON in and out, headers kept, empty bodies are null", async () => {
   expect(r.headers.get("x-oauth-scopes")).toBe("repo");
   expect(seen[0]!.init.body).toBe('{"body":"hi"}');
   expect((await gh.rest("DELETE", "/empty")).data).toBeNull();
+});
+
+test("the URLs come from the host: GHE.com and GitHub Enterprise Server", async () => {
+  for (const [host, graphql, rest] of [
+    ["acme.ghe.com", "https://api.acme.ghe.com/graphql", "https://api.acme.ghe.com/user"],
+    [
+      "git.example.test",
+      "https://git.example.test/api/graphql",
+      "https://git.example.test/api/v3/user",
+    ],
+  ] as const) {
+    const seen: string[] = [];
+    const fetch = (async (url: string) => {
+      seen.push(url);
+      return json(200, { data: { ok: true } });
+    }) as unknown as typeof globalThis.fetch;
+    const gh = new GitHubApi({ token: TOKEN, host: githubHost(host), fetch });
+    await gh.graphql("query { ok }");
+    await gh.rest("GET", "/user");
+    expect(seen).toEqual([graphql, rest]);
+  }
+});
+
+test("the token never follows a redirect to another host, github.com and GHE.com alike", async () => {
+  for (const [host, away] of [
+    ["github.com", "https://api.acme.ghe.com/user"],
+    ["acme.ghe.com", "https://api.github.com/user"],
+    ["git.example.test", "https://git.example.test.example.invalid/api/v3/user"],
+  ] as const) {
+    const seen: Array<{ url: string; auth: string }> = [];
+    const fetch = (async (url: string, init: RequestInit) => {
+      seen.push({ url, auth: (init.headers as Record<string, string>).authorization! });
+      return new Response(null, { status: 302, headers: { location: away } });
+    }) as unknown as typeof globalThis.fetch;
+    const gh = new GitHubApi({ token: TOKEN, host: githubHost(host), fetch });
+    const error = await gh.rest("GET", "/user").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GitHubApiError);
+    expect(String(error)).toContain("refusing to send the token");
+    expect(seen).toHaveLength(1);
+    expect(seen.some((s) => s.url === away)).toBe(false);
+  }
 });

@@ -34,6 +34,7 @@ import type { PrView, SetupStatus, SignerState, Snapshot, Welcome } from "../../
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
+import { githubOf } from "@/lib/deep-link";
 import type { Status } from "@/lib/connection";
 import {
   itemKeys,
@@ -422,8 +423,10 @@ function DashboardInner({
   const showLegend = !legendDismissed && (firstRun || setup?.state === "pending");
 
   const since = useLastVisit(now);
+  const github = githubOf(welcome);
   const state: DashboardState = {
     snapshot,
+    github,
     me,
     people: snapshot.people,
     focus,
@@ -531,6 +534,7 @@ function DashboardInner({
             <LinkLanding
               route={landing}
               snapshot={{ ...snapshot, prs }}
+              github={github}
               signer={signer}
               onOpen={openInList}
               onList={() => go({ view: "list" })}

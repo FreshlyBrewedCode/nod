@@ -2,8 +2,11 @@
  * A fake GitHub behind an injectable `fetch`, for the GitHub source's tests:
  * it answers the source's GraphQL queries (`Poll`, `Details`, `SignTarget`)
  * from fixtures and records every REST call. Fictional repo `acme/widgets`.
+ * It plays one host (github.com, `acme.ghe.com`, a GHES) and answers only
+ * that host's URL shapes; anything else lands in `misdirected`.
  */
 
+import { githubHost, type GitHubHost } from "../../kit/host.ts";
 import type { RawPr } from "./queries";
 import { ALICE, REPO, iso, sha } from "./test-support";
 
@@ -21,6 +24,14 @@ interface Canned {
 }
 
 export class FakeGitHub {
+  /** URLs called that are not this host's API (a test asserts there are none). */
+  readonly misdirected: string[] = [];
+
+  constructor(
+    /** The host it plays (default github.com): every call must use its URL shapes. */
+    readonly host: GitHubHost = githubHost("github.com"),
+  ) {}
+
   open: RawPr[] = [];
   closed: Array<{ number: number; updatedAt: string; closedAt: string; raw: RawPr }> = [];
   /** `output.text` by check run database id. */
@@ -52,9 +63,19 @@ export class FakeGitHub {
     input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> => {
-    const url = new URL(String(input));
+    const href = String(input);
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    // The URL shapes of this host, and nothing else: GraphQL at its one
+    // endpoint, REST under its API base (`/api/v3` on GHES).
+    const restBase = `${this.host.apiUrl}/`;
+    let url: URL;
+    if (href.split("?")[0] === this.host.graphqlUrl) url = new URL("http://fake/graphql");
+    else if (href.startsWith(restBase)) url = new URL(`http://fake/${href.slice(restBase.length)}`);
+    else {
+      this.misdirected.push(`${method} ${href}`);
+      return json(421, { message: `not ${this.host.name}'s API: ${href}` });
+    }
     const path = url.pathname + url.search;
     const auth = (init?.headers as Record<string, string>)?.authorization;
     if (auth !== "Bearer t0ken") return json(401, { message: "Bad credentials" });
@@ -164,7 +185,7 @@ export class FakeGitHub {
     let m = new RegExp(`^${repo}/issues/(\\d+)/comments$`).exec(path);
     if (method === "POST" && m)
       return json(201, {
-        html_url: `https://github.com/${REPO}/pull/${m[1]}#issuecomment-${++this.comments}`,
+        html_url: `${this.host.webUrl}/${REPO}/pull/${m[1]}#issuecomment-${++this.comments}`,
       });
     m = new RegExp(`^${repo}/issues/(\\d+)/reactions$`).exec(path);
     if (method === "POST" && m)
@@ -185,7 +206,7 @@ export class FakeGitHub {
     if (method === "PUT" && path === `${repo}/contents/.nod/allowed_signers`) return json(200, {});
     if (method === "GET" && path === `${repo}/pulls`) return json(200, []);
     if (method === "POST" && path === `${repo}/pulls`)
-      return json(201, { number: 77, html_url: `https://github.com/${REPO}/pull/77` });
+      return json(201, { number: 77, html_url: `${this.host.webUrl}/${REPO}/pull/77` });
     return json(404, { message: `Not Found: ${method} ${path}` });
   }
 }

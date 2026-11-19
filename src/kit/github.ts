@@ -1,8 +1,11 @@
 /**
  * Thin REST helpers for the verifier, built on `fetch`. Each takes
  * `{ token, repo, apiUrl?, fetch? }`; `fetch` can be injected for tests.
- * Errors never contain the token.
+ * Errors never contain the token, and the token goes to `apiUrl`'s origin
+ * only: a redirect elsewhere is refused, not followed with it.
  */
+import { fetchWithToken } from "./host.ts";
+import { isRepoName } from "./nod.ts";
 import { isStickyComment } from "./sticky.ts";
 
 /** Connection to one repo. */
@@ -10,7 +13,10 @@ export interface GitHubOptions {
   token: string;
   /** `owner/name`. */
   repo: string;
-  /** Default `https://api.github.com` (pass `GITHUB_API_URL` on GitHub Enterprise). */
+  /**
+   * Default `https://api.github.com`. On GitHub Enterprise pass `GITHUB_API_URL`
+   * (`https://api.<name>.ghe.com`, `https://<host>/api/v3`) or `githubHost(…).apiUrl`.
+   */
   apiUrl?: string;
   fetch?: typeof fetch;
 }
@@ -35,16 +41,20 @@ export async function githubRequest<T = unknown>(
   body?: unknown,
 ): Promise<T> {
   const { token, apiUrl = "https://api.github.com", fetch: doFetch = fetch } = options;
-  const res = await doFetch(`${apiUrl.replace(/\/+$/, "")}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: "application/vnd.github+json",
-      "x-github-api-version": "2022-11-28",
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
+  const base = apiUrl.replace(/\/+$/, "");
+  const res = await fetchWithToken(
+    `${base}${path}`,
+    {
+      method,
+      headers: {
+        accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28",
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    { token, fetch: doFetch, allowed: (url) => underBase(base, url) },
+  );
   const text = await res.text();
   if (!res.ok) {
     let message = text.slice(0, 300);
@@ -256,9 +266,22 @@ export async function syncLabels(
   return { added, removed };
 }
 
+/** Whether `url` is on `base`'s origin and under its path: where the token may go. */
+function underBase(base: string, url: string): boolean {
+  const b = new URL(base);
+  const u = new URL(url);
+  const prefix = b.pathname.replace(/\/+$/, "");
+  return (
+    u.protocol === b.protocol &&
+    u.host === b.host &&
+    !u.username &&
+    !u.password &&
+    (prefix === "" || u.pathname === prefix || u.pathname.startsWith(`${prefix}/`))
+  );
+}
+
 function repoPath({ repo }: GitHubOptions): string {
-  if (!/^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/.test(repo))
-    throw new Error(`not an owner/name repo: ${repo}`);
+  if (!isRepoName(repo)) throw new Error(`not an owner/name repo: ${repo}`);
   return `/repos/${repo}`;
 }
 

@@ -33,6 +33,7 @@ test("serve defaults: GitHub, port 4518, no browser", () => {
     frozen: false,
     port: 4518,
     repo: null,
+    host: null,
     dir: null,
     poll: null,
     webUrl: null,
@@ -65,6 +66,7 @@ test("serve flags", () => {
     frozen: true,
     port: 4600,
     repo: "acme/widgets",
+    host: null,
     dir: null,
     poll: null,
     webUrl: "https://ui.example.test/next",
@@ -78,6 +80,7 @@ test("serve flags", () => {
     dir: "/tmp/clone",
     poll: 30,
   });
+  expect(serveFlags(["--host", "Acme.GHE.com"]).host).toBe("Acme.GHE.com");
 });
 
 test("init", () => {
@@ -90,6 +93,9 @@ test("init", () => {
     flags: { pr: false, dryRun: true, ruleset: true },
   });
   expect(parseArgs(["init", "--help"])).toEqual({ kind: "help" });
+  expect(
+    parseArgs(["init", "--host", "acme.ghe.com", "--repo", "mona_acme/widgets"]),
+  ).toMatchObject({ flags: { host: "acme.ghe.com", repo: "mona_acme/widgets" } });
 });
 
 test("bad arguments are errors", () => {
@@ -106,8 +112,12 @@ test("bad arguments are errors", () => {
     ["serve", "--poll", "2"],
     ["serve", "--poll", "soon"],
     ["serve", "--fake", "--dir", "/tmp/clone"],
+    ["serve", "--fake", "--host", "acme.ghe.com"],
+    ["serve", "--host", "api.github.com"],
+    ["serve", "--host", "not a host"],
     ["init", "x"],
     ["init", "--repo", "no-slash"],
+    ["init", "--host", "https://acme.ghe.com/acme"],
     ["init", "--kit", "has space"],
   ])
     expect(parseArgs(argv).kind).toBe("error");

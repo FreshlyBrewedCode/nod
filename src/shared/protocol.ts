@@ -63,6 +63,18 @@ export interface Account {
   readonly scopes: ReadonlyArray<string>;
 }
 
+/**
+ * The GitHub host `nod serve` reads, from its clone's origin: github.com,
+ * `<name>.ghe.com` or a GitHub Enterprise Server. PR and repo links start
+ * at `webUrl`.
+ */
+export interface GitHubInfo {
+  /** Lowercase host name, as `gh auth login --hostname` takes it: `github.com`, `acme.ghe.com`. */
+  readonly host: string;
+  /** The web UI, no trailing slash: `https://acme.ghe.com`. */
+  readonly webUrl: string;
+}
+
 /** A repo offered in onboarding step 1 (`list-repos`). */
 export interface RepoChoice {
   readonly repo: RepoName;
@@ -657,6 +669,11 @@ export interface Welcome {
   /** The `gh` account; null when `gh` is not logged in (onboarding step 1 says so). */
   readonly me: Account | null;
   readonly repo: RepoName | null;
+  /**
+   * The GitHub host `repo` is on. Added after protocol 1 shipped: a server
+   * that does not send it reads github.com.
+   */
+  readonly github?: GitHubInfo;
   readonly setup: SetupStatus;
   readonly signer: SignerState;
 }
