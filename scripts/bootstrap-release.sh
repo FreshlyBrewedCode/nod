@@ -21,13 +21,14 @@ set -euo pipefail
 #   scripts/bootstrap-release.sh              # all phases, in order
 #   scripts/bootstrap-release.sh github       # environment, branch protection, stable branch, tag
 #   scripts/bootstrap-release.sh ui           # nod-ui repo, deploy key, UI Pages
+#   scripts/bootstrap-release.sh site         # Pages for the site (landing page and docs), on this repo
 #   scripts/bootstrap-release.sh npm          # npm package-name stub
 #   scripts/bootstrap-release.sh trusted-publishers
 #   scripts/bootstrap-release.sh enable       # sets RELEASE_ENABLED=true: the switch
 #
-# DNS is not in here: point `ui.nod` (and, once the site exists, `nod`) under
-# frebreco.de at freshlybrewedcode.github.io with CNAME records wherever the
-# zone lives. The `dns` phase prints exactly what to add.
+# DNS is not in here: point `ui.nod` and `nod` under frebreco.de at
+# freshlybrewedcode.github.io with CNAME records wherever the zone lives. The
+# `dns` phase prints exactly what to add.
 
 OWNER="FreshlyBrewedCode"
 REPO="nod"
@@ -223,18 +224,42 @@ phase_ui() {
 
 # ---------------------------------------------------------------- Phase 3
 
-phase_dns() {
-  log "DNS records (not automated: add them wherever the frebreco.de zone lives)"
-  printf '      %-6s %-24s %s\n' "CNAME" "ui.nod" "$PAGES_HOST"
-  printf '      %-6s %-24s %s\n' "CNAME" "nod" "$PAGES_HOST   (only once the site exists; there is none yet)"
-  info "Then re-run the 'ui' phase so GitHub can enforce HTTPS on ${UI_DOMAIN}."
-  confirm
+# The landing page and docs (site/): site.yml deploys them to this repo's own
+# Pages with actions/deploy-pages, so the source is "GitHub Actions" and there
+# is no Pages branch to seed.
+phase_site() {
+  log "Phase 3 — the site's Pages (landing page and docs)"
+  require_cmd gh
+
+  if gh api "repos/${REPO_SLUG}/pages" >/dev/null 2>&1; then
+    ok "GitHub Pages is enabled on $REPO_SLUG"
+  elif will "enable GitHub Pages (source: GitHub Actions) on ${REPO_SLUG}; site.yml deploys to it once ${SWITCH_VARIABLE} is true" \
+    "gh api --method POST repos/${REPO_SLUG}/pages -f build_type=workflow"; then
+    gh api --method POST "repos/${REPO_SLUG}/pages" -f build_type=workflow >/dev/null
+  else
+    return 0
+  fi
+
+  if will "set the custom domain ${SITE_DOMAIN} on ${REPO_SLUG} Pages and enforce HTTPS if the certificate is ready (DNS must point at it first)" \
+    "gh api --method PUT repos/${REPO_SLUG}/pages -f cname=${SITE_DOMAIN}"; then
+    pages_domain "$REPO_SLUG" "$SITE_DOMAIN"
+  fi
 }
 
 # ---------------------------------------------------------------- Phase 4
 
+phase_dns() {
+  log "DNS records (not automated: add them wherever the frebreco.de zone lives)"
+  printf '      %-6s %-24s %s\n' "CNAME" "ui.nod" "$PAGES_HOST"
+  printf '      %-6s %-24s %s\n' "CNAME" "nod" "$PAGES_HOST"
+  info "Then re-run the 'ui' and 'site' phases so GitHub can enforce HTTPS on ${UI_DOMAIN} and ${SITE_DOMAIN}."
+  confirm
+}
+
+# ---------------------------------------------------------------- Phase 5
+
 phase_npm() {
-  log "Phase 3 — npm package stub"
+  log "Phase 4 — npm package stub"
   require_cmd npm
 
   local npm_version smallest
@@ -285,10 +310,10 @@ JSON
   rm -rf "$stub_root"
 }
 
-# ---------------------------------------------------------------- Phase 5
+# ---------------------------------------------------------------- Phase 6
 
 phase_trusted_publishers() {
-  log "Phase 4 — npm trusted publishers"
+  log "Phase 5 — npm trusted publishers"
   info "For EACH of the ${#PACKAGES[@]} packages below, open its npmjs.com settings"
   info "(Settings → Trusted Publisher → GitHub Actions) and enter these exact values:"
   echo
@@ -319,12 +344,13 @@ phase_trusted_publishers() {
   done
 }
 
-# ---------------------------------------------------------------- Phase 6
+# ---------------------------------------------------------------- Phase 7
 
 phase_enable() {
-  log "Phase 5 — switch the release workflows on"
+  log "Phase 6 — switch the release workflows on"
   require_cmd gh
-  warn "After this, every merge to main publishes @frebreco/nod@next and deploys ui.nod.frebreco.de/next."
+  warn "After this, every merge to main publishes @frebreco/nod@next, deploys ui.nod.frebreco.de/next"
+  warn "and deploys the site to ${SITE_DOMAIN}."
   warn "Do it only once the previous phases are done."
   if will "set the repository variable ${SWITCH_VARIABLE}=true on ${REPO_SLUG}" \
     "gh variable set ${SWITCH_VARIABLE} --body true --repo ${REPO_SLUG}"; then
@@ -339,6 +365,7 @@ main() {
   case "${1:-all}" in
     github) phase_github ;;
     ui) phase_ui ;;
+    site) phase_site ;;
     dns) phase_dns ;;
     npm) phase_npm ;;
     trusted-publishers) phase_trusted_publishers ;;
@@ -346,12 +373,13 @@ main() {
     all)
       phase_github
       phase_ui
+      phase_site
       phase_dns
       phase_npm
       phase_trusted_publishers
       phase_enable
       ;;
-    *) die "usage: $0 [github|ui|dns|npm|trusted-publishers|enable|all]" ;;
+    *) die "usage: $0 [github|ui|site|dns|npm|trusted-publishers|enable|all]" ;;
   esac
   log "Done."
 }

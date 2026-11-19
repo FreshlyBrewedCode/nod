@@ -1,0 +1,68 @@
+---
+import Header from "../components/Header.astro";
+import { CHANNEL, href } from "../lib/channel";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Path to canonicalize to, for a page also served at another URL. Defaults to this page's own. */
+  canonical?: string;
+  /**
+   * `dark`: the page has one scheme, the app's (the landing page, which shows
+   * the app). Otherwise the reader's choice, dark until they toggle it.
+   */
+  scheme?: "dark";
+}
+
+const {
+  title,
+  description = "A dashboard that steers attention across agent-written pull requests, and a signed human nod that lets agents merge on their own.",
+  canonical,
+  scheme,
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content={scheme === "dark" ? "dark" : "dark light"} />
+    <link rel="icon" href={href("/favicon.svg")} type="image/svg+xml" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <link rel="canonical" href={new URL(canonical ?? Astro.url.pathname, Astro.site)} />
+    {/* Pre-release docs change under their readers; send search engines to the stable ones. */}
+    {CHANNEL === "next" && <meta name="robots" content="noindex" />}
+    {
+      /*
+       * Dark is the default, as the app is dark only; light is the reader's
+       * choice for the docs, remembered. Resolved before first paint.
+       */
+      scheme !== "dark" && (
+        <script is:inline>
+          {`try { if (localStorage.getItem("theme") === "light") document.documentElement.classList.remove("dark"); } catch {}`}
+        </script>
+      )
+    }
+  </head>
+  <body class="relative min-h-screen">
+    <a href="#main" class="skip-link">Skip to the content</a>
+    <Header toggle={scheme !== "dark"} />
+    <slot />
+    <footer class="mt-20 border-t border-border">
+      <div
+        class="mx-auto max-w-6xl px-5 sm:px-6 py-8 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-sm text-muted-foreground"
+      >
+        <span>A prototype: it proves a concept and is not hardened.</span>
+        <span class="flex items-center gap-5">
+          <a class="hover:text-foreground" href={href("/docs/security")}>Security and limits</a>
+          <a class="hover:text-foreground" href="https://github.com/FreshlyBrewedCode/nod">GitHub</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

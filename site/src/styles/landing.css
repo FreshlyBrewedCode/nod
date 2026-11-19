@@ -1,0 +1,1313 @@
+/*
+ * The landing page. Plain CSS, unlayered: it draws the app, so it uses the
+ * app's own tokens (the r3 palette of `src/web/styles.css`) under their own
+ * names instead of the site's shadcn-style ones.
+ *
+ * The page hangs on one left edge. From `lg` up a margin column sits left of
+ * it, for the things that annotate rather than say: the status, the names of
+ * the four row sizes, the section labels.
+ */
+.landing {
+  --bg: #0d0f13;
+  --panel: #13161c;
+  --panel2: #191d25;
+  --line: #20252f;
+  --line2: #2e3542;
+  --tx: #e7e9ee;
+  --tx2: #a3abba;
+  --tx3: #6c7586;
+  --need: #f2b24a;
+  --need-bg: #f2b24a17;
+  --need-line: #f2b24a55;
+  --know: #74a9ff;
+  --bgl: #7f8898;
+  --ok: #4cc38a;
+  --bad: #f0685d;
+  --bad-bg: #f0685d1a;
+  --focus: #171c27;
+  --on-need: #15120a;
+
+  --margin: 0px;
+  --gap: 0px;
+
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+  color: var(--tx);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (min-width: 40rem) {
+  .landing {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 64rem) {
+  .landing {
+    --margin: 10.75rem;
+    --gap: 1.5rem;
+  }
+}
+
+.landing .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A block of the page: the margin column, then the content. */
+.landing .band {
+  display: grid;
+  grid-template-columns: var(--margin) minmax(0, 1fr);
+  column-gap: var(--gap);
+}
+
+.landing .band > .side {
+  grid-column: 1;
+  color: var(--tx3);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.landing .band > .body {
+  grid-column: 2;
+  min-width: 0;
+}
+
+@media (max-width: 63.99rem) {
+  .landing .band {
+    display: block;
+  }
+
+  .landing .band > .side {
+    text-align: left;
+    margin-bottom: 0.6rem;
+  }
+}
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+
+.landing .hero {
+  padding-top: clamp(2.25rem, 5.5vw, 3.75rem);
+  padding-bottom: clamp(1.75rem, 3.5vw, 2.5rem);
+}
+
+.landing .hero .side {
+  padding-top: 0.55rem;
+}
+
+.landing .state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--tx2);
+  white-space: nowrap;
+}
+
+.landing .state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--need);
+}
+
+.landing .state:hover {
+  color: var(--tx);
+}
+
+.landing h1 {
+  margin: 0;
+  max-width: 26ch;
+  font-size: clamp(1.95rem, 4.6vw, 3.05rem);
+  line-height: 1.08;
+  font-weight: 650;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+
+.landing .hero-rest {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+@media (min-width: 52rem) {
+  .landing .hero-rest {
+    grid-template-columns: minmax(0, 34rem) auto;
+    align-items: end;
+    justify-content: space-between;
+    gap: 2.5rem;
+  }
+}
+
+.landing .lead {
+  margin: 0;
+  color: var(--tx2);
+  font-size: clamp(0.975rem, 1.5vw, 1.0625rem);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.landing .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.landing .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding-inline: 1rem;
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  color: var(--tx);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.landing .button:hover {
+  background: var(--panel2);
+}
+
+.landing .button.primary {
+  border-color: var(--need);
+  background: var(--need);
+  color: var(--on-need);
+}
+
+.landing .button.primary:hover {
+  background: #f6c067;
+}
+
+.landing .button.bare {
+  border-color: transparent;
+  padding-inline: 0.5rem;
+  color: var(--tx2);
+}
+
+.landing .button.bare:hover {
+  background: none;
+  color: var(--tx);
+}
+
+/* ── the demo ─────────────────────────────────────────────────────────── */
+
+.landing .demo {
+  margin: 0;
+}
+
+.landing .frame {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow:
+    0 0 0 1px #0006,
+    0 30px 80px -20px #000c;
+  font-size: 14px;
+  cursor: default;
+  user-select: none;
+}
+
+/* Two-state pieces: shown before a step, or from it on. */
+.landing .frame:not([data-step="2"], [data-step="3"]) .from-2,
+.landing .frame:is([data-step="2"], [data-step="3"]) .before-2,
+.landing .frame:not([data-step="3"]) .from-3,
+.landing .frame[data-step="3"] .before-3 {
+  display: none;
+}
+
+.landing .frame .from-2,
+.landing .frame .from-3 {
+  animation: nod-appear 0.35s ease both;
+}
+
+@keyframes nod-appear {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The top bar. */
+.landing .bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 48px;
+  padding-inline: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.landing .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.landing .brand svg {
+  width: 18px;
+  height: 18px;
+}
+
+.landing .repo {
+  color: var(--tx3);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.landing .seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--tx2);
+  font-size: 13px;
+}
+
+.landing .seg > * {
+  padding: 2px 11px;
+  border-radius: 6px;
+  font-weight: 400;
+}
+
+.landing .seg > b {
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line2);
+  color: var(--tx);
+  font-weight: 600;
+}
+
+.landing .grow {
+  flex: 1;
+}
+
+.landing .lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding-inline: 11px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--tx2);
+  font-size: 13px;
+  white-space: nowrap;
+  transition:
+    border-color 0.3s ease,
+    color 0.3s ease;
+}
+
+.landing .lock svg,
+.landing .btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.landing .frame:is([data-step="2"], [data-step="3"]) .lock {
+  border-color: var(--need-line);
+  color: var(--tx);
+}
+
+.landing .frame:is([data-step="2"], [data-step="3"]) .lock .shackle {
+  d: path("M8 11V8a4 4 0 0 1 7.5-2");
+}
+
+.landing .lock .mono {
+  color: var(--need);
+  font-size: 12px;
+}
+
+/* Avatars: the team's hues, as the app assigns them. */
+.landing .av {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: hsl(var(--h) 45% 45%);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.landing .av.lg {
+  width: 26px;
+  height: 26px;
+  font-size: 12px;
+}
+
+/* The list: lanes of rows. */
+/* The bottom is the window's empty floor, where the selection bar floats. */
+.landing .list {
+  padding: 2px 22px 78px;
+}
+
+.landing .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 4px 9px;
+  font-size: 15px;
+}
+
+.landing .lane b {
+  font-weight: 600;
+}
+
+.landing .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.landing .dot.need {
+  background: var(--need);
+}
+
+.landing .dot.know {
+  background: var(--know);
+}
+
+.landing .dot.bg {
+  background: var(--bgl);
+}
+
+.landing .count {
+  color: var(--tx3);
+}
+
+.landing .aside {
+  margin-left: auto;
+  color: var(--tx3);
+  font-size: 12.5px;
+}
+
+.landing .rows {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.landing .row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 124px 16px 104px;
+  align-items: center;
+  gap: 14px;
+  padding-inline: 18px;
+  transition: background-color 0.25s ease;
+}
+
+.landing .rows > * + * {
+  border-top: 1px solid var(--line);
+}
+
+.landing .rows > :first-child,
+.landing .rows > :first-child .row {
+  border-top-left-radius: 13px;
+  border-top-right-radius: 13px;
+}
+
+.landing .rows > :last-child {
+  border-bottom-left-radius: 13px;
+  border-bottom-right-radius: 13px;
+}
+
+.landing .row.t1 {
+  padding-block: 15px;
+}
+
+.landing .row.t2 {
+  padding-block: 13px;
+}
+
+.landing .row.t3,
+.landing .row.t4 {
+  padding-block: 8px;
+}
+
+.landing .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.landing .t1 .title {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.landing .t2 .title {
+  font-weight: 500;
+}
+
+.landing .brief {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--tx2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.landing .meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  color: var(--tx3);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.landing .tag {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding-inline: 7px;
+  border-radius: 5px;
+  background: var(--panel2);
+  color: var(--tx2);
+  font-size: 11.5px;
+}
+
+.landing .main.line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.landing .main.line .title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.landing .why {
+  display: flex;
+  flex: 1 1000 70px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--tx3);
+  font-size: 12.5px;
+}
+
+.landing .why .t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.landing .t4 {
+  color: var(--tx2);
+}
+
+.landing .cluster {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.landing .caret {
+  color: var(--tx3);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* `+312 −88` and the quiet bar. */
+.landing .diff {
+  display: grid;
+  grid-template-columns: 1fr 38px;
+  align-items: center;
+  gap: 8px;
+  color: var(--tx3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.landing .nums {
+  text-align: right;
+}
+
+.landing .nums b {
+  color: color-mix(in srgb, var(--ok) 75%, var(--tx3));
+  font-weight: 400;
+}
+
+.landing .nums u {
+  color: color-mix(in srgb, var(--bad) 75%, var(--tx3));
+  text-decoration: none;
+}
+
+.landing .track {
+  display: flex;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line2);
+}
+
+.landing .track b {
+  background: var(--ok);
+  opacity: 0.8;
+}
+
+.landing .track u {
+  background: var(--bad);
+  opacity: 0.8;
+}
+
+.landing .t4 .diff {
+  opacity: 0.75;
+}
+
+/* Three small bars: amber, red when high, absent at none. */
+.landing .risk {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.landing .risk i {
+  width: 4px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--line2);
+}
+
+.landing .risk.r0 {
+  visibility: hidden;
+}
+
+.landing .risk:is(.r1, .r2) i:first-child,
+.landing .risk.r2 i:nth-child(2) {
+  background: var(--need);
+}
+
+.landing .risk.r3 i {
+  background: var(--bad);
+}
+
+.landing .ask {
+  justify-self: end;
+  color: var(--need);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.landing .ask.know {
+  color: var(--know);
+  font-size: 12.5px;
+}
+
+.landing .ask .green {
+  color: var(--ok);
+}
+
+.landing .status {
+  justify-self: end;
+  color: var(--tx3);
+  font-size: 12.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.landing .pip {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 999px;
+  background: var(--ok);
+  vertical-align: 1px;
+}
+
+/* The checkbox. */
+.landing .box {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--line2);
+  border-radius: 5px;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.landing .box::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 3.5px;
+  width: 7px;
+  height: 3.5px;
+  border-bottom: 2px solid #111;
+  border-left: 2px solid #111;
+  rotate: -45deg;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.landing .box.on,
+.landing .frame:is([data-step="0"], [data-step="1"]) .batch .box {
+  border-color: var(--need);
+  background: var(--need);
+}
+
+.landing .box.on::after,
+.landing .frame:is([data-step="0"], [data-step="1"]) .batch .box::after {
+  opacity: 1;
+}
+
+.landing .frame:is([data-step="0"], [data-step="1"]) .batch {
+  background: var(--need-bg);
+}
+
+/* Signed: the box gives way to a plain green check. */
+.landing .frame:is([data-step="2"], [data-step="3"]) .batch .box {
+  border-color: transparent;
+}
+
+.landing .frame:is([data-step="2"], [data-step="3"]) .batch .box::after {
+  border-color: var(--ok);
+  opacity: 1;
+}
+
+/* Merged: the two rows leave the lane. */
+.landing .fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 0.55s cubic-bezier(0.3, 0, 0.2, 1),
+    opacity 0.3s ease,
+    border-color 0.3s ease;
+}
+
+.landing .fold-in {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.landing .frame[data-step="3"] .fold {
+  grid-template-rows: 0fr;
+  border-top-color: transparent;
+  opacity: 0;
+}
+
+/* The selection bar. */
+.landing .selbar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 7px 8px 7px 18px;
+  border: 1px solid var(--line2);
+  border-radius: 13px;
+  background: var(--panel2);
+  box-shadow: 0 24px 70px #000b;
+  white-space: nowrap;
+  translate: -50% 10px;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.25s ease,
+    translate 0.25s ease,
+    visibility 0s linear 0.25s;
+}
+
+.landing .frame[data-step="0"] .selbar {
+  translate: -50% 0;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.landing .quiet {
+  color: var(--tx2);
+}
+
+.landing .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding-inline: 13px;
+  border-radius: 9px;
+  background: var(--need);
+  color: var(--on-need);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.landing .btn.lg {
+  height: 40px;
+  padding-inline: 16px;
+  border-radius: 11px;
+  font-size: 14.5px;
+}
+
+.landing .btn kbd {
+  min-width: 18px;
+  height: 18px;
+  padding-inline: 5px;
+  border: 1px solid #0003;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #0001;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* The batch dialog over a dimmed list. */
+.landing .shade {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: 13px;
+  background: #07080bcc;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.25s ease,
+    visibility 0s linear 0.25s;
+}
+
+.landing .dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  width: min(560px, calc(100% - 28px));
+  padding: 24px 26px 22px;
+  border: 1px solid var(--line2);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px #000b;
+  translate: -50% calc(-50% + 8px);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.25s ease,
+    translate 0.3s ease,
+    visibility 0s linear 0.3s;
+}
+
+.landing .frame[data-step="1"] .shade,
+.landing .frame[data-step="1"] .dialog {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.landing .frame[data-step="1"] .dialog {
+  translate: -50% -50%;
+}
+
+.landing .d-title {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.landing .d-sum {
+  margin: 6px 0 0;
+  color: var(--tx2);
+}
+
+.landing .d-group {
+  margin-top: 16px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx2);
+  font-size: 12.5px;
+}
+
+.landing .d-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding-top: 11px;
+}
+
+.landing .d-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.landing .d-out {
+  color: var(--tx2);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.landing .d-unlock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.landing .field {
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  height: 36px;
+  padding-inline: 12px;
+  border: 1px solid var(--need-line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.landing .dots {
+  color: var(--tx2);
+  font-size: 13px;
+  letter-spacing: 0.14em;
+}
+
+.landing .chip {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding-inline: 10px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--tx3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.landing .chip.on {
+  border-color: var(--need-line);
+  background: var(--need-bg);
+  color: var(--tx);
+}
+
+.landing .d-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 22px;
+  margin-top: 20px;
+}
+
+/* The names of the four sizes, hanging in the margin. */
+.landing .note {
+  display: none;
+}
+
+@media (min-width: 64rem) {
+  .landing .note {
+    position: absolute;
+    top: 50%;
+    right: calc(100% + 24px + var(--gap));
+    display: block;
+    width: var(--margin);
+    color: var(--tx3);
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: right;
+    text-wrap: balance;
+    translate: 0 -50%;
+    white-space: normal;
+  }
+
+  .landing .note b {
+    display: block;
+    color: var(--tx2);
+    font-weight: 600;
+  }
+
+  /* A hairline from the note to the frame's edge. */
+  .landing .note::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: calc(100% + 8px);
+    width: calc(var(--gap) - 14px);
+    height: 1px;
+    background: var(--line2);
+  }
+}
+
+/* Under the frame: the legend where there is no margin, then the steps. */
+.landing figcaption {
+  margin-top: 1.1rem;
+}
+
+.landing .legend {
+  margin: 0 0 1.1rem;
+  color: var(--tx3);
+  font-size: 13px;
+}
+
+.landing .legend b {
+  color: var(--tx2);
+  font-weight: 600;
+}
+
+@media (min-width: 64rem) {
+  .landing .legend {
+    display: none;
+  }
+}
+
+.landing .steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.landing .steps button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 9px;
+  width: 100%;
+  height: 100%;
+  align-content: start;
+  padding: 12px 14px 12px 0;
+  border: 0;
+  border-top: 2px solid var(--line);
+  background: none;
+  color: var(--tx3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.25s ease,
+    color 0.25s ease;
+}
+
+.landing .steps button:hover {
+  border-top-color: var(--line2);
+  color: var(--tx2);
+}
+
+.landing .steps .num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 21px;
+}
+
+.landing .steps .name {
+  color: var(--tx2);
+  font-weight: 600;
+}
+
+.landing .steps .text {
+  grid-column: 2;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.landing .steps [aria-current="step"] {
+  border-top-color: var(--need);
+  color: var(--tx2);
+}
+
+.landing .steps [aria-current="step"] .name {
+  color: var(--tx);
+}
+
+.landing .steps [aria-current="step"] .num {
+  color: var(--need);
+}
+
+.landing .play {
+  margin-top: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--tx3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.landing .play:hover {
+  color: var(--tx);
+}
+
+.landing .play::before {
+  content: "❙❙";
+  display: inline-block;
+  width: 1.9em;
+  font-size: 9px;
+  vertical-align: 1px;
+}
+
+.landing .play[aria-pressed="false"]::before {
+  content: "▶";
+}
+
+/* ── narrower than the app's own grid ─────────────────────────────────── */
+
+@media (max-width: 47.99rem) {
+  .landing .bar {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+
+  .landing .seg {
+    display: none;
+  }
+
+  .landing .list {
+    padding: 2px 10px 72px;
+  }
+
+  .landing .row {
+    grid-template-columns: 16px minmax(0, 1fr) 16px auto;
+    gap: 10px;
+    padding-inline: 12px;
+  }
+
+  .landing .row .diff {
+    display: none;
+  }
+
+  .landing .t1 .title,
+  .landing .t2 .title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+  }
+
+  .landing .aside {
+    display: none;
+  }
+
+  .landing .row.t4 > span:empty {
+    display: none;
+  }
+
+  .landing .row.t4 {
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+  }
+
+  .landing .ask,
+  .landing .status {
+    font-size: 12px;
+  }
+
+  .landing .dialog {
+    padding: 18px 16px 16px;
+  }
+
+  .landing .d-row {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .landing .d-out {
+    grid-column: 2;
+    margin-top: -8px;
+  }
+
+  .landing .steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 10px;
+  }
+}
+
+@media (max-width: 30rem) {
+  .landing .repo {
+    display: none;
+  }
+
+  .landing .brief {
+    display: none;
+  }
+
+  .landing .why {
+    display: none;
+  }
+
+  .landing .d-sum {
+    font-size: 13px;
+  }
+
+  .landing .chip:not(.on) {
+    display: none;
+  }
+
+  .landing .term .c {
+    display: none;
+  }
+}
+
+/* ── the three points, the limit, the way in ──────────────────────────── */
+
+.landing .section {
+  margin-top: clamp(2.75rem, 5vw, 3.5rem);
+}
+
+.landing .section .side {
+  padding-top: 0.15rem;
+}
+
+.landing .points {
+  display: grid;
+  gap: 1.75rem 2.25rem;
+}
+
+@media (min-width: 48rem) {
+  .landing .points {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.landing .points h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.landing .points p {
+  margin: 0.45rem 0 0.7rem;
+  color: var(--tx2);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.landing .more {
+  color: var(--tx);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 4px;
+}
+
+.landing .more:hover {
+  text-decoration-color: var(--need);
+}
+
+/* Dashed, as the app draws what it wants you to know but not to act on. */
+.landing .limit {
+  margin: 0;
+  padding: 0.9rem 1.1rem;
+  border: 1px dashed var(--line2);
+  border-radius: 12px;
+  color: var(--tx2);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.landing .limit b {
+  color: var(--tx);
+  font-weight: 600;
+}
+
+.landing .start {
+  display: grid;
+  gap: 1.5rem 2.5rem;
+  align-items: start;
+}
+
+@media (min-width: 52rem) {
+  .landing .start {
+    grid-template-columns: minmax(0, 17rem) minmax(0, 1fr);
+  }
+}
+
+.landing .start h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.landing .start p {
+  margin: 0.45rem 0 1rem;
+  color: var(--tx2);
+  line-height: 1.6;
+}
+
+.landing .start .links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.landing .term {
+  margin: 0;
+  padding: 0.95rem 1.1rem;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--tx);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.landing .term .c {
+  color: var(--tx3);
+}
+
+.landing .term .p {
+  color: var(--tx3);
+  user-select: none;
+}
+
+/* ── motion ───────────────────────────────────────────────────────────── */
+
+/* While the script measures the frame's fullest state, nothing may be mid-way. */
+.landing .frame.measuring,
+.landing .frame.measuring * {
+  transition: none !important;
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing .frame *,
+  .landing .steps button {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* The margin's heading for the row sizes, level with the frame's top bar. */
+.landing .demo-side {
+  margin: 0;
+  padding-top: 15px;
+  color: var(--tx2);
+}
+
+@media (max-width: 63.99rem) {
+  .landing .demo-side {
+    display: none;
+  }
+}
