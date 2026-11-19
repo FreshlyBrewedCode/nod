@@ -21,10 +21,11 @@ set -euo pipefail
 #   scripts/bootstrap-release.sh              # all phases, in order
 #   scripts/bootstrap-release.sh github       # environment, branch protection, stable branch, tag
 #   scripts/bootstrap-release.sh ui           # nod-ui repo, deploy key, UI Pages
-#   scripts/bootstrap-release.sh site         # Pages for the site (landing page and docs), on this repo
+#   scripts/bootstrap-release.sh site         # the site (landing page and docs): Pages on this repo, its own
+#                                             # switch SITE_ENABLED, the custom domain once its DNS resolves
 #   scripts/bootstrap-release.sh npm          # npm package-name stub
 #   scripts/bootstrap-release.sh trusted-publishers
-#   scripts/bootstrap-release.sh enable       # sets RELEASE_ENABLED=true: the switch
+#   scripts/bootstrap-release.sh enable       # sets RELEASE_ENABLED=true: the releases' switch
 #
 # DNS is not in here: point `ui.nod` and `nod` under frebreco.de at
 # freshlybrewedcode.github.io with CNAME records wherever the zone lives. The
@@ -38,6 +39,8 @@ SITE_DOMAIN="nod.frebreco.de"
 PAGES_HOST="freshlybrewedcode.github.io"
 UI_SECRET="UI_DEPLOY_KEY"
 SWITCH_VARIABLE="RELEASE_ENABLED"
+SITE_SWITCH_VARIABLE="SITE_ENABLED"
+SITE_WORKFLOW_FILE="site.yml"
 NPM_ORG="frebreco"
 REPO_SLUG="${OWNER}/${REPO}"
 WORKFLOW_FILE="release.yml"
@@ -226,23 +229,48 @@ phase_ui() {
 
 # The landing page and docs (site/): site.yml deploys them to this repo's own
 # Pages with actions/deploy-pages, so the source is "GitHub Actions" and there
-# is no Pages branch to seed.
+# is no Pages branch to seed. The site has its own switch, so it can be live
+# before anything is released. Until the custom domain is set it is the
+# project page https://${PAGES_HOST}/${REPO}/; site.yml builds for whichever
+# of the two the Pages settings say, so the domain is a setting and a re-run.
 phase_site() {
   log "Phase 3 — the site's Pages (landing page and docs)"
   require_cmd gh
 
   if gh api "repos/${REPO_SLUG}/pages" >/dev/null 2>&1; then
     ok "GitHub Pages is enabled on $REPO_SLUG"
-  elif will "enable GitHub Pages (source: GitHub Actions) on ${REPO_SLUG}; site.yml deploys to it once ${SWITCH_VARIABLE} is true" \
+  elif will "enable GitHub Pages (source: GitHub Actions) on ${REPO_SLUG}; site.yml deploys to it once ${SITE_SWITCH_VARIABLE} is true" \
     "gh api --method POST repos/${REPO_SLUG}/pages -f build_type=workflow"; then
     gh api --method POST "repos/${REPO_SLUG}/pages" -f build_type=workflow >/dev/null
   else
     return 0
   fi
 
-  if will "set the custom domain ${SITE_DOMAIN} on ${REPO_SLUG} Pages and enforce HTTPS if the certificate is ready (DNS must point at it first)" \
+  if [ "$(gh variable get "$SITE_SWITCH_VARIABLE" --repo "$REPO_SLUG" 2>/dev/null || true)" = "true" ]; then
+    ok "${SITE_SWITCH_VARIABLE}=true: the site workflow is on"
+  elif will "set the repository variable ${SITE_SWITCH_VARIABLE}=true on ${REPO_SLUG}: the site deploys after every release run, and by hand" \
+    "gh variable set ${SITE_SWITCH_VARIABLE} --body true --repo ${REPO_SLUG}"; then
+    gh variable set "$SITE_SWITCH_VARIABLE" --body true --repo "$REPO_SLUG"
+    ok "${SITE_SWITCH_VARIABLE}=true: the site workflow is on"
+  fi
+
+  # The custom domain only once its DNS record exists: with the domain set,
+  # GitHub redirects the project page to it, and a name that does not resolve
+  # takes the site off the air.
+  local domain_changed=""
+  if ! getent hosts "$SITE_DOMAIN" >/dev/null 2>&1; then
+    info "${SITE_DOMAIN} does not resolve yet: the site stays at https://${PAGES_HOST}/${REPO}/."
+    info "Add the DNS record (the 'dns' phase prints it), then re-run this phase to set the custom domain."
+  elif will "set the custom domain ${SITE_DOMAIN} on ${REPO_SLUG} Pages and enforce HTTPS if the certificate is ready" \
     "gh api --method PUT repos/${REPO_SLUG}/pages -f cname=${SITE_DOMAIN}"; then
     pages_domain "$REPO_SLUG" "$SITE_DOMAIN"
+    domain_changed=1
+  fi
+
+  # The build bakes in where it is served, so a changed domain needs a run.
+  if will "run ${SITE_WORKFLOW_FILE} on main now${domain_changed:+ (the custom domain changed: the site has to be rebuilt for it)}" \
+    "gh workflow run ${SITE_WORKFLOW_FILE} --repo ${REPO_SLUG} --ref main"; then
+    gh workflow run "$SITE_WORKFLOW_FILE" --repo "$REPO_SLUG" --ref main
   fi
 }
 
@@ -252,7 +280,8 @@ phase_dns() {
   log "DNS records (not automated: add them wherever the frebreco.de zone lives)"
   printf '      %-6s %-24s %s\n' "CNAME" "ui.nod" "$PAGES_HOST"
   printf '      %-6s %-24s %s\n' "CNAME" "nod" "$PAGES_HOST"
-  info "Then re-run the 'ui' and 'site' phases so GitHub can enforce HTTPS on ${UI_DOMAIN} and ${SITE_DOMAIN}."
+  info "Then re-run the 'ui' and 'site' phases: 'site' sets the custom domain ${SITE_DOMAIN} once it resolves,"
+  info "and both let GitHub enforce HTTPS on ${UI_DOMAIN} and ${SITE_DOMAIN}."
   confirm
 }
 
@@ -349,8 +378,8 @@ phase_trusted_publishers() {
 phase_enable() {
   log "Phase 6 — switch the release workflows on"
   require_cmd gh
-  warn "After this, every merge to main publishes @frebreco/nod@next, deploys ui.nod.frebreco.de/next"
-  warn "and deploys the site to ${SITE_DOMAIN}."
+  warn "After this, every merge to main publishes @frebreco/nod@next and deploys ui.nod.frebreco.de/next."
+  warn "(The site has its own switch, ${SITE_SWITCH_VARIABLE}: the 'site' phase.)"
   warn "Do it only once the previous phases are done."
   if will "set the repository variable ${SWITCH_VARIABLE}=true on ${REPO_SLUG}" \
     "gh variable set ${SWITCH_VARIABLE} --body true --repo ${REPO_SLUG}"; then

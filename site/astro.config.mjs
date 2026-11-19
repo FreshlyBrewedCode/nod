@@ -3,14 +3,16 @@ import { satteri } from "@astrojs/markdown-satteri";
 import tailwind from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 import expressiveCode from "astro-expressive-code";
-import { BASE } from "./src/lib/channel.ts";
+import { BASE, SITE_ORIGIN } from "./src/lib/channel.ts";
 import { markdownChannel } from "./src/lib/markdown-channel.ts";
 
 export default defineConfig({
-  site: "https://nod.frebreco.de",
+  // `https://nod.frebreco.de` unless `SITE_ORIGIN` says otherwise.
+  site: SITE_ORIGIN,
 
-  // `/next` for the `next` channel's docs, the root otherwise — see
-  // `src/lib/channel.ts`. Astro wants a trailing-slash-free base or `/`.
+  // Where the site is served (`SITE_BASE`, empty at a domain root) plus
+  // `/next` for the `next` channel's docs — see `src/lib/channel.ts`. Astro
+  // wants a trailing-slash-free base or `/`.
   base: BASE || "/",
 
   // Docs markdown names the package, the web app and other pages; point them
