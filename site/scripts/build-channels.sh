@@ -4,6 +4,11 @@
 #   /       latest — the last stable release's content/, in this checkout's site
 #   /next/  next   — this checkout's content/, i.e. main
 #
+# Served from a folder instead of a domain root (a GitHub project page), both
+# move under it: SITE_BASE=/nod gives /nod/ and /nod/next/, SITE_ORIGIN is the
+# origin in front. dist/ itself looks the same either way: it is what is
+# mounted at that folder.
+#
 # Only content/ comes from the release tag; the site around it (layouts, the
 # version picker, styles, the landing page) is this checkout's, so a site fix
 # reaches both. Needs the release tags: in CI, a checkout with fetch-depth 0.

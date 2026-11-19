@@ -4,7 +4,8 @@ The same setup as the sibling project canvas: semantic-release, two channels, th
 separate Pages repo, the site on this repo's Pages. **It is prepared but switched off**: nothing
 below has been created yet (no npm package, no `nod-ui` repo, no deploy key, no Pages, no DNS, no
 secrets), and every publishing workflow is skipped until the repository variable `RELEASE_ENABLED`
-is `true`.
+is `true`. The site has its own switch, `SITE_ENABLED`, so it can go live before anything is
+released.
 
 ## How it works
 
@@ -39,23 +40,39 @@ is `true`.
   version gives the dev URL, a version with a `-` suffix gives next, otherwise stable. The server
   reads the version from the `package.json` the staging step stamped; the repo's own manifest has
   none, which means a checkout and the Vite dev server. Staging tolerates the file being absent.
-- The site (`nod.frebreco.de`: the landing page and the docs, `site/`) has its own workflow,
-  `site.yml`, as in canvas. It runs after every run of `release` (and by hand), builds both docs
-  channels with `site/scripts/build-channels.sh` and deploys `site/dist` to **this repo's** GitHub
-  Pages with `actions/deploy-pages`. The root documents the last stable tag's `site/content/`,
-  `/next` documents `main`. Before the first stable release that has docs, both channels are built
-  from `main`, and the version picker shows no stable version. CI builds the site on every PR
-  (the `site` job); it is its own package and the root `bun run check` does not touch it. See
-  `site/README.md`.
+- The site (the landing page and the docs, `site/`) has its own workflow, `site.yml`, as in
+  canvas, and its own switch (below). It runs after every run of `release`, skipped ones included,
+  and by hand; it builds both docs channels with `site/scripts/build-channels.sh` and deploys
+  `site/dist` to **this repo's** GitHub Pages with `actions/deploy-pages`. The root documents the
+  last stable tag's `site/content/`, `/next` documents `main`. Before the first stable release
+  that has docs, both channels are built from `main`, and the version picker shows no stable
+  version. CI builds the site on every PR (the `site` job, under the `/nod` base); it is its own
+  package and the root `bun run check` does not touch it. See `site/README.md`.
+- Where the site is served is a Pages setting, not code. Until the custom domain is set it is the
+  project page **`https://freshlybrewedcode.github.io/nod/`** (docs of `main` under `/nod/next/`);
+  with the custom domain it is `https://nod.frebreco.de/`. `site.yml` asks
+  `actions/configure-pages` for the origin and the base path and passes them to the build as
+  `SITE_ORIGIN` and `SITE_BASE` (`site/src/lib/channel.ts`); unset, as in a local build, they are
+  `https://nod.frebreco.de` and the root.
 
 ## What switches it on
 
-`vars.RELEASE_ENABLED == 'true'` gates the `release` job, the `ui` job of `release.yml`, the
-`deploy` job of `ui.yml` and both jobs of `site.yml`. Unset, a merge to `main` shows them as
-skipped and stays green. The site needs one more thing before its first deploy can succeed: Pages
-enabled on this repo with "GitHub Actions" as the source (step 4 below).
+`vars.RELEASE_ENABLED == 'true'` gates the `release` job, the `ui` job of `release.yml` and the
+`deploy` job of `ui.yml`. Unset, a merge to `main` shows them as skipped and stays green.
 Switch on: `gh variable set RELEASE_ENABLED --body true --repo FreshlyBrewedCode/nod`.
 Switch off again: `gh variable delete RELEASE_ENABLED --repo FreshlyBrewedCode/nod`.
+
+`vars.SITE_ENABLED == 'true'` gates both jobs of `site.yml`, and nothing else: the site can be
+deployed while the releases stay off. Its first deploy also needs Pages enabled on this repo with
+"GitHub Actions" as the source. All of it (step 4 below):
+
+```
+gh api --method POST repos/FreshlyBrewedCode/nod/pages -f build_type=workflow
+gh variable set SITE_ENABLED --body true --repo FreshlyBrewedCode/nod
+gh workflow run site.yml --repo FreshlyBrewedCode/nod --ref main
+```
+
+Switch off again: `gh variable delete SITE_ENABLED --repo FreshlyBrewedCode/nod`.
 
 ## Owner checklist
 
@@ -81,23 +98,39 @@ run.
    gh repo deploy-key add key.pub --repo FreshlyBrewedCode/nod-ui --allow-write
    gh secret set UI_DEPLOY_KEY --repo FreshlyBrewedCode/nod < key
    ```
-4. **Pages for the site** (`scripts/bootstrap-release.sh site`): enables GitHub Pages on
-   `FreshlyBrewedCode/nod` itself with **GitHub Actions** as the source (`site.yml` deploys with
-   `actions/deploy-pages`; there is no Pages branch) and sets the custom domain `nod.frebreco.de`.
-   By hand: Settings, Pages, Source "GitHub Actions", Custom domain `nod.frebreco.de`. Or:
+4. **The site** (`scripts/bootstrap-release.sh site`; independent of every other step, so it can
+   be done first): enables GitHub Pages on `FreshlyBrewedCode/nod` itself with **GitHub Actions**
+   as the source (`site.yml` deploys with `actions/deploy-pages`; there is no Pages branch), sets
+   `SITE_ENABLED` and runs `site.yml`. By hand: Settings, Pages, Source "GitHub Actions"; then the
+   variable and "Run workflow" on `site`. Or:
    ```
    gh api --method POST repos/FreshlyBrewedCode/nod/pages -f build_type=workflow
-   gh api --method PUT repos/FreshlyBrewedCode/nod/pages -f cname=nod.frebreco.de
+   gh variable set SITE_ENABLED --body true --repo FreshlyBrewedCode/nod
+   gh workflow run site.yml --repo FreshlyBrewedCode/nod --ref main
    ```
-   The first deploy creates the `github-pages` environment; nothing to set up there.
+   The first deploy creates the `github-pages` environment; nothing to set up there. The site is
+   then at `https://freshlybrewedcode.github.io/nod/`: check the landing page, `/nod/docs`,
+   `/nod/next/docs` and the search.
 5. **DNS** at wherever the `frebreco.de` zone lives (`scripts/bootstrap-release.sh dns` prints
    them):
    ```
    CNAME  ui.nod  ->  freshlybrewedcode.github.io
    CNAME  nod     ->  freshlybrewedcode.github.io
    ```
-   Then re-run the `ui` and `site` phases (or tick "Enforce HTTPS" in both Pages settings) once
-   GitHub has issued the certificates.
+   Then re-run the `ui` phase (or tick "Enforce HTTPS" in its Pages settings) once GitHub has
+   issued the certificate.
+
+   **The site's custom domain, later**: once the `nod` record resolves, set the custom domain
+   (Settings, Pages, Custom domain `nod.frebreco.de`; or re-run the `site` phase, which does it
+   only when the name resolves) and run `site.yml` once more, so the site is rebuilt for the
+   domain root. No code change: the build follows the Pages settings.
+   ```
+   gh api --method PUT repos/FreshlyBrewedCode/nod/pages -f cname=nod.frebreco.de
+   gh workflow run site.yml --repo FreshlyBrewedCode/nod --ref main
+   gh api --method PUT repos/FreshlyBrewedCode/nod/pages -F https_enforced=true   # once the certificate is there
+   ```
+   Not before the record exists: with the domain set, GitHub redirects the project page to it.
+   `https://freshlybrewedcode.github.io/nod/` then redirects to `https://nod.frebreco.de/`.
 6. **npm package name** (`scripts/bootstrap-release.sh npm`): needs `npm login` and npm >= 11.5.1.
    npm only lets you attach a trusted publisher to a package that exists, and CI has no token,
    so this publishes a `0.0.1` placeholder of `@frebreco/nod` by hand, once. (Alternative to
@@ -115,9 +148,8 @@ run.
    `npm view @frebreco/nod dist-tags`, the `nod-ui` commit `deploy: <version>`, and
    `bunx @frebreco/nod@next --version`. For the first stable release: Actions, `release`,
    "Run workflow" on `main`; then `ui.nod.frebreco.de` serves the root build.
-   `site` runs after each `release` run and deploys `nod.frebreco.de` (to deploy it without a
-   release: Actions, `site`, "Run workflow"). Check the landing page, `/docs`, `/next/docs` and the
-   search. Then update the docs pages that say nothing is released yet
+   `site` runs after each `release` run and redeploys the site, so the docs' version picker shows
+   the new versions (to deploy it without a release: Actions, `site`, "Run workflow"). Then update the docs pages that say nothing is released yet
    (`site/content/docs/quick-start.md`, `status.md`, `introduction.md`, `cli.md`) and the landing
    page's "Try it".
 

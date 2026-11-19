@@ -6,7 +6,7 @@ import "../styles/landing.css";
 
 /*
  * The landing page: one sentence, the product itself, three points, the
- * limit, the way in. Dark only, like the app it shows. The layout and the
+ * limit, the way in, in one column and few words. Dark only, like the app it shows. The layout and the
  * demo's states are in `styles/landing.css`; the fictional team and repo are
  * the app's own fake data (src/server/fake-data.ts).
  */
@@ -17,99 +17,66 @@ import "../styles/landing.css";
   scheme="dark"
 >
   <main id="main" class="landing">
-    <section class="hero band">
-      <p class="side">
+    <section class="hero">
+      <p class="released">
         <a class="state" href={href("/docs/status")}>Prototype, not released yet</a>
       </p>
-      <div class="body">
-        <h1>See which pull requests need you, nod them, and let the agents merge.</h1>
-        <div class="hero-rest">
-          <p class="lead">
-            nod is a local dashboard for teams whose coding agents open more pull requests than
-            anyone can read. Each change gets the space its risk deserves, and a signed nod from a
-            human, checked by a policy in your own repository, is what lets an agent merge.
-          </p>
-          <p class="actions">
-            <a class="button primary" href={href("/docs/quick-start")}>Quick start</a>
-            <a class="button" href={href("/docs")}>Docs</a>
-            <a class="button bare" href="https://github.com/FreshlyBrewedCode/nod">GitHub</a>
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <section class="band" aria-label="The dashboard and a nod, shown">
-      <p class="side demo-side">Row size follows attention</p>
-      <div class="body">
-        <Demo />
-      </div>
-    </section>
-
-    <section class="section band" aria-labelledby="in-short">
-      <p class="side" id="in-short">In short</p>
-      <div class="body points">
-        <div>
-          <h2>Attention</h2>
-          <p>
-            Every pull request gets the room it deserves. What needs you is large, what is worth
-            knowing takes a line, and low-risk changes fold away until you ask.
-          </p>
-          <a class="more" href={href("/docs/dashboard")}>The dashboard</a>
-        </div>
-        <div>
-          <h2>Attestation</h2>
-          <p>
-            A nod is a signature by a key the agents don't have, over the exact content you looked
-            at. One signature covers a whole batch, and a clean rebase keeps it.
-          </p>
-          <a class="more" href={href("/docs/nodding")}>Nodding</a>
-        </div>
-        <div>
-          <h2>Yours</h2>
-          <p>
-            The policy and the verifier are files in your repository. No GitHub App, no backend: it
-            runs on your machine with your <span class="mono">gh</span> login, and all shared state
-            stays in GitHub.
-          </p>
-          <a class="more" href={href("/docs/policy")}>The policy</a>
-        </div>
-      </div>
-    </section>
-
-    <section class="section band" aria-labelledby="the-limit">
-      <p class="side" id="the-limit">The limit</p>
-      <div class="body">
-        <p class="limit">
-          <b>What it does not do.</b> In this version the check comes from GitHub Actions, so nod
-          guards against mistakes and unattended merges, not against an agent that sets out to forge
-          the check. <a class="more" href={href("/docs/security")}>Security and limits</a>
+      <h1>See which pull requests need you, nod them, and let the agents merge.</h1>
+      <div class="hero-rest">
+        <p class="lead">
+          A local dashboard that sizes every agent-written pull request by its risk. A signed nod
+          from a human lets the agent merge.
+        </p>
+        <p class="actions">
+          <a class="button primary" href={href("/docs/quick-start")}>Quick start</a>
+          <a class="button" href={href("/docs")}>Docs</a>
+          <a class="button bare" href="https://github.com/FreshlyBrewedCode/nod">GitHub</a>
         </p>
       </div>
     </section>
 
-    <section class="section band" aria-labelledby="try-it">
-      <p class="side" id="try-it">Try it</p>
-      <div class="body start">
-        <div>
-          <h2>Run it from a checkout</h2>
-          <p>
-            Nothing is on npm yet. These four lines open the dashboard on a fictional team; the
-            quick start then sets it up on a repository of yours.
-          </p>
-          <div class="links">
-            <a class="more" href={href("/docs/quick-start")}>Quick start</a>
-            <a class="more" href={href("/docs/introduction")}>Introduction</a>
-            <a class="more" href={href("/docs/glossary")}>Glossary</a>
-          </div>
-        </div>
-        <pre
-          class="term"
-          tabindex="0"
-          aria-label="Commands to run nod from a checkout"><span class="p">$ </span>git clone https://github.com/FreshlyBrewedCode/nod && cd nod
+    <section aria-label="The dashboard and a nod, shown">
+      <Demo />
+    </section>
+
+    <section class="section points" aria-label="In short">
+      <div>
+        <h2>Attention</h2>
+        <p>What needs you is large; the rest takes a line or folds away.</p>
+        <a class="more" href={href("/docs/dashboard")}>The dashboard</a>
+      </div>
+      <div>
+        <h2>Attestation</h2>
+        <p>A nod signs the exact content you looked at, with a key the agents don't have.</p>
+        <a class="more" href={href("/docs/nodding")}>Nodding</a>
+      </div>
+      <div>
+        <h2>Yours</h2>
+        <p>The policy and the verifier are files in your repository: no GitHub App, no backend.</p>
+        <a class="more" href={href("/docs/policy")}>The policy</a>
+      </div>
+    </section>
+
+    <section class="section" aria-label="The limit">
+      <p class="limit">
+        The check comes from GitHub Actions, so nod guards against mistakes, not against an agent
+        that sets out to forge it. <a class="more" href={href("/docs/security")}>Security and limits</a>
+      </p>
+    </section>
+
+    <section class="section start" aria-labelledby="try-it">
+      <div>
+        <h2 id="try-it">Try it</h2>
+        <p>Nothing is on npm yet: run it from a checkout, on a fictional team.</p>
+        <a class="more" href={href("/docs/quick-start")}>Quick start</a>
+      </div>
+      <pre
+        class="term"
+        tabindex="0"
+        aria-label="Commands to run nod from a checkout"><span class="p">$ </span>git clone https://github.com/FreshlyBrewedCode/nod && cd nod
 <span class="p">$ </span>bun install
 <span class="p">$ </span>bun run dev                   <span class="c"># the web app</span>
 <span class="p">$ </span>bun src/cli.ts serve --fake   <span class="c"># second terminal; open its link</span></pre>
-      </div>
     </section>
   </main>
 </Base>

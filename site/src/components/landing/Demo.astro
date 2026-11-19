@@ -42,22 +42,10 @@ const d = {
 };
 
 const steps = [
-  {
-    name: "Select",
-    text: "Tick what you have looked at. Your own work and a teammate's can go in one batch.",
-  },
-  {
-    name: "Sign once",
-    text: "One passphrase, one signature, made by a key the agents don't have.",
-  },
-  {
-    name: "The check turns green",
-    text: "The verifier in your repository checks the signature against your policy.",
-  },
-  {
-    name: "The agents merge",
-    text: "Auto-merge does the rest. What is left is what deserves reading.",
-  },
+  { name: "Select", text: "What you have looked at." },
+  { name: "Sign once", text: "One passphrase, one signature." },
+  { name: "The check turns green", text: "Verified in your repository." },
+  { name: "The agents merge", text: "Auto-merge does the rest." },
 ];
 ---
 
@@ -105,7 +93,6 @@ const steps = [
       </div>
       <div class="rows">
         <div class="row t1">
-          <span class="note"><b>Prominent</b>high risk, or a teammate's work</span>
           <span class="box"></span>
           <div class="main">
             <div class="title">auth: rotate session tokens on privilege change</div>
@@ -186,7 +173,6 @@ const steps = [
         </div>
 
         <div class="row t2">
-          <span class="note"><b>Normal</b>your own work</span>
           <span class="box"></span>
           <div class="main">
             <div class="title">inventory: release stock when a reservation times out</div>
@@ -213,7 +199,6 @@ const steps = [
       </div>
       <div class="rows">
         <div class="row t3">
-          <span class="note"><b>One line</b>worth knowing, or stuck</span>
           <span></span>
           <div class="main line">
             <span class="title">docs: ADR-014 module tiers and review requirements</span>
@@ -251,7 +236,6 @@ const steps = [
           <span class="status">waits on Ines</span>
         </div>
         <div class="row t4">
-          <span class="note"><b>Folded</b>low risk, nothing to do</span>
           <span class="caret">▸</span>
           <div class="main line">
             <b class="cluster">
@@ -347,9 +331,7 @@ const steps = [
   </div>
 
   <figcaption>
-    <p class="legend">
-      <b>Row size follows attention.</b> Four sizes: prominent, normal, one line, folded.
-    </p>
+    <p class="legend">Row size follows attention.</p>
     <ol class="steps">
       {
         steps.map((step, i) => (

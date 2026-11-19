@@ -4,7 +4,7 @@ Steer your team's attention across agent-written pull requests, and let humans n
 
 Local-first: runs on your machine with your existing `gh` credentials, keeps all shared state in GitHub, and keeps the policy and verifier in your own repository.
 
-Status: early prototype, nothing released yet. The user docs are in [`site/content/docs/`](site/content/docs/introduction.md) (the site for `nod.frebreco.de`, not deployed yet: `cd site && bun install && bun run preview`); the why and the decisions are in [`docs/concept.md`](docs/concept.md).
+Status: early prototype, nothing released yet. The user docs are in [`site/content/docs/`](site/content/docs/introduction.md) (the site, served at <https://freshlybrewedcode.github.io/nod/> once it is deployed: `cd site && bun install && bun run preview`); the why and the decisions are in [`docs/concept.md`](docs/concept.md).
 
 ## Development
 

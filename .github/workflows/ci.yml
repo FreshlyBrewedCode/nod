@@ -29,7 +29,8 @@ jobs:
 
   # `site/` is its own package; this proves a PR still builds the site that
   # site.yml deploys once it is switched on. `build:channels` is what site.yml
-  # runs: here, without release tags, both channels come from the checkout.
+  # runs: here, without release tags, both channels come from the checkout,
+  # and under `/nod`, as the project page is served until it has its domain.
   site:
     runs-on: ubuntu-latest
     steps:
@@ -47,3 +48,6 @@ jobs:
 
       - run: bun run build:channels
         working-directory: site
+        env:
+          SITE_ORIGIN: https://freshlybrewedcode.github.io
+          SITE_BASE: /nod

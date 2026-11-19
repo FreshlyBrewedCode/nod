@@ -88,8 +88,7 @@ nod
   - conventional commits; PRs are squash-merged and the PR title is the conventional commit
   - releases (semantic-release, as in canvas; prepared but switched off until
     `RELEASE_ENABLED` is set, see `docs/release.md`): every merge to `main` publishes
-    `@frebreco/nod@next`, deploys the web app to `ui.nod.frebreco.de/next` and the site to
-    `nod.frebreco.de` (`site.yml`); `release.yml` by
+    `@frebreco/nod@next` and deploys the web app to `ui.nod.frebreco.de/next`; `release.yml` by
     hand publishes `latest` and deploys the root (`ui.yml` pushes to the `nod-ui` repo, whose Pages
     serve it). The published CLI opens its own channel's web app (`src/server/web-url.ts`). The
     package is staged by `scripts/build-release.ts`. One-time setup:
@@ -97,7 +96,8 @@ nod
   - privacy: the repo is public. No real names of people, tokens, machine names or hostnames in
     the repo or its PRs; fake data uses fictional people and repos
 
-- the site (`site/`): the landing page and the user docs for `nod.frebreco.de`. Astro, its own
+- the site (`site/`): the landing page and the user docs, served at
+  `https://freshlybrewedcode.github.io/nod/` until the custom domain `nod.frebreco.de` is set. Astro, its own
   package with its own `bun.lock` (`cd site && bun install`), copied from canvas's site; the root
   `bun run check` does not cover it, CI builds it in the `site` job
   - `bun run check`, `bun run build`, `bun run preview` (builds, then serves `dist/` on :4519; the
@@ -110,7 +110,14 @@ nod
     redraws rows of the dashboard by hand: when `pr-row.tsx`, the tiers or the r3 tokens change,
     change it too. Fictional people and repos only, as everywhere
   - two docs channels, stable at `/` and `main` under `/next` (`scripts/build-channels.sh`);
-    `site.yml` deploys them to this repo's Pages, switched off like the releases (`docs/release.md`)
+    `site.yml` deploys them to this repo's Pages after every `release` run and by hand, behind
+    its own switch, the repository variable `SITE_ENABLED` (`docs/release.md`)
+  - the base path comes from the environment: `SITE_BASE` (`/nod` on the project page, empty at a
+    domain root and locally) and `SITE_ORIGIN`, which `site.yml` takes from
+    `actions/configure-pages` and `src/lib/channel.ts` reads. Every root-relative link in a
+    component goes through `href()`; a hard-coded `/docs/…` or `/favicon.svg` breaks the project
+    page. To try it: build with `SITE_BASE=/nod` and serve `dist/` mounted at `/nod`
+  - the landing page is one column and few words on purpose: no margin labels, no new sections
 
 - docs: `docs/concept.md` source of truth until an ADR replaces a part; `docs/adr/` decisions; `docs/release.md` how releases work and the owner's setup checklist;
   `docs/enterprise.md` GHE.com and GHES: what works, what it needs, the owner's checklist;

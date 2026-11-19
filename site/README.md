@@ -1,6 +1,7 @@
 # site
 
-The landing page and docs for nod, to be served at `nod.frebreco.de`. Astro 7 (static output),
+The landing page and docs for nod, served at `https://freshlybrewedcode.github.io/nod/` until the
+custom domain `nod.frebreco.de` is set. Astro 7 (static output),
 Tailwind v4, Expressive Code for codeblocks, Pagefind for search. The docs machinery is copied
 from the sibling project canvas's site; the landing page is nod's own.
 
@@ -39,7 +40,7 @@ Astro's image pipeline, sharp, needs `libstdc++`, which the dev shell provides.
 | `src/pages/docs/index.md.ts`         | Unlisted markdown index of every doc                                 |
 | `src/lib/docs.ts`                    | `sortedDocs()`: sidebar order, shared by the above                   |
 | `src/lib/sections.ts`                | The sidebar sections, in order                                       |
-| `src/lib/channel.ts`                 | Which channel a build is: base path, versions, `href()`              |
+| `src/lib/channel.ts`                 | Where a build is served and which channel it is: base, `href()`      |
 | `src/lib/markdown-channel.ts`        | Points markdown's code and `/docs` links at the channel              |
 | `src/components/VersionPicker.astro` | Stable/next badge and menu, above the page outline                   |
 | `scripts/build-channels.sh`          | Builds both channels into one `dist/`                                |
@@ -64,7 +65,9 @@ released, the docs say so and give the from-source way.
 ## The landing page
 
 Dark only, like the app, in the app's own tokens (the r3 palette of `src/web/styles.css`, repeated
-in `landing.css`). The demo is one picture in four states, set by `data-step` on the frame; the CSS
+in `landing.css`). One column on the header's left edge, a lot of air between its blocks and few
+words: a sentence under the headline, the frame, three points of a sentence each, the limit, the
+commands. There is no margin column of labels; what the frame needs said is one caption line. The demo is one picture in four states, set by `data-step` on the frame; the CSS
 draws every state and `landing.ts` only changes the attribute. It plays while on screen, stops for
 good when the reader clicks a step or Pause, and never starts by itself under
 `prefers-reduced-motion`. The frame is an illustration (`role="img"`); the steps below it are the
@@ -88,8 +91,8 @@ and the `title` and `description` are reinstated as an H1 and a lead paragraph.
 `/docs/index.md` lists every page in sidebar order with its description, each linking to its `.md`
 source: fetch one URL to learn what exists, then fetch what you need. It is unlisted: not a
 collection entry, so the sidebar never shows it, and Pagefind only indexes HTML, so search ignores
-it. Its links are absolute, built from `site` in `astro.config.mjs` (`https://nod.frebreco.de`),
-so change that and `public/CNAME` together if the site ever moves.
+it. Its links are absolute, built from `site` in `astro.config.mjs`, which is `SITE_ORIGIN` (see
+Base path).
 
 ## Channels
 
@@ -113,6 +116,35 @@ checkout's, so a fix to a layout or a style reaches both channels at once. On `n
 `@frebreco/nod/kit`) and points `/docs/…` links under `/next`; the raw `.md` pages get the same. A
 root-relative link in a component goes through `href()`.
 
+## Base path
+
+The site is served either from a domain root (`nod.frebreco.de`, and every local build) or from a
+folder of another origin: as a GitHub project page it is `https://freshlybrewedcode.github.io/nod/`.
+Two more variables say which, read by `src/lib/channel.ts` like the channel's:
+
+| Variable      | What it does                                                            |
+| ------------- | ----------------------------------------------------------------------- |
+| `SITE_BASE`   | The folder, `/nod`; empty (the default) at a domain root                |
+| `SITE_ORIGIN` | The origin for canonical and absolute URLs; `https://nod.frebreco.de` by default |
+
+Both channels sit under the base (`/nod/`, `/nod/next/`). It reaches everything through one place:
+`CHANNELS[…].base` and `href()` carry it, Astro's `base` is built from it (so the bundled CSS, JS,
+fonts and images follow), and so do the Pagefind bundle path, the favicon, the version picker, the
+raw `.md` routes and the links in the docs markdown. So **never write a root-relative URL by hand**
+in a component or a stylesheet: `href("/docs/policy")`, not `"/docs/policy"`. Docs markdown keeps
+writing `/docs/…`; `markdown-channel.ts` rewrites it.
+
+`dist/` looks the same with and without a base: it is what gets mounted at the folder. To try a
+prefixed build, serve `dist/` under the prefix (`astro preview` serves one channel, not the nested
+two):
+
+```bash
+SITE_BASE=/nod SITE_ORIGIN=https://freshlybrewedcode.github.io bun run build:channels
+# then any static server that mounts dist/ at /nod, on :4519
+```
+
+CI builds the site this way on every PR.
+
 **Before the first stable release** there is no tag to take the stable content from (and a tag
 older than this site has no `site/content/`). The script then builds both channels from the
 checkout and the badge shows no stable version, so the root is never empty. From the first stable
@@ -123,13 +155,19 @@ stable release, including a fix to a page stable already has. Pages under `/next
 
 ## Deploying
 
-**Switched off.** `.github/workflows/site.yml` builds both channels and deploys `dist/` to the nod
-repo's GitHub Pages after every run of the release workflow (which every push to `main` starts, and
-which moves the stable content when it publishes `latest`), or by hand from the Actions tab. Both
-its jobs are skipped until the repository variable `RELEASE_ENABLED` is `true`, like the release
-workflows; `docs/release.md` has the owner's checklist (Pages on the repo, the DNS record, the
-switch). The custom domain is a Pages setting; `public/CNAME` only restates it. The web app is not
-part of this site: it is served from `ui.nod.frebreco.de` by the release workflow.
+`.github/workflows/site.yml` builds both channels and deploys `dist/` to the nod repo's GitHub
+Pages after every run of the release workflow (which every push to `main` starts, and which moves
+the stable content when it publishes `latest`), or by hand from the Actions tab. Both its jobs are
+skipped until the repository variable `SITE_ENABLED` is `true`: its own switch, apart from the
+releases' `RELEASE_ENABLED`. `docs/release.md` has the owner's checklist (Pages on the repo, the
+switch, later the DNS record and the custom domain).
+
+The workflow asks `actions/configure-pages` where Pages serves the repo and builds for that
+(`SITE_ORIGIN`, `SITE_BASE`): the project page `https://freshlybrewedcode.github.io/nod/` first,
+`https://nod.frebreco.de/` once the custom domain is set in the Pages settings and the workflow has
+run again. The custom domain is that setting only; nothing in the code names it as the place of
+deployment. The web app is not part of this site: it is served from `ui.nod.frebreco.de` by the
+release workflow.
 
 ## Things that will bite you
 
