@@ -1,11 +1,10 @@
 # Release
 
 The same setup as the sibling project canvas: semantic-release, two channels, the web app on a
-separate Pages repo, the site on this repo's Pages. **It is prepared but switched off**: nothing
-below has been created yet (no npm package, no `nod-ui` repo, no deploy key, no Pages, no DNS, no
-secrets), and every publishing workflow is skipped until the repository variable `RELEASE_ENABLED`
-is `true`. The site has its own switch, `SITE_ENABLED`, so it can go live before anything is
-released.
+separate Pages repo, the site on this repo's Pages. **The one-time setup below is done**: the
+`@frebreco` npm org and package with its trusted publisher, the `nod-ui` repo and its deploy key,
+both Pages sites on their custom domains, the DNS records, and both switches (`RELEASE_ENABLED`,
+`SITE_ENABLED`) are on. The checklist stays as the record of how it was set up and how to redo it.
 
 ## How it works
 
@@ -32,14 +31,14 @@ released.
   `const VERSION = "0.0.0-development";` line of the staged `src/cli.ts` (staging fails if that
   line is gone). `--smoke-test` installs the staged package into a scratch directory laid out like
   a registry install and checks: Node is rejected with "requires Bun", `--version` prints the
-  stamped version, `@frebreco/nod/kit` resolves for a consumer, and (once it exists) the channel
-  URLs. CI runs it with `0.0.0-development` on every PR.
+  stamped version, `@frebreco/nod/kit` resolves for a consumer, `nod init`'s templates render,
+  and the channel URLs. CI runs it with `0.0.0-development` on every PR.
 - The published CLI opens the web app of its own channel. `src/server/web-url.ts` must export
   `STABLE_WEB_URL = "https://ui.nod.frebreco.de"`, `NEXT_WEB_URL` (the stable URL plus `/next`),
   `DEV_WEB_URL = "http://localhost:4517"` and `defaultWebUrl(version: string | undefined)`: no
   version gives the dev URL, a version with a `-` suffix gives next, otherwise stable. The server
   reads the version from the `package.json` the staging step stamped; the repo's own manifest has
-  none, which means a checkout and the Vite dev server. Staging tolerates the file being absent.
+  none, which means a checkout and the Vite dev server. The smoke test fails if the file is missing.
 - The site (the landing page and the docs, `site/`) has its own workflow, `site.yml`, as in
   canvas, and its own switch (below). It runs after every run of `release`, skipped ones included,
   and by hand; it builds both docs channels with `site/scripts/build-channels.sh` and deploys
@@ -78,8 +77,8 @@ Switch off again: `gh variable delete SITE_ENABLED --repo FreshlyBrewedCode/nod`
 
 In this order. `scripts/bootstrap-release.sh` automates the GitHub parts; it prints each step and
 asks `[y/N]` before doing it, so it can be run phase by phase
-(`scripts/bootstrap-release.sh <github|ui|site|dns|npm|trusted-publishers|enable>`). It has not been
-run.
+(`scripts/bootstrap-release.sh <github|ui|site|dns|npm|trusted-publishers|enable>`). Its
+prompts need a terminal; an agent doing the setup runs the same commands one by one instead.
 
 1. **npm organisation.** Make sure the `@frebreco` org exists: https://www.npmjs.com/org/create
    (the script checks with `npm org ls frebreco`).
@@ -120,6 +119,11 @@ run.
    Then re-run the `ui` phase (or tick "Enforce HTTPS" in its Pages settings) once GitHub has
    issued the certificate.
 
+   **Verify the domain** for the GitHub account, so no one else can point a Pages site at a
+   subdomain of it: account Settings, Pages, "Add a domain" `frebreco.de` (the apex covers every
+   subdomain), add the TXT record `_github-pages-challenge-FreshlyBrewedCode` it shows, then
+   "Verify". Web UI only; the REST API has no endpoint for it.
+
    **The site's custom domain, later**: once the `nod` record resolves, set the custom domain
    (Settings, Pages, Custom domain `nod.frebreco.de`; or re-run the `site` phase, which does it
    only when the name resolves) and run `site.yml` once more, so the site is rebuilt for the
@@ -136,6 +140,10 @@ run.
    so this publishes a `0.0.1` placeholder of `@frebreco/nod` by hand, once. (Alternative to
    trusted publishing: an automation token as `NPM_TOKEN` secret, passed as `NPM_TOKEN` env to
    the two `semantic-release` steps. Trusted publishing is preferred: nothing to leak or rotate.)
+   With a passkey as npm's second factor, `npm publish` signs in through the browser and so has to
+   run in the owner's own terminal; without one it fails with `EOTP`. The registry can take a
+   couple of minutes to show a new package, and npm adds a `0.0.0-stage` version of its own (for
+   staged publishing, on no dist-tag).
 7. **npm trusted publisher** (`scripts/bootstrap-release.sh trusted-publishers`): on
    https://www.npmjs.com/package/@frebreco/nod/access, Trusted Publisher, GitHub Actions:
    organization `FreshlyBrewedCode`, repository `nod`, workflow filename `release.yml`,
@@ -143,8 +151,8 @@ run.
    an opaque 404 or 422 in the first release.
 8. **Switch it on** (`scripts/bootstrap-release.sh enable`):
    `gh variable set RELEASE_ENABLED --body true --repo FreshlyBrewedCode/nod`.
-9. **First run.** The next merge to `main` (or "Re-run" of its `release` run) publishes
-   `0.1.0-next.1`-style pre-release and deploys `ui.nod.frebreco.de/next`. Check
+9. **First run.** The next merge to `main` with a releasable commit (`feat`, `fix`, `perf`;
+   `docs` and `chore` release nothing) publishes a `0.1.1-next.1`-style pre-release and deploys `ui.nod.frebreco.de/next`. Check
    `npm view @frebreco/nod dist-tags`, the `nod-ui` commit `deploy: <version>`, and
    `bunx @frebreco/nod@next --version`. For the first stable release: Actions, `release`,
    "Run workflow" on `main`; then `ui.nod.frebreco.de` serves the root build.
