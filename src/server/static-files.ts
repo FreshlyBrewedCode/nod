@@ -1,11 +1,29 @@
 /**
  * The built web app, served by `nod serve` itself when it answers to a named
- * host (spike, finding 04): page and socket then share one origin, so no
- * browser's local network rules apply and the version of the page is the
- * CLI's. A single-page app: every path that is not a file is `index.html`.
+ * host (ADR 0005): page and socket then share one origin, so no browser's
+ * local network rules apply and the version of the page is the CLI's. A
+ * single-page app: every path that is not a file is `index.html`.
  */
 
+import { existsSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The web app this CLI ships: the package's `web/` (staged by
+ * `scripts/build-release.ts`), else a checkout's `dist/web` (`bun run
+ * build`). Either way the build of this very version.
+ */
+export function defaultWebRoot(): string {
+  const packaged = fileURLToPath(new URL("../../web", import.meta.url));
+  if (existsSync(join(packaged, "index.html"))) return packaged;
+  return fileURLToPath(new URL("../../dist/web", import.meta.url));
+}
+
+/** Whether `root` holds a built web app. */
+export function isWebRoot(root: string): boolean {
+  return existsSync(join(root, "index.html"));
+}
 
 /**
  * The file under `root` a request path names, or `null` for a path that

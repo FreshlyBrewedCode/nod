@@ -75,6 +75,24 @@ test("unlock, sign, verify with ssh-keygen; the window and its end", async () =>
   expect(clock.pending).toBe(0);
 });
 
+test("a window per side, one key: it is dropped when the last window closes", async () => {
+  await createKeyFile(file, PASS, { scrypt: CHEAP });
+  const s = signer();
+  const line = "nod test signature · mara-l · 2026-11-18T14:20:00.000Z";
+  await s.unlock(PASS, { side: "loopback" });
+  expect(await code(s.sign(line, "named-host"))).toBe("locked");
+  // Another side's unlock checks the passphrase again, and leaves the open window alone.
+  expect(await code(s.unlock("not the passphrase", { side: "named-host" }))).toBe("bad-passphrase");
+  expect(s.status("loopback").state).toBe("unlocked");
+  await s.unlock(PASS, { side: "named-host" });
+  s.lock("loopback");
+  const signature = await s.sign(line, "named-host");
+  expect(await s.verify(line, signature)).toBe(true);
+  s.lock("named-host");
+  expect(await code(s.sign(line, "named-host"))).toBe("locked");
+  expect((s as unknown as { method: unknown }).method).toBeNull();
+});
+
 test("a wrong passphrase: typed, delayed, and the key stays locked", async () => {
   await createKeyFile(file, PASS, { scrypt: CHEAP });
   const s = signer(new ManualClock(0), 60);

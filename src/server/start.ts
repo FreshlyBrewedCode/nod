@@ -14,15 +14,17 @@ import { FakeSigner, type Signer } from "./signer";
 import { KeyFileSigner } from "./signer/key-file-signer";
 import { defaultKeyFile } from "./signer/key-store";
 import type { Source } from "./source";
-import { loadOrCreateToken } from "./token";
+import { loadOrCreateToken, remoteTokenFile } from "./token";
 import { allowedOrigins, hostLink, isRelease, serverUrl } from "./web-url";
 
 export interface StartOptions {
   readonly port: number;
   readonly webUrl: string;
   readonly tokenFile: string;
-  /** Replace the stored token (unpairs every browser). */
+  /** Replace both stored tokens (unpairs every browser, on both sides). */
   readonly newToken?: boolean;
+  /** Replace only the remote token (unpairs the other device). */
+  readonly newRemoteToken?: boolean;
   readonly version: string | null;
   /** Serve the fake data set instead of GitHub. */
   readonly fake?: { readonly scenario: FakeScenario; readonly live: boolean } | null;
@@ -37,13 +39,12 @@ export interface StartOptions {
   /** The signing key file (default `$XDG_CONFIG_HOME/nod/signing-key.json`); not with `fake`. */
   readonly keyFile?: string;
   /**
-   * `--allow-host`: the TLS proxy's name in front of this port (finding 04).
+   * `--allow-host`: the TLS proxy's name in front of this port (ADR 0005).
    * The server then also serves the built web app (`webRoot`) on that name,
-   * and `phoneLink` pairs a browser on another device with it.
+   * with the remote token, and `deviceLink` pairs a browser on another
+   * device with it.
    */
-  readonly namedHost?: NamedHost | null;
-  /** The built web app (`dist/web`), needed with `namedHost`. */
-  readonly webRoot?: string | null;
+  readonly namedHost?: { readonly host: NamedHost; readonly webRoot: string } | null;
 }
 
 export interface Started {
@@ -51,8 +52,10 @@ export interface Started {
   readonly token: string;
   readonly wsUrl: string;
   readonly link: string;
-  /** The host link on the named host, when there is one. */
-  readonly phoneLink: string | null;
+  /** The remote token, with a named host. */
+  readonly remoteToken: string | null;
+  /** The device link: the host link on the named host, when there is one. */
+  readonly deviceLink: string | null;
   readonly session: Session;
   readonly source: Source;
   readonly signer: Signer;
@@ -90,14 +93,25 @@ export function start(options: StartOptions): Started {
   const session = new Session({ source, signer, clock, version, fake: fake !== null });
   const named = options.namedHost ?? null;
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });
+  // Renewed even without a named host, so a lost phone's token is dead
+  // before the next `--allow-host`.
+  const renewRemote = (options.newToken ?? false) || (options.newRemoteToken ?? false);
+  const remoteToken =
+    named || renewRemote
+      ? loadOrCreateToken(remoteTokenFile(options.tokenFile), { fresh: renewRemote })
+      : null;
   let serving: Serving;
   try {
     serving = serve({
       port: options.port,
       token,
-      allowedOrigins: [...allowedOrigins(options.webUrl), ...(named ? [named.origin] : [])],
-      namedHost: named?.hostname ?? null,
-      webRoot: named ? (options.webRoot ?? null) : null,
+      allowedOrigins: allowedOrigins(options.webUrl),
+      namedHost: named && {
+        hostname: named.host.hostname,
+        origin: named.host.origin,
+        token: remoteToken!,
+        webRoot: named.webRoot,
+      },
       session,
       version,
     });
@@ -113,7 +127,8 @@ export function start(options: StartOptions): Started {
     token,
     wsUrl,
     link: hostLink(options.webUrl, wsUrl, token),
-    phoneLink: named ? hostLink(named.origin, named.wsUrl, token) : null,
+    remoteToken: named ? remoteToken : null,
+    deviceLink: named ? hostLink(named.host.origin, named.host.wsUrl, remoteToken!) : null,
     session,
     source,
     signer,

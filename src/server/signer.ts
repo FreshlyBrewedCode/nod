@@ -39,23 +39,36 @@ export type SignerStatus =
       readonly once: boolean;
     };
 
+/**
+ * Where a client is connected from (ADR 0005): `loopback`, the desktop's
+ * own browser, or `named-host`, another device through the TLS proxy that
+ * `--allow-host` names. Each side has its own unlock window.
+ */
+export type Side = "loopback" | "named-host";
+
 export interface UnlockOptions {
   /** Clamped to [1, MAX_UNLOCK_MINUTES]; default DEFAULT_UNLOCK_MINUTES. */
   readonly minutes?: number;
   /** Lock again right after the next `sign`. */
   readonly once?: boolean;
+  /** The side whose window opens (default `loopback`). */
+  readonly side?: Side;
 }
 
+/**
+ * Every window is a side's: `status`, `unlock`, `lock` and `sign` default to
+ * `loopback`, so a caller with one side (`nod key test`) needs to say nothing.
+ */
 export interface Signer {
-  status(): SignerStatus;
+  status(side?: Side): SignerStatus;
   /** Throws `SignerError` `no-key` or `bad-passphrase`. */
   unlock(passphrase: string, options?: UnlockOptions): Promise<void>;
-  lock(): void;
+  lock(side?: Side): void;
   /**
-   * SSHSIG over exactly the bytes of `payloadLine`, namespace `nod`, armored.
-   * Throws `SignerError` `locked` or `no-key`.
+   * SSHSIG over exactly the bytes of `payloadLine`, namespace `nod`, armored,
+   * if `side`'s window is open. Throws `SignerError` `locked` or `no-key`.
    */
-  sign(payloadLine: string): Promise<string>;
+  sign(payloadLine: string, side?: Side): Promise<string>;
   /** Verify against the key's own public half (onboarding's test signature). */
   verify(payloadLine: string, signature: string): Promise<boolean>;
   /**
@@ -114,13 +127,22 @@ export function unlockMinutes(minutes: number | undefined): number {
   return Math.min(MAX_UNLOCK_MINUTES, Math.max(1, Math.round(minutes)));
 }
 
+interface Window {
+  readonly until: number;
+  readonly once: boolean;
+  spent: boolean;
+  readonly timer: Timer;
+}
+
 /**
- * The unlock window both signers share: one timer, one listener list. The
- * subclass says how a passphrase opens the key and how a line is signed.
+ * The unlock windows both signers share: one per side, each with its own
+ * timer, and one listener list. The decrypted key is the same for both: it
+ * is kept while any window is open and dropped when the last one closes.
+ * The subclass says how a passphrase opens the key and how a line is signed.
  */
 export abstract class UnlockWindow implements Signer {
   private key: SignerKey | null;
-  private unlocked: { until: number; once: boolean; spent: boolean; timer: Timer } | null = null;
+  private readonly windows = new Map<Side, Window>();
   private listeners = new Set<() => void>();
 
   constructor(
@@ -130,49 +152,49 @@ export abstract class UnlockWindow implements Signer {
     this.key = key;
   }
 
-  status(): SignerStatus {
+  status(side: Side = "loopback"): SignerStatus {
     if (!this.key) return { state: "no-key" };
-    // The timer may be late (a suspended laptop): the time is what counts.
-    if (this.unlocked && this.clock.now() >= this.unlocked.until) this.lockNow();
-    if (!this.unlocked) return { state: "locked", key: this.key };
-    return {
-      state: "unlocked",
-      key: this.key,
-      until: this.unlocked.until,
-      once: this.unlocked.once,
-    };
+    // The timer may be late (a suspended laptop): the time is what counts,
+    // for every side, so an expired window elsewhere does not keep the key.
+    for (const [open, window] of this.windows)
+      if (this.clock.now() >= window.until) this.lockNow(open);
+    const window = this.windows.get(side);
+    if (!window) return { state: "locked", key: this.key };
+    return { state: "unlocked", key: this.key, until: window.until, once: window.once };
   }
 
   async unlock(passphrase: string, options: UnlockOptions = {}): Promise<void> {
     if (!this.key) throw new SignerError("no-key", "There is no signing key yet.");
+    const side = options.side ?? "loopback";
     await this.open(passphrase);
-    this.unlocked?.timer.clear();
+    this.windows.get(side)?.timer.clear();
     const ms = unlockMinutes(options.minutes) * 60_000;
-    this.unlocked = {
+    this.windows.set(side, {
       until: this.clock.now() + ms,
       once: options.once ?? false,
       spent: false,
-      timer: this.clock.after(ms, () => this.lockNow()),
-    };
+      timer: this.clock.after(ms, () => this.lockNow(side)),
+    });
     this.emit();
   }
 
-  lock(): void {
-    this.lockNow();
+  lock(side: Side = "loopback"): void {
+    this.lockNow(side);
   }
 
-  async sign(payloadLine: string): Promise<string> {
-    const status = this.status();
+  async sign(payloadLine: string, side: Side = "loopback"): Promise<string> {
+    const status = this.status(side);
     if (status.state === "no-key") throw new SignerError("no-key", "There is no signing key yet.");
-    if (status.state === "locked" || this.unlocked?.spent)
+    const window = this.windows.get(side);
+    if (status.state === "locked" || !window || window.spent)
       throw new SignerError("locked", "Signing is locked.");
     // `once` is spent before the first await, so a second request racing
     // the first cannot sign as well.
-    if (status.once) this.unlocked!.spent = true;
+    if (window.once) window.spent = true;
     try {
       return await this.signLine(payloadLine);
     } finally {
-      if (status.once) this.lockNow();
+      if (window.once) this.lockNow(side);
     }
   }
 
@@ -191,24 +213,29 @@ export abstract class UnlockWindow implements Signer {
   }
 
   stop(): void {
-    this.unlocked?.timer.clear();
-    this.unlocked = null;
+    for (const window of this.windows.values()) window.timer.clear();
+    this.windows.clear();
     this.close();
     this.listeners.clear();
   }
 
-  /** Throws `bad-passphrase`; keeps the decrypted key on success. */
+  /**
+   * Throws `bad-passphrase`; keeps the decrypted key on success. Called for
+   * every unlock, also when another side's window holds the key already: the
+   * passphrase is checked each time.
+   */
   protected abstract open(passphrase: string): Promise<void>;
   protected abstract signLine(payloadLine: string): Promise<string>;
   protected abstract makeKey(passphrase: string, path?: string): Promise<SignerKey>;
-  /** Forget the decrypted key. */
+  /** Forget the decrypted key; called when no window is open any more. */
   protected abstract close(): void;
 
-  private lockNow() {
-    if (!this.unlocked) return;
-    this.unlocked.timer.clear();
-    this.unlocked = null;
-    this.close();
+  private lockNow(side: Side) {
+    const window = this.windows.get(side);
+    if (!window) return;
+    window.timer.clear();
+    this.windows.delete(side);
+    if (this.windows.size === 0) this.close();
     this.emit();
   }
 

@@ -102,13 +102,39 @@ These close most of the gaps above without any change to nod.
   runs branch code `checks: write`.
 - Prefer **just this once** when you unlock, or lock from the chip when you are done.
 - Keep the host link to yourself. While signing is unlocked, a page with that link can sign.
+- Scan the device link from the terminal; do not send it through a chat.
 
 ## The local server
 
 `nod serve` listens on `127.0.0.1` only. It has one WebSocket, guarded by a pairing token and an
-origin check: only the web app's origin, and the local dev server, may connect. The token is in
-the link `nod serve` prints and is kept in `$XDG_CONFIG_HOME/nod/serve-token`; `--new-token`
-replaces it. The passphrase is sent over that socket once per unlock and is never logged.
+origin check: only the web app's origin, and the local dev server, may connect. It answers only
+requests that name `127.0.0.1`, `localhost` or `[::1]`, so a page that rebinds its own name to
+your machine gets nothing. The token is in the link `nod serve` prints and is kept in
+`$XDG_CONFIG_HOME/nod/serve-token`; `--new-token` replaces it. The passphrase is sent over that
+socket once per unlock and is never logged.
+
+### Another device
+
+With `--allow-host` (not released), `nod serve` also answers to one
+[named host](/docs/phone), the name `tailscale serve` gives it on your tailnet, and serves the
+dashboard there. It still listens on `127.0.0.1`; only the proxy, and programs on your machine,
+reach it.
+
+- The named host is a side of its own. Its socket takes only the named host's own origin and the
+  remote token; loopback takes only the web app's origins and the host link's token. Neither
+  token opens the other side.
+- Each side has its own unlock: a window opened at your desk does not let the phone sign, and
+  the other way round.
+- Who can try to connect grows to every device and person your tailnet lets reach that port.
+  The remote token is what keeps them out. Use `tailscale serve`, not Funnel, which would put the
+  name on the internet.
+- The passphrase crosses the network under TLS and inside Tailscale's tunnel; it is in plain text
+  only on loopback, as before. There is no plain-http access from another device.
+- The remote token is stored on the phone and does not expire. `--new-remote-token` unpairs the
+  phone and leaves your machine paired.
+- The dashboard on the named host cannot be framed by another page.
+- `tailscale serve` adds headers naming the tailnet user. nod does not check them yet: any
+  program on your machine could send them, and tagged devices have none.
 
 Your GitHub token comes from `gh auth token` and is sent only to your GitHub host's API.
 

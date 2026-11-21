@@ -39,6 +39,7 @@ test("serve defaults: GitHub, port 4518, no browser", () => {
     webUrl: null,
     tokenFile: null,
     newToken: false,
+    newRemoteToken: false,
     open: false,
     allowHost: null,
     webDir: null,
@@ -74,6 +75,7 @@ test("serve flags", () => {
     webUrl: "https://ui.example.test/next",
     tokenFile: "/tmp/t",
     newToken: true,
+    newRemoteToken: false,
     open: true,
     allowHost: null,
     webDir: null,
@@ -91,6 +93,7 @@ test("serve flags", () => {
     allowHost: { origin: "https://laptop.example-tailnet.ts.net:8445" },
     webDir: "/w",
   });
+  expect(serveFlags(["--new-remote-token"]).newRemoteToken).toBe(true);
 });
 
 test("init", () => {

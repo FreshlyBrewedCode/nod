@@ -107,9 +107,9 @@ export class KeyFileSigner extends UnlockWindow {
       throw error;
     }
     try {
-      const method = ed25519Method(seed);
-      this.method?.dispose();
-      this.method = method;
+      // Another side's window may hold the key already, and may be signing
+      // with it right now: keep that one, the passphrase was what to check.
+      this.method ??= ed25519Method(seed);
     } finally {
       seed.fill(0);
     }

@@ -7,6 +7,10 @@
  * a paired browser, its bookmarks and the deep links it opens keep working
  * after `nod serve` restarts. `--new-token` replaces it, which unpairs every
  * browser.
+ *
+ * The named host (`--allow-host`, ADR 0005) has a token of its own, the
+ * remote token, in a file next to it (`remoteTokenFile`): a lost phone is
+ * unpaired by `--new-remote-token` without unpairing the desktop.
  */
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -25,6 +29,15 @@ export function configDir(
 
 export function defaultTokenFile(env?: Readonly<Record<string, string | undefined>>): string {
   return join(configDir(env), "serve-token");
+}
+
+/**
+ * Where the remote token is kept: next to the loopback token, with
+ * `-remote` appended (`serve-token-remote`). So a `--token-file` given for
+ * a test or an experiment moves both.
+ */
+export function remoteTokenFile(tokenFile: string): string {
+  return `${tokenFile}-remote`;
 }
 
 export function newToken(): string {

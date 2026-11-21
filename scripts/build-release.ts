@@ -6,12 +6,14 @@
 //
 // The package is `nod serve` and the `@frebreco/nod/kit` helpers. It ships raw
 // TypeScript and requires Bun at runtime; `bin/nod.js` is the guard and
-// launcher. The web app is not in it: the release workflow deploys that to
-// ui.nod.frebreco.de, and `src/server/web-url.ts` picks the
+// launcher. The web app's sources are not in it: the release workflow deploys
+// the web app to ui.nod.frebreco.de, and `src/server/web-url.ts` picks the
 // build matching the version stamped here. So only `src/cli.ts`, `src/server/`,
 // `src/shared/`, `src/kit/` and `src/init/` are staged, plus `templates/` (what
 // `nod init` writes into a repo), and the manifest carries only the
-// dependencies the sources need, not React and friends.
+// dependencies the sources need, not React and friends. What it does carry is
+// this version's built web app, under `web/` with base `/`: the one
+// `nod serve --allow-host` serves on the named host (ADR 0005).
 //
 // The version is stamped into the staged `package.json`, and into the
 // `const VERSION = "0.0.0-development";` placeholder of the staged `src/cli.ts`.
@@ -173,6 +175,25 @@ async function smokeTestTemplates(installed: string): Promise<void> {
 }
 
 /**
+ * The built web app `nod serve --allow-host` serves: it is in the package,
+ * every asset its page loads is there, and the staged server finds it on its
+ * own (`defaultWebRoot`).
+ */
+async function smokeTestWebApp(installed: string): Promise<void> {
+  const web = join(installed, "web");
+  const index = Bun.file(join(web, "index.html"));
+  if (!(await index.exists())) fail("the built web app (web/index.html) was not staged.");
+  const assets = [...(await index.text()).matchAll(/(?:src|href)="\/(assets\/[^"]+)"/g)];
+  if (assets.length === 0) fail("web/index.html loads no /assets/: was it built with base /?");
+  for (const [, path] of assets)
+    if (!(await Bun.file(join(web, path!)).exists())) fail(`web/${path} was not staged.`);
+  const { defaultWebRoot } = (await import(
+    join(installed, "src", "server", "static-files.ts")
+  )) as typeof import("../src/server/static-files.ts");
+  if (defaultWebRoot() !== web) fail(`nod serve looks for its web app in ${defaultWebRoot()}.`);
+}
+
+/**
  * Checks the channel the staged CLI opens: `src/server/web-url.ts` must exist
  * and export `defaultWebUrl(version)`: the stable URL for `X.Y.Z`, the
  * `/next` one for `X.Y.Z-next.N`, a local one for no version.
@@ -206,6 +227,7 @@ async function smokeTest(dependencies: Record<string, string>): Promise<void> {
     await smokeTestKit(work);
     await smokeTestTemplates(installed);
     await smokeTestWebUrl(installed);
+    await smokeTestWebApp(installed);
   } finally {
     await rm(work, { force: true, recursive: true });
   }
@@ -234,7 +256,23 @@ for await (const file of new Bun.Glob("**/*.test.ts").scan({ cwd: join(PKG, "src
   await rm(join(PKG, "src", file), { force: true });
 }
 
-if ((await readdir(join(PKG, "src"))).includes("web")) fail("the web app was staged.");
+// The web app's sources stay out; its build goes in, below.
+if ((await readdir(join(PKG, "src"))).includes("web")) fail("the web app's sources were staged.");
+
+// This version's web app, for `nod serve --allow-host`, at the root of its origin.
+run([
+  process.execPath,
+  "x",
+  "vite",
+  "build",
+  "--base",
+  "/",
+  "--outDir",
+  join(PKG, "web"),
+  "--emptyOutDir",
+  "--logLevel",
+  "warn",
+]);
 
 // Stamp the version `nod --version` prints.
 const cliFile = join(PKG, "src", "cli.ts");
@@ -257,7 +295,7 @@ const manifest = {
   engines: { bun: ">=1.4.1" },
   homepage: "https://nod.frebreco.de",
   repository: { type: "git", url: REPOSITORY_URL },
-  files: ["bin", "src", "templates", "README.md", "LICENSE"],
+  files: ["bin", "src", "templates", "web", "README.md", "LICENSE"],
   // A scoped package is private to its org unless published as public.
   publishConfig: { access: "public" },
   dependencies,

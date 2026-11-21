@@ -122,3 +122,43 @@ test("errors never carry the passphrase", async () => {
     expect((error as Error).stack ?? "").not.toContain("wrong");
   }
 });
+
+test("a window per side: unlocking one side does not unlock the other", async () => {
+  const clock = new ManualClock(0);
+  const signer = new FakeSigner(clock);
+  const seen: string[] = [];
+  signer.subscribe(() =>
+    seen.push(`${signer.status("loopback").state}/${signer.status("named-host").state}`),
+  );
+  await signer.unlock("pass", { side: "loopback" });
+  expect(signer.status("loopback").state).toBe("unlocked");
+  expect(signer.status("named-host").state).toBe("locked");
+  expect(await code(signer.sign("line", "named-host"))).toBe("locked");
+  expect(await code(signer.sign("line", "loopback"))).toBe("ok");
+
+  await signer.unlock("pass", { side: "named-host", minutes: 5, once: true });
+  expect(signer.status("named-host")).toMatchObject({ until: 5 * MIN, once: true });
+  expect(signer.status("loopback")).toMatchObject({ until: 15 * MIN, once: false });
+  // `once` and `lock` end only their own side's window.
+  expect(await code(signer.sign("line", "named-host"))).toBe("ok");
+  expect(signer.status("named-host").state).toBe("locked");
+  expect(signer.status("loopback").state).toBe("unlocked");
+  await signer.unlock("pass", { side: "named-host" });
+  signer.lock("loopback");
+  expect(await code(signer.sign("line", "loopback"))).toBe("locked");
+  expect(await code(signer.sign("line", "named-host"))).toBe("ok");
+  // The default side is loopback.
+  expect(signer.status().state).toBe("locked");
+
+  clock.advance(15 * MIN);
+  expect(signer.status("named-host").state).toBe("locked");
+  expect(clock.pending).toBe(0);
+  expect(seen).toEqual([
+    "unlocked/locked",
+    "unlocked/unlocked",
+    "unlocked/locked",
+    "unlocked/unlocked",
+    "locked/unlocked",
+    "locked/locked",
+  ]);
+});
