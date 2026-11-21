@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0f13">
+<title>nod · phone mockups m1</title>
+<style>
+/*FONTS*/
+:root{
+  --bg:#0d0f13;--panel:#13161c;--panel2:#191d25;--line:#20252f;--line2:#2e3542;
+  --tx:#e7e9ee;--tx2:#a3abba;--tx3:#6c7586;
+  --need:#f2b24a;--need-bg:#f2b24a17;--need-line:#f2b24a55;
+  --know:#74a9ff;--know-bg:#74a9ff17;--bgl:#7f8898;
+  --ok:#4cc38a;--ok-bg:#4cc38a17;--bad:#f0685d;--bad-bg:#f0685d1a;
+  --focus:#171c27;--on-need:#15120a;
+  --sab:env(safe-area-inset-bottom,0px);--kb:292px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--tx);font:14px/1.5 "Inter Variable",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;min-height:100dvh;overflow-x:hidden;overscroll-behavior-y:none}
+a{color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}
+[data-go]{cursor:pointer}
+.mono{font-family:"JetBrains Mono Variable",ui-monospace,SFMono-Regular,Menlo,monospace}
+.sp{flex:1}
+svg{display:block;flex:none}
+
+/* ---------- shared atoms */
+.av{flex:none;width:18px;height:18px;border-radius:50%;display:inline-grid;place-items:center;font-size:10px;font-weight:700;color:#fff}
+.av.jonas{background:#3f6fa6}.av.mara{background:#b0713a}.av.ines{background:#8a46b0}
+.rk{flex:none;display:inline-flex;gap:2px;align-items:center}
+.rk i{width:4px;height:12px;border-radius:1px;background:var(--line2)}
+.rk.r3 i{background:var(--bad)}.rk.r2 i:nth-child(-n+2),.rk.r1 i:first-child{background:var(--need)}
+.df{flex:none;font-family:"JetBrains Mono Variable",ui-monospace,monospace;font-size:12.5px;white-space:nowrap}
+.df b{font-weight:400;color:var(--ok)}.df i{font-style:normal;color:var(--bad)}
+.tag{flex:none;font-family:"JetBrains Mono Variable",ui-monospace,monospace;font-size:11.5px;line-height:18px;padding:0 6px;border-radius:5px;background:var(--panel2);color:var(--tx2);white-space:nowrap}
+.tag.bad{background:var(--bad-bg);color:var(--bad)}.tag.know{background:var(--know-bg);color:var(--know)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 16px;border-radius:11px;border:1px solid var(--line2);
+  background:var(--panel2);color:var(--tx);font-size:15px;font-weight:600;white-space:nowrap}
+.btn.pri{background:var(--need);border-color:var(--need);color:var(--on-need)}
+.btn.ghost{background:none;border-color:transparent;color:var(--tx2)}
+.btn.know{background:none;border-color:#74a9ff55;color:var(--know)}
+.tap{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.caps{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--tx3)}
+.note{color:var(--tx3);font-size:13px}
+.dot{flex:none;width:7px;height:7px;border-radius:2px}
+.d-need{background:var(--need)}.d-know{background:var(--know)}.d-bg{background:var(--bgl)}.d-ok{background:var(--ok);border-radius:50%}.d-wait{background:var(--need);border-radius:50%}
+
+/* ---------- top bar */
+.top{position:sticky;top:0;z-index:6;height:52px;display:flex;align-items:center;gap:8px;padding:0 4px 0 14px;background:var(--bg);border-bottom:1px solid var(--line)}
+.logo{flex:none;width:22px;height:22px;border-radius:6px;background:var(--need);color:var(--on-need);display:grid;place-items:center;font-weight:800;font-size:13px}
+.top b.nm{font-size:15px}
+.repo{color:var(--tx3);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;border-radius:99px;border:1px solid var(--line2);font-size:13px;font-weight:500;white-space:nowrap}
+.chip.open{border-color:#4cc38a66;background:var(--ok-bg);color:var(--ok)}
+.me{width:28px;height:28px;border-radius:50%;background:#b0713a;display:grid;place-items:center;font-weight:700;font-size:12px;color:#fff}
+.top .tt{font-size:14px;color:var(--tx2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.top.back{padding-left:0}
+.seg{display:flex;padding:3px;border-radius:12px;background:var(--panel);border:1px solid var(--line)}
+.seg a{flex:1;min-height:38px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:9px;font-size:14px;font-weight:500;color:var(--tx2);white-space:nowrap}
+.seg a.on{background:var(--panel2);color:var(--tx);font-weight:600;box-shadow:0 0 0 1px var(--line2)}
+.since{color:var(--tx3);font-size:13px;padding:12px 16px 0}
+
+/* ---------- lanes */
+.lh{display:flex;align-items:center;gap:9px;padding:22px 16px 10px}
+.lh h2{font-size:15px;font-weight:650}
+.lh .c{color:var(--tx3);font-size:14px}
+.lh .hint{margin-left:auto;color:var(--tx3);font-size:13px}
+.ti{font-size:15px;line-height:21px;font-weight:500;overflow-wrap:anywhere}
+.t1 .ti{font-weight:650}
+.bx{color:var(--tx2);font-size:13.5px;line-height:19px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.mt{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--tx3);font-size:13px;min-width:0}
+.cbx{width:22px;height:22px;border-radius:7px;border:1.5px solid var(--line2);display:grid;place-items:center;color:var(--on-need)}
+.on>.cbx,.cbx.on{background:var(--need);border-color:var(--need)}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* ---------- bottom bars */
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:7;background:#11141af2;border-top:1px solid var(--line2);padding:10px 12px calc(10px + var(--sab));
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.bar .rw{display:flex;align-items:center;gap:8px}
+.pad-bar{height:calc(92px + var(--sab))}
+
+/* ---------- A: stacked rows, checkbox always there */
+.a-sub{padding:10px 12px 0}
+.a-rows{background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.ar{display:grid;grid-template-columns:46px 1fr auto;border-top:1px solid var(--line);padding-top:11px}
+.ar:first-child{border-top:0}
+.ar.on{background:var(--focus);box-shadow:inset 2px 0 0 var(--need)}
+.ar .cb{grid-row:1/4;display:flex;justify-content:center;padding-top:0;min-height:44px}
+.ar .cb .cbx{margin-top:0}
+.ar .ti{grid-column:2/4;padding-right:16px}
+.ar .bx{grid-column:2/4;padding:3px 16px 0 0}
+.ar .mt{grid-column:2;padding:6px 0 8px;align-self:center}
+.ar .ask{grid-column:3;align-self:end;min-height:44px;display:flex;align-items:center;padding:0 16px 0 10px;color:var(--need);font-weight:600;font-size:14px;white-space:nowrap}
+.ar.k{grid-template-columns:1fr auto;padding-left:16px}
+.ar.k .ti,.ar.k .mt{grid-column:1}
+.ar.k .ti:nth-last-child(2),.ar.k .ti:nth-last-child(2)+.mt{grid-column:1/3}
+.ar.k .ti:nth-last-child(2){padding-right:16px}
+.ar.k .ask{grid-column:2;grid-row:1/3;align-self:center;color:var(--know)}
+.ar.k .st{grid-column:2;grid-row:1/3;align-self:center;padding:0 16px 0 10px;color:var(--tx3);font-size:13px;white-space:nowrap}
+.ar.k{padding-bottom:9px}
+.ar.k .ti{font-weight:450}
+.ar.cl{color:var(--tx2)}
+.a-need{font-size:13px;color:var(--tx2);padding:0 4px 9px;line-height:18px}
+.a-need b{color:var(--tx);font-weight:600}
+
+/* ---------- detail (shared) */
+.dt{padding:16px 16px 0}
+.dt h1{font-size:20px;line-height:26px;font-weight:650;letter-spacing:-.01em;overflow-wrap:anywhere}
+.dt .mt{margin-top:8px;font-size:13.5px}
+dl.brief{margin-top:18px}
+dl.brief dt{font-size:11.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--tx3)}
+dl.brief dd{font-size:15px;line-height:22px;margin:3px 0 14px}
+dl.brief dd .rk{display:inline-flex;vertical-align:-1px;margin-right:6px}
+dl.brief.two{display:grid;grid-template-columns:66px 1fr;gap:0 8px}
+dl.brief.two dt{padding-top:4px;font-size:12.5px;font-weight:400;letter-spacing:0;text-transform:none}
+dl.brief.two dd{margin:0 0 12px;font-size:14.5px;line-height:21px}
+.fold{border-top:1px solid var(--line)}
+.fh{display:flex;align-items:center;gap:10px;min-height:50px;padding:0 16px}
+.fh b{font-size:15px;font-weight:600}.fh span{color:var(--tx3);font-size:13px}.fh i{margin-left:auto;font-style:normal;color:var(--tx3);font-size:13px}
+.fb{padding:0 16px 14px}
+.fact{padding:8px 0;border-top:1px solid var(--line);font-size:14px;line-height:20px}
+.fact:first-child{border-top:0;padding-top:0}
+.fact small{display:block;font-size:13px;color:var(--tx3)}
+.fact small.up{color:var(--need)}
+.led{display:flex;gap:10px;padding:8px 0;font-size:14px;line-height:20px}
+.led:first-child{padding-top:0}
+.sl{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;margin-top:1px}
+.sl.ok{background:var(--ok-bg);color:var(--ok);box-shadow:inset 0 0 0 1px #4cc38a66}
+.sl.mine{box-shadow:inset 0 0 0 1.5px var(--need);border-radius:50%}
+.led small{display:block;color:var(--tx3);font-size:13px;line-height:19px}
+.fl{display:flex;align-items:center;gap:8px;min-height:36px;border-top:1px solid var(--line)}
+.fl:first-child{border-top:0}
+.fl .p{font-family:"JetBrains Mono Variable",ui-monospace,monospace;font-size:12.5px;direction:rtl;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.jv{list-style:none;position:relative;padding-left:22px}
+.jv::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:2px;background:var(--line2)}
+.jv li{position:relative;display:flex;justify-content:space-between;gap:10px;font-size:14px;line-height:28px;color:var(--tx2)}
+.jv li::before{content:"";position:absolute;left:-20px;top:10px;width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--bg)}
+.jv li small{color:var(--tx3);font-size:13px}
+.jv li.now{color:var(--need);font-weight:600}.jv li.now::before{background:var(--need)}
+.jv li.fut{color:var(--tx3)}.jv li.fut::before{background:var(--bg);box-shadow:0 0 0 3px var(--bg),inset 0 0 0 1.5px var(--line2)}
+.card .jv li::before{box-shadow:0 0 0 3px var(--panel)}
+.card .jv li.fut::before{background:var(--panel);box-shadow:0 0 0 3px var(--panel),inset 0 0 0 1.5px var(--line2)}
+
+/* ---------- sheets (batch, unlock, signed) */
+.sheet{min-height:100dvh;background:var(--panel);display:flex;flex-direction:column}
+.sheet .top{background:var(--panel);padding-left:0}
+.sheet .top b{font-size:16px;font-weight:650}
+.sh{padding:14px 16px}
+.sh p{font-size:14.5px;line-height:21px;color:var(--tx2)}
+.li{display:flex;align-items:center;gap:10px;min-height:42px;border-top:1px solid var(--line);font-size:14px}
+.li .ro{flex:none;color:var(--tx3);font-size:13px}
+.dock{position:fixed;left:0;right:0;bottom:var(--kb);z-index:8;background:var(--panel2);border-top:1px solid var(--line2);padding:10px 12px 12px}
+.dock label,.fld label{display:block;font-size:13px;color:var(--tx2);margin-bottom:6px}
+.in{flex:1;min-width:0;width:100%;height:48px;border-radius:11px;border:1.5px solid var(--need);background:var(--bg);color:var(--tx);font:16px/1 "Inter Variable",sans-serif;
+  letter-spacing:.2em;padding:0 14px;outline:0;box-shadow:0 0 0 3px #f2b24a22}
+.stay{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx3);margin-top:8px}
+.stay a{min-height:36px;display:inline-flex;align-items:center;padding:0 12px;border-radius:9px;border:1px solid var(--line2);color:var(--tx2);font-size:13px}
+.stay a.on{border-color:var(--need-line);background:var(--need-bg);color:var(--need)}
+.kb{position:fixed;left:0;right:0;bottom:0;height:var(--kb);z-index:9;background:#22262e;padding:0 3px;display:flex;flex-direction:column;gap:11px;user-select:none}
+.kb .qt{height:42px;display:flex;align-items:center;justify-content:center;gap:8px;color:#c9ced8;font-size:14px;border-bottom:1px solid #2e333d;margin:0 -3px}
+.kb .r{display:flex;gap:6px;justify-content:center}
+.kb .r span{flex:1;height:42px;border-radius:6px;background:#565b66;color:#e9ebef;display:grid;place-items:center;font-size:20px;max-width:34px}
+.kb .r span.w{background:#3a3f49;max-width:none;flex:1.4;font-size:14px}
+.kb .r span.s{max-width:none;flex:6;font-size:14px;color:#aeb4c0}
+.kb .r.b{padding:0 18px}
+.okc{width:44px;height:44px;border-radius:50%;background:var(--ok-bg);color:var(--ok);display:grid;place-items:center;font-size:20px}
+.res{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:14.5px;line-height:21px}
+.res>i{flex:none;font-style:normal;color:var(--ok);width:16px}
+.res small{display:flex;align-items:center;gap:7px;color:var(--tx2);font-size:13px}
+
+/* ---------- B: cards, action on the card, bottom navigation */
+.b-wrap{padding:0 12px}
+.b-wrap .lh{padding:20px 4px 10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.card.on{border-color:var(--need);background:var(--focus)}
+.card .hd{display:flex;align-items:center;gap:8px;color:var(--tx3);font-size:13px;margin-bottom:8px;min-height:22px}
+.card .hd .rw{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--tx2)}
+.card h3{font-size:16px;line-height:22px;font-weight:650;overflow-wrap:anywhere}
+.card.t2 h3{font-weight:550}
+.card .bx{-webkit-line-clamp:3;font-size:14px;line-height:20px;margin-top:6px}
+.card .mt{margin-top:8px}
+.card .acts{display:flex;gap:8px;margin-top:12px}
+.card .acts .btn.pri{flex:1}
+.card.k{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;padding:12px 12px 12px 14px}
+.card.k .ti{font-size:15px}.card.k .btn{grid-column:2;grid-row:1/3;min-height:44px;font-size:14px;padding:0 14px}
+.card.grp{padding:0}
+.card.grp>div{padding:11px 14px;border-top:1px solid var(--line)}
+.card.grp>div:first-child{border-top:0}
+.card.grp .cl{border-top:1px dashed var(--line2);color:var(--tx2)}
+.rnd{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line2);display:grid;place-items:center;color:var(--on-need)}
+.rnd.on{background:var(--need);border-color:var(--need)}
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:7;display:flex;background:#11141af2;border-top:1px solid var(--line2);padding:4px 0 calc(4px + var(--sab));
+  -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+.tabs a{flex:1;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11.5px;font-weight:500;color:var(--tx3)}
+.tabs a.on{color:var(--tx)}
+.tabs a .ic{position:relative}
+.tabs a .n{position:absolute;left:16px;top:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--need);color:var(--on-need);font-size:10.5px;font-weight:700;display:grid;place-items:center}
+.pad-tabs{height:calc(74px + var(--sab))}
+.anch{position:sticky;top:52px;z-index:5;display:flex;gap:6px;padding:8px 12px;background:var(--bg);border-bottom:1px solid var(--line);overflow-x:auto}
+.anch a{flex:none;min-height:34px;display:inline-flex;align-items:center;padding:0 12px;border-radius:99px;border:1px solid var(--line2);font-size:13px;color:var(--tx2)}
+.anch a.on{background:var(--panel2);color:var(--tx)}
+.needc{border:1px solid var(--need-line);background:var(--need-bg);border-radius:14px;padding:12px 14px;margin-top:14px}
+.needc b{display:block;font-size:16px;font-weight:650;margin:2px 0}
+.card h4{font-size:15px;font-weight:650;margin-bottom:10px;display:flex;align-items:baseline;gap:8px}
+.card h4 span{font-size:13px;font-weight:400;color:var(--tx3)}
+.card dl.brief{margin-top:0}.card dl.brief dd:last-child{margin-bottom:0}
+.banner{margin:12px 12px 0;border:1px solid #4cc38a55;background:var(--ok-bg);border-radius:14px;padding:12px 6px 12px 14px;display:flex;gap:10px;align-items:flex-start}
+.banner b{display:block;font-size:15px}.banner p{font-size:13.5px;color:var(--tx2);line-height:19px}
+.steps{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx3)}
+.steps b{color:var(--tx);font-weight:600}.steps i{width:18px;height:1px;background:var(--line2)}
+
+/* ---------- C: quiet list, gestures, everything at the thumb */
+.c-rows{border-top:1px solid var(--line)}
+.cr{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+.cr .cc{position:relative;background:var(--bg);padding:11px 16px;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;transition:transform .2s}
+.cr.t1 .cc{background:var(--panel)}
+.cr.t2 .cc{background:var(--panel)}
+.cr .ti{grid-column:1/3}
+.cr .bx{grid-column:1/3;-webkit-line-clamp:1}
+.cr .mt{flex-wrap:nowrap;overflow:hidden}
+.cr .rt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tx3);white-space:nowrap}
+.cr .rt.need{color:var(--need);font-weight:600}.cr .rt.know{color:var(--know);font-weight:600}
+.cr.one .ti{font-weight:450;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cr .sw{position:absolute;right:0;top:0;bottom:0;display:flex}
+.cr .sw a{width:88px;display:grid;place-items:center;font-size:13.5px;font-weight:600;background:var(--panel2);color:var(--tx);border-left:1px solid var(--line2)}
+.cr .sw a.pri{background:var(--need);color:var(--on-need);border-left:0}
+.cr.swiped .cc{transform:translateX(-176px)}
+.cr.sel .cc{grid-template-columns:38px 1fr auto;background:var(--panel)}
+.cr.sel .cc>.rnd{grid-row:1/4;align-self:center}
+.cr.sel .ti,.cr.sel .bx{grid-column:2/4}
+.cr.sel.on .cc{background:var(--focus)}
+.hintl{display:flex;align-items:center;gap:6px;margin:10px 12px 0;padding:0 0 0 12px;min-height:44px;border-radius:11px;background:var(--panel);border:1px solid var(--line);color:var(--tx2);font-size:13px}
+.c-lh{padding:18px 16px 8px}
+.cdock{display:flex;gap:8px;align-items:center}
+.cdock .seg{flex:1}
+.cdock .lk{width:46px;height:46px;border-radius:12px;border:1px solid var(--line2);display:grid;place-items:center;color:var(--tx2);background:var(--panel)}
+.pad-dock{height:calc(76px + var(--sab))}
+.ctabs{padding:12px 12px 0}
+.sum{display:flex;justify-content:space-between;align-items:center;min-height:44px;border-top:1px solid var(--line);font-size:14.5px}
+.sum span{color:var(--tx3);font-size:13px}
+.nextc{border:1px solid var(--line2);border-radius:14px;padding:12px 14px;margin-top:18px;background:var(--panel2)}
+
+/* ---------- index */
+.ix{padding:22px 16px 40px;max-width:560px;margin:0 auto}
+.ix h1{font-size:20px;font-weight:650;margin-bottom:4px}
+.ix h2{font-size:15px;font-weight:650;margin:24px 0 2px}
+.ix p{color:var(--tx2);font-size:14px}
+.ix .lk{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.ix .lk a{min-height:44px;display:inline-flex;align-items:center;padding:0 14px;border-radius:11px;border:1px solid var(--line2);background:var(--panel);font-size:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ---------- fake data: the r3 team (tallyho/fieldbook, viewer Mara). Fictional people and repos only.
+const REPO = 'tallyho/fieldbook';
+const WHO = { jonas: 'Jonas', mara: 'you', ines: 'Ines' };
+const NEEDS = [
+  { n: 476, t: 'auth: rotate session tokens on privilege change', by: 'jonas', age: '6h', tag: 'core', add: 148, del: 61, files: 7, risk: 3, tier: 1, ask: 'Sign as owner', as: 'as owner',
+    what: 'When a user’s role changes, all their sessions get a fresh token and the old ones are revoked within one request.' },
+  { n: 485, t: 'billing: add invoices.currency_code with backfill', by: 'jonas', age: '3h', tag: 'migration', add: 96, del: 4, files: 5, risk: 3, tier: 1, ask: 'Sign as peer', as: 'as peer',
+    dep: 'needs #492 first', what: 'New nullable column invoices.currency_code, backfilled from tenant default in batches of 5,000 rows.', after: 'jonas' },
+  { n: 482, t: 'billing: prorate plan changes mid-cycle', by: 'jonas', age: '2h', tag: 'tier 3', add: 312, del: 88, files: 9, risk: 2, tier: 1, ask: 'Sign as peer', as: 'as peer',
+    dep: 'needs #485 first', what: 'Adds day-based proration when a tenant switches plan mid-cycle; credit note for downgrades, immediate charge for upgrades.' },
+  { n: 490, t: 'notifications: batch digest emails per tenant', by: 'mara', age: '49m', tag: 'tier 2', add: 203, del: 140, files: 8, risk: 2, tier: 2, ask: 'Self-attest', as: 'your own' },
+  { n: 488, t: 'inventory: release stock when a reservation times out', by: 'mara', age: '1h', tag: 'tier 2', add: 121, del: 17, files: 4, risk: 1, tier: 2, ask: 'Self-attest', as: 'your own' },
+  { n: 491, t: 'search: fix facet counts when items are archived', by: 'mara', age: '4h', bad: 'changed', add: 58, del: 22, files: 3, risk: 1, tier: 2, ask: 'Re-attest', as: 'again' },
+];
+const KNOW = [
+  { n: 487, t: 'docs: ADR-014 module tiers and review requirements', by: 'ines', why: 'changes how we review', add: 164, del: 0 },
+  { n: 478, t: 'ci: run vitest in workspace mode (tests 3× faster)', by: 'ines', why: 'test commands change', add: 139, del: 212 },
+  { n: 480, t: 'core: deprecate ctx.legacyDb in the module SDK', by: 'ines', why: 'module SDK surface changed', add: 52, del: 9 },
+];
+const BG = [
+  { n: 479, t: 'core: typed channels for the event bus', by: 'mara', age: '23h', add: 684, del: 402, risk: 3, st: 'waits on Ines' },
+  { n: 493, t: 'notes: keyboard shortcut to toggle checklist items', by: 'mara', age: '14m', add: 37, del: 2, bad: '1 check failing', st: 'agent is fixing it' },
+];
+const CLU = { n: 7, kinds: '3 deps · 2 tier 1 · 1 signed by you · 1 docs', st: '4 merged · 3 open', add: 251, del: 132 };
+const BATCH = [485, 482, 476, 491, 490];
+const D = { // the PR every detail screen shows
+  n: 476, topic: 'Auth hardening', need: 'Sign as owner of core/auth', then: 'Then the check turns green and the agent merges.',
+  brief: [['What', NEEDS[0].what], ['Why', 'Pen-test finding F-07: a demoted admin kept admin rights until the token expired (up to 12h).'],
+    ['Risk', 'High. Touches core/auth/session.ts. A bug here logs users out or, worse, keeps old tokens alive.', 3],
+    ['Verified', 'New integration test for demote/promote; manual check on staging with two browsers. No load test.']],
+  facts: [['3 files under core/auth/', 'needs prompter + named owner', 1], ['core/auth/** is owned by you', 'named person: you'],
+    ['LLM check: “changes token invalidation order”', 'tagged security-sensitive', 1], ['core/auth change', 'FYI to the whole team']],
+  files: [['core/auth/session.ts', 64, 38], ['core/auth/revocation.ts', 41, 12], ['core/auth/session.int.test.ts', 29, 0], ['modules/admin/roles/update.ts', 8, 9],
+    ['modules/admin/roles/update.test.ts', 4, 0], ['docs/security/sessions.md', 2, 1], ['CHANGELOG.md', 0, 1]],
+  journey: [['Opened', 'Claude Code'], ['Classified', 'needs 2 people'], ['Jonas signed', 'yesterday 16:12'], ['Rebased', 'signature held'], ['Waiting on you', '6h', 'now'], ['Agent merges', '', 'fut']],
+};
+const PR = n => NEEDS.find(p => p.n === n);
+
+// ---------- atoms
+const I = {
+  lock: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.8"/><path d="M5.3 7V5a2.7 2.7 0 0 1 5.4 0v2"/></svg>',
+  unlock: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="7" rx="1.8"/><path d="M5.3 7V5a2.7 2.7 0 0 1 5.2-1"/></svg>',
+  back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  x: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  ext: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h4v4M13 3L7.5 8.5M11 9.5V13H3V5h3.5"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
+  list: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h9"/></svg>',
+  clock: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.5l3 1.5"/></svg>',
+  key: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2.4"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></svg>',
+  help: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.6a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.9M12 16.6v.1"/></svg>',
+};
+const av = w => `<span class="av ${w}">${w[0].toUpperCase()}</span>`;
+const rk = l => `<span class="rk r${l}" aria-label="risk ${l} of 3"><i></i><i></i><i></i></span>`;
+const df = p => `<span class="df"><b>+${p.add}</b> <i>−${p.del}</i></span>`;
+const tag = p => p.bad ? `<span class="tag bad">${p.bad}</span>` : p.tag ? `<span class="tag">${p.tag}</span>` : '';
+const RISK = ['', 'Low', 'Medium', 'High'];
+const lh = (d, t, c, hint, cls = 'lh') => `<div class="${cls} lh"><span class="dot ${d}"></span><h2>${t}</h2><span class="c">${c}</span><span class="hint">${hint}</span></div>`;
+const chip = open => open ? `<span class="chip open">${I.unlock}<span class="mono">14:54</span></span>` : `<span class="chip">${I.lock}Locked</span>`;
+const topbar = (o = {}) => `<header class="top"><a class="tap" href="#" aria-label="All mockups" style="margin:0 -11px"><span class="logo">✓</span></a><b class="nm">nod</b><span class="repo">${REPO}</span><span class="sp"></span>${o.mid || ''}<a class="tap" aria-label="Menu: setup, how this list works, sign out">
+  <span class="me">M</span></a></header>`;
+const backbar = (go, title, right = `<a class="tap note" style="padding:0 14px;gap:5px">GitHub ${I.ext}</a>`) => `<header class="top back"><a class="tap" data-go="${go}" aria-label="Back">${I.back}</a><span class="tt">${title}</span><span class="sp"></span>${right}</header>`;
+const seg = (on, a = 'By attention', b = 'Chronological') => `<div class="seg"><a class="${on ? '' : 'on'}">${a}</a><a class="${on ? 'on' : ''}">${b}</a></div>`;
+const since = `<p class="since">Since yesterday 23:19: 6 merged on their own.</p>`;
+const kb = `<div class="kb" aria-hidden="true"><div class="qt">${I.lock} Passwords</div>
+  <div class="r">${[...'qwertyuiop'].map(k => `<span>${k}</span>`).join('')}</div><div class="r b">${[...'asdfghjkl'].map(k => `<span>${k}</span>`).join('')}</div>
+  <div class="r"><span class="w">⇧</span>${[...'zxcvbnm'].map(k => `<span>${k}</span>`).join('')}<span class="w">⌫</span></div>
+  <div class="r"><span class="w">123</span><span class="s">space</span><span class="w" style="flex:2.2">go</span></div></div>`;
+const pass = `<input class="in" type="password" value="12345678901" autocomplete="current-password" readonly aria-label="Passphrase for your signing key">`;
+const stay = `<div class="stay">Stay unlocked <a class="on">for 15 minutes</a><a>just this once</a></div>`;
+const after = p => p.after === 'jonas' ? `<small><span class="dot d-wait"></span>waits on Jonas</small>` : `<small><span class="dot d-ok"></span>the agent can merge</small>`;
+
+// ---------- detail parts
+const brief = two => `<dl class="brief ${two ? 'two' : ''}">${D.brief.map(([k, v, r]) => `<dt>${k}</dt><dd>${r ? rk(r) : ''}${v}</dd>`).join('')}</dl>`;
+const facts = () => D.facts.map(([f, e, up]) => `<div class="fact">${f}<small class="${up ? 'up' : ''}">${up ? '↑ ' : ''}${e}</small></div>`).join('') +
+  `<p class="note" style="margin-top:8px">Policy rule <span class="mono">core-change</span>, read from main.</p>`;
+const sigs = () => `<div class="led"><span class="sl ok">✓</span><div>Jonas, as prompter<small>signed <span class="mono">5e0a91c</span> yesterday 16:12. Rebased since; the patch-id is unchanged, so it still counts.</small></div></div>
+  <div class="led"><span class="sl mine"></span><div>You, as owner of core/auth<small>missing</small></div></div>`;
+const files = () => D.files.map(([p, a, d]) => `<div class="fl"><span class="p">&lrm;${p}</span>${df({ add: a, del: d })}</div>`).join('') + `<p class="note" style="margin-top:8px">Checks green, 14 of 14.</p>`;
+const journey = () => `<ul class="jv">${D.journey.map(([a, b, c]) => `<li class="${c || ''}">${a}<small>${b}</small></li>`).join('')}</ul>`;
+const dhead = () => `<h1>${NEEDS[0].t}</h1><div class="mt">${av('jonas')}<span>Jonas · open 6h</span>${df(NEEDS[0])}<span>7 files</span><span class="tag">core</span></div>`;
+
+// ================= A: stacked rows, checkbox always there, switch on top
+function aRow(p, sel) { const on = sel.includes(p.n);
+  return `<div class="ar t${p.tier} ${on ? 'on' : ''}"><a class="cb ${on ? 'on' : ''}" data-go="${on ? '#a-list' : '#a-select'}" role="checkbox" aria-checked="${on}" aria-label="Select #${p.n}"><span class="cbx">${on ? I.check : ''}</span></a>
+    <div class="ti" data-go="#a-detail">${p.t}</div>
+    ${p.tier === 1 ? `<div class="bx" data-go="#a-detail">${p.what}</div>` : ''}
+    <div class="mt" data-go="#a-detail">${av(p.by)}<span>${p.age}</span>${tag(p)}${df(p)}${rk(p.risk)}${p.dep ? `<span style="flex-basis:100%">${p.dep}</span>` : ''}</div>
+    <a class="ask" data-go="#a-unlock">${p.ask}</a></div>`; }
+function aList(sel = [], signed) {
+  const needs = signed ? NEEDS.filter(p => !BATCH.includes(p.n)) : NEEDS;
+  return `${topbar({ mid: `<a class="tap" aria-label="Signing key">${chip(signed)}</a>` })}
+  <div class="a-sub">${seg(0)}</div>${since}
+  ${lh('d-need', 'Needs you', needs.length, 'oldest waits 6 hours')}<div class="a-rows">${needs.map(p => aRow(p, sel)).join('')}</div>
+  ${lh('d-know', 'Worth knowing', 3, 'no input wanted')}<div class="a-rows">${KNOW.map(p => `<div class="ar k"><div class="ti" data-go="#a-detail">${p.t}</div>
+    <div class="mt">${av(p.by)}<span>${p.why}</span>${df(p)}</div><a class="ask">Got it</a></div>`).join('')}</div>
+  ${lh('d-bg', 'Background', 9, 'nothing to do')}<div class="a-rows">${BG.map(p => `<div class="ar k"><div class="ti">${p.t}</div>
+    <div class="mt">${av(p.by)}<span>${p.age}</span>${tag(p)}${df(p)}${p.risk ? rk(p.risk) : ''}<span class="sp"></span><span style="padding-right:16px">${p.st}</span></div></div>`).join('')}
+    <div class="ar k cl"><div class="ti">▸ ${CLU.n} low-risk changes</div><div class="mt"><span>${CLU.kinds}</span><span style="flex-basis:100%">${CLU.st}</span></div></div></div>
+  ${sel.length ? `<div class="pad-bar"></div><div class="bar"><div class="rw"><b style="padding-left:4px">${sel.length} selected</b><a class="btn ghost" data-go="#a-list">Clear</a><span class="sp"></span>
+    <a class="btn pri" data-go="#a-unlock">Review &amp; sign ${sel.length}</a></div></div>` : '<div style="height:32px"></div>'}`;
+}
+function aDetail(open) {
+  const fold = (t, sum, body) => `<div class="fold"><div class="fh"><b>${t}</b><span>${sum}</span><i>${open ? '▾' : '▸'}</i></div>${open ? `<div class="fb">${body}</div>` : ''}</div>`;
+  return `${backbar('#a-list', `#${D.n} · ${D.topic}`)}<div class="dt">${dhead()}${brief()}</div>
+  ${fold('Journey', 'waiting on you, 6h', journey())}${fold('Why this needs you', '2 reasons', facts()).replace('class="fold"', 'class="fold" id="more"')}${fold('Signatures', '1 of 2', sigs())}
+  ${fold('FYI', 'Ines has seen it', '<p class="note">By policy: a core/auth change goes to the whole team.</p>')}${fold('Files', '7 changed · checks green', files())}
+  <div style="height:calc(128px + var(--sab))"></div>
+  <div class="bar"><p class="a-need"><b>Needed from you: sign as owner of core/auth.</b> ${D.then}</p>
+    <div class="rw"><a class="btn pri" style="flex:1" data-go="#a-unlock">${I.lock} Sign as owner</a><a class="btn" data-go="#a-select">Add to batch</a></div></div>`;
+}
+function aUnlock() {
+  return `<div class="sheet"><header class="top"><a class="tap" data-go="#a-select" aria-label="Close">${I.x}</a><b>Sign 5 pull requests</b></header>
+  <div class="sh"><p>2 as peer, 1 as owner, 1 again after a change, 1 your own. Four will be merged by their agents. One still waits on Jonas.</p>
+    <div style="margin-top:12px">${BATCH.map(n => `<div class="li"><span class="ell" style="flex:1">${PR(n).t}</span><span class="ro">${PR(n).as}</span></div>`).join('')}</div></div>
+  <div class="dock"><label>Passphrase for your signing key</label><div style="display:flex;gap:8px">${pass}<a class="btn pri" data-go="#a-signed" style="min-height:48px">Sign 5</a></div>${stay}</div>${kb}</div>`;
+}
+function aSigned() {
+  return `<div class="sheet"><header class="top"><a class="tap" data-go="#a-list" aria-label="Close">${I.x}</a></header>
+  <div class="sh"><div class="okc">✓</div><h1 style="font-size:20px;font-weight:650;margin:14px 0 4px">5 pull requests signed</h1><p>Four are with their agents now. One still waits on Jonas.</p>
+    <div style="margin-top:16px">${BATCH.map(n => `<div class="res"><i>✓</i><div>${PR(n).t}${after(PR(n))}</div></div>`).join('')}</div></div>
+  <div style="height:calc(110px + var(--sab))"></div>
+  <div class="bar" style="background:var(--panel)"><p class="note" style="padding:0 4px 9px">Signing stays unlocked for <span class="mono">14:54</span>.</p><a class="btn pri" style="width:100%" data-go="#a-after">Done</a></div></div>`;
+}
+
+// ================= B: cards with the action on them, Select mode, bottom navigation
+function bCard(p, mode, sel = []) { const on = sel.includes(p.n);
+  return `<article class="card t${p.tier} ${on ? 'on' : ''}" ${mode ? 'data-go="#b-select"' : ''}><div class="hd">${av(p.by)}<span>${WHO[p.by]} · ${p.age}</span>${tag(p)}
+    <span class="rw">${mode ? `<span class="rnd ${on ? 'on' : ''}">${on ? I.check : ''}</span>` : `${rk(p.risk)}<span>${RISK[p.risk]}</span>`}</span></div>
+    <h3 ${mode ? '' : 'data-go="#b-detail"'}>${p.t}</h3>${p.tier === 1 && !mode ? `<p class="bx" data-go="#b-detail">${p.what}</p>` : ''}
+    <div class="mt">${df(p)}<span>${p.files} files</span>${mode ? `${rk(p.risk)}<span>${p.ask.toLowerCase()}</span>` : p.dep ? `<span>${p.dep}</span>` : ''}</div>
+    ${mode ? '' : `<div class="acts"><a class="btn pri" data-go="#b-unlock">${I.lock} ${p.ask}</a><a class="btn" data-go="#b-detail">Details</a></div>`}</article>`; }
+const bTabs = open => `<div class="pad-tabs"></div><nav class="tabs"><a class="on"><span class="ic">${I.list}<span class="n">${open ? 1 : 6}</span></span>By attention</a><a><span class="ic">${I.clock}</span>Chronological</a>
+  <a style="${open ? 'color:var(--ok)' : ''}"><span class="ic">${I.key}</span>${open ? 'Unlocked 14:54' : 'Key locked'}</a></nav>`;
+function bList(mode, sel = [], signed) {
+  const needs = signed ? NEEDS.filter(p => !BATCH.includes(p.n)) : NEEDS;
+  const top = mode ? `<header class="top back"><a class="tap" style="padding:0 14px;font-size:15px;color:var(--tx2)" data-go="#b-list">Cancel</a><span class="sp"></span><b style="font-size:15px">${sel.length} selected</b><span class="sp"></span>
+      <a class="tap" style="padding:0 14px;font-size:15px;color:var(--need);font-weight:600">All 6</a></header>`
+    : topbar({ mid: `<a class="tap" style="padding:0 6px" data-go="#b-select"><span class="chip">Select</span></a>` });
+  return `${top}${signed ? `<div class="banner"><span class="okc" style="width:32px;height:32px;font-size:15px;flex:none">✓</span><div style="flex:1"><b>5 pull requests signed</b>
+      <p>Four are with their agents now. One still waits on Jonas.</p></div><a class="tap" style="margin:-10px 0;color:var(--tx3)" aria-label="Dismiss">${I.x}</a></div>` : mode ? '' : since}
+  <div class="b-wrap">${lh('d-need', 'Needs you', needs.length, mode ? 'tap a card to select' : signed ? 'one left' : 'oldest waits 6 hours')}${needs.map(p => bCard(p, mode, sel)).join('')}
+  <div style="${mode ? 'opacity:.4' : ''}">${lh('d-know', 'Worth knowing', 3, 'no input wanted')}${KNOW.map(p => `<article class="card k"><div class="ti">${p.t}</div><div class="mt" style="margin:0">${av(p.by)}<span>${p.why}</span></div>
+    <a class="btn know">Got it</a></article>`).join('')}
+  ${lh('d-bg', 'Background', signed ? 14 : 9, 'nothing to do')}<article class="card grp">${signed ? BATCH.slice(0, 2).map(n => `<div><div class="ti ell">${PR(n).t}</div><div class="mt">${av('mara')}<span>signed by you just now · ${PR(n).after ? 'waits on Jonas' : 'merging'}</span></div></div>`).join('') : ''}
+    ${BG.map(p => `<div><div class="ti">${p.t}</div><div class="mt">${av(p.by)}<span>${WHO[p.by]} · ${p.age}</span>${tag(p)}${p.risk ? rk(p.risk) : ''}<span>${p.st}</span></div></div>`).join('')}
+    <div class="cl"><div class="ti">▸ ${signed ? 10 : CLU.n} low-risk changes</div><div class="mt"><span>${CLU.kinds}</span></div></div></article></div></div>
+  ${mode ? `<div class="pad-bar"></div><div class="bar"><a class="btn pri" style="width:100%" data-go="#b-unlock">Review &amp; sign ${sel.length}</a></div>` : bTabs(signed)}`;
+}
+function bDetail() {
+  return `${backbar('#b-list', `#${D.n} · ${D.topic}`)}<nav class="anch"><a class="on">Brief</a><a>Why it needs you</a><a>Signatures</a><a>Files</a></nav>
+  <div class="dt">${dhead()}<div class="needc"><span class="caps" style="color:var(--need)">Needed from you</span><b>${D.need}</b><span class="note" style="color:var(--tx2)">${D.then}</span></div></div>
+  <div class="b-wrap" style="margin-top:12px"><article class="card">${brief()}</article>
+  <article class="card" id="more"><h4>Why this needs you <span>2 reasons</span></h4>${facts()}</article>
+  <article class="card"><h4>Signatures <span>1 of 2</span></h4>${sigs()}<p class="note" style="margin-top:6px">FYI: Ines has seen it.</p></article>
+  <article class="card"><h4>Files <span>7 changed</span></h4>${files()}</article>
+  <article class="card"><h4>Journey</h4>${journey()}</article></div>
+  <div class="pad-bar"></div><div class="bar"><div class="rw"><a class="btn" data-go="#b-select">Add to batch</a><a class="btn pri" style="flex:1" data-go="#b-unlock">${I.lock} Sign as owner</a></div></div>`;
+}
+function bUnlock() {
+  return `<div class="sheet"><header class="top"><a class="tap" data-go="#b-select" aria-label="Back to review">${I.back}</a><span class="steps"><span>Review</span><i></i><b>Unlock</b></span></header>
+  <div class="sh fld"><h1 style="font-size:20px;font-weight:650;margin-bottom:4px">Unlock to sign 5</h1>
+    <p style="margin-bottom:16px">2 as peer, 1 as owner, 1 again after a change, 1 your own.</p>
+    <label>Passphrase for your signing key</label>${pass}${stay}
+    <a class="btn pri" style="width:100%;margin-top:14px" data-go="#b-signed">${I.lock} Unlock and sign 5</a>
+    <p class="note" style="margin-top:12px">The key never leaves your machine.</p></div>${kb}</div>`;
+}
+
+// ================= C: quiet list, gestures, controls at the thumb
+function cRow(p, o = {}) { const on = (o.sel || []).includes(p.n);
+  return `<div class="cr t${p.tier} ${o.mode ? 'sel' : ''} ${on ? 'on' : ''} ${o.swiped === p.n ? 'swiped' : ''}">${o.swiped === p.n ? `<div class="sw"><a data-go="#c-select">Select</a><a class="pri" data-go="#c-unlock">${p.ask}</a></div>` : ''}
+    <div class="cc" data-go="${o.mode ? '#c-select' : '#c-detail'}">${o.mode ? `<span class="rnd ${on ? 'on' : ''}">${on ? I.check : ''}</span>` : ''}<div class="ti">${p.t}</div>
+    ${p.tier === 1 ? `<div class="bx">${p.what}</div>` : ''}
+    <div class="mt">${av(p.by)}<span>${p.age}</span>${tag(p)}${df(p)}</div><div class="rt need">${rk(p.risk)}${p.ask}</div></div></div>`; }
+const cDock = (open) => `<div class="pad-dock"></div><div class="bar"><div class="cdock">${seg(0)}<a class="lk" style="${open ? 'color:var(--ok);border-color:#4cc38a66' : ''}" aria-label="Signing key: ${open ? 'unlocked' : 'locked'}">${open ? I.unlock : I.lock}</a></div></div>`;
+function cList(o = {}) {
+  const needs = o.signed ? NEEDS.filter(p => !BATCH.includes(p.n)) : NEEDS, n = (o.sel || []).length;
+  const top = o.mode ? `<header class="top back"><a class="tap" data-go="#c-list" aria-label="Stop selecting">${I.x}</a><b style="font-size:15px">${n} selected</b><span class="sp"></span><span class="note" style="padding-right:14px">tap rows to add</span></header>`
+    : topbar({ mid: `<a class="tap" style="color:var(--tx3)" aria-label="How this list works">${I.help}</a>` });
+  return `${top}${o.mode || o.signed ? '' : `<div class="hintl"><span style="flex:1">Swipe a row to sign. Hold it to select several.</span><a class="tap" style="color:var(--tx3)" aria-label="Dismiss">${I.x}</a></div>`}
+  ${lh('d-need', 'Needs you', needs.length, 'oldest waits 6 hours', 'c-lh')}<div class="c-rows">${needs.map(p => cRow(p, o)).join('')}</div>
+  <div style="${o.mode ? 'opacity:.4' : ''}">${lh('d-know', 'Worth knowing', 3, 'no input wanted', 'c-lh')}<div class="c-rows">${KNOW.map(p => `<div class="cr one"><div class="cc"><div class="ti">${p.t}</div>
+    <div class="mt">${av(p.by)}<span class="ell">${p.why}</span></div><div class="rt know">FYI</div></div></div>`).join('')}</div>
+  ${lh('d-bg', 'Background', 9, 'nothing to do', 'c-lh')}<div class="c-rows">${BG.map(p => `<div class="cr one"><div class="cc"><div class="ti">${p.t}</div>
+    <div class="mt">${av(p.by)}<span>${p.age}</span>${tag(p)}${p.risk ? rk(p.risk) : ''}</div><div class="rt">${p.st}</div></div></div>`).join('')}
+    <div class="cr one"><div class="cc" style="color:var(--tx2)"><div class="ti">▸ ${CLU.n} low-risk changes</div><div class="mt"><span class="ell">${CLU.kinds}</span></div><div class="rt">${CLU.st}</div></div></div></div></div>
+  ${o.mode ? `<div class="pad-bar"></div><div class="bar"><a class="btn pri" style="width:100%" data-go="#c-unlock">Review &amp; sign ${n}</a></div>` : cDock(o.signed)}`;
+}
+function cDetail(tab = 0) {
+  const body = [`${brief(1)}<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:4px">${journey()}</div>`,
+    `<h4 class="caps" style="margin-bottom:10px">Why this needs you</h4>${facts()}<h4 class="caps" style="margin:22px 0 10px">Signatures · 1 of 2</h4>${sigs()}<p class="note" style="margin-top:6px">FYI: Ines has seen it.</p>`,
+    files()][tab];
+  return `${backbar('#c-list', '1 of 6 that need you')}<div class="dt">${dhead()}</div>
+  <div class="ctabs"><div class="seg">${['Brief', 'Policy', 'Files 7'].map((t, i) => `<a class="${i === tab ? 'on' : ''}" data-go="#c-detail${i ? '-' + (i + 1) : ''}">${t}</a>`).join('')}</div></div>
+  <div class="dt" style="padding-top:18px">${body}</div>
+  <div class="pad-bar"></div><div class="bar"><div class="rw"><a class="btn" style="padding:0 13px" data-go="#c-select">+ Batch</a><a class="btn pri" style="flex:1;padding:0 8px" data-go="#c-unlock">${I.lock} Sign as owner</a><a class="btn" style="padding:0 13px">Next ›</a></div></div>`;
+}
+function cUnlock() {
+  return `<div class="sheet"><header class="top"><a class="tap" data-go="#c-select" aria-label="Close">${I.x}</a><b>Sign 5 pull requests</b></header>
+  <div class="sh">${[['Jonas’s work, as peer', 2], ['Jonas’s work, as owner of core/auth', 1], ['Changed since you signed', 1], ['Your own work', 1]].map(([t, n], i) => `<div class="sum" style="${i ? '' : 'border-top:0'}"><b style="font-weight:500">${t}</b><span>${n} ▸</span></div>`).join('')}
+    <p class="note" style="margin-top:8px">Four will be merged by their agents. One still waits on Jonas.</p></div>
+  <div class="dock"><label>Passphrase for your signing key</label>${pass}${stay}<a class="btn pri" style="width:100%;margin-top:10px" data-go="#c-signed">${I.lock} Unlock and sign 5</a></div>${kb}</div>`;
+}
+function cSigned() {
+  return `<div class="sheet"><header class="top"><a class="tap" data-go="#c-after" aria-label="Close">${I.x}</a><span class="sp"></span><span style="padding-right:12px">${chip(1)}</span></header>
+  <div class="sh"><div class="okc">✓</div><h1 style="font-size:20px;font-weight:650;margin:14px 0 14px">5 pull requests signed</h1>
+    <div class="sum"><b style="font-weight:500;display:flex;align-items:center;gap:8px"><span class="dot d-ok"></span>With their agents, can merge</b><span>4 ▸</span></div>
+    <div class="sum" style="border-bottom:1px solid var(--line)"><b style="font-weight:500;display:flex;align-items:center;gap:8px"><span class="dot d-wait"></span>Still waits on Jonas</b><span>1 ▸</span></div>
+    <div class="nextc"><span class="caps">One left that needs you</span><div class="ti" style="margin:4px 0 6px">${PR(488).t}</div><div class="mt">${av('mara')}<span>1h</span>${tag(PR(488))}${df(PR(488))}<span class="sp"></span>${rk(1)}</div></div></div>
+  <div class="pad-bar"></div><div class="bar" style="background:var(--panel)"><div class="rw"><a class="btn" data-go="#c-after">Done</a><a class="btn pri" style="flex:1" data-go="#c-detail">Open the last one</a></div></div></div>`;
+}
+
+// ---------- routes
+const ROUTES = {
+  'a-list': () => aList(), 'a-select': () => aList([476, 485]), 'a-detail': () => aDetail(), 'a-detail-2': () => aDetail(1), 'a-unlock': aUnlock, 'a-signed': aSigned, 'a-after': () => aList([], 1),
+  'b-list': () => bList(), 'b-select': () => bList(1, [476, 485]), 'b-detail': bDetail, 'b-detail-2': bDetail, 'b-unlock': bUnlock, 'b-signed': () => bList(0, [], 1),
+  'c-list': () => cList({ swiped: 490 }), 'c-select': () => cList({ mode: 1, sel: [476, 485] }), 'c-detail': () => cDetail(0), 'c-detail-2': () => cDetail(1), 'c-detail-3': () => cDetail(2),
+  'c-unlock': cUnlock, 'c-signed': cSigned, 'c-after': () => cList({ signed: 1 }),
+};
+const DIRS = [['a', 'A · Stacked rows', 'Two-line rows, a checkbox that is always there, the ask as a tappable word, the view switch on top.'],
+  ['b', 'B · Cards', 'One card per change with its sign button on it, a Select mode, bottom navigation.'],
+  ['c', 'C · Quiet list', 'The densest list with no controls on the rows: swipe to act, hold to select, the switch at the thumb.']];
+const SCREENS = [['list', 'List'], ['select', 'Two selected'], ['detail', 'Detail'], ['detail-2', 'Detail, further'], ['unlock', 'Unlock'], ['signed', 'Signed']];
+function index() {
+  return `<div class="ix"><h1>nod on the phone · round m1</h1><p>Three directions, the same five screens each. Open this page on a phone, or at 390 px. Tap through: rows, checkboxes and buttons lead to the next screen; the logo leads back here.</p>
+  ${DIRS.map(([d, t, x]) => `<h2>${t}</h2><p>${x}</p><div class="lk">${SCREENS.map(([s, l]) => `<a href="#${d}-${s}">${l}</a>`).join('')}</div>`).join('')}</div>`;
+}
+function render() {
+  const h = location.hash.slice(1), r = ROUTES[h];
+  document.getElementById('app').innerHTML = r ? r() : index();
+  document.title = r ? `nod · ${h}` : 'nod · phone mockups m1';
+  const more = h.endsWith('-2') && (document.getElementById('more') || document.querySelector('.fold'));
+  scrollTo(0, more ? more.getBoundingClientRect().top + scrollY - (h[0] === 'b' ? 110 : 52) : 0);
+}
+addEventListener('click', e => { const t = e.target.closest('[data-go]'); if (t) { e.preventDefault(); location.hash = t.dataset.go; } });
+addEventListener('hashchange', render);
+render();
+</script>
+</body>
+</html>
