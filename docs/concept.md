@@ -90,7 +90,7 @@ nod must be lightweight. There is no GitHub App, no backend and no hosted infras
    - Keeps no state beyond a cache.
 2. **Web app:** a Vite + React 19 + Tailwind v4 SPA with shadcn-style primitives.
    - Hosted on GitHub Pages with stable and `next` channels: `ui.nod.frebreco.de`, and `ui.nod.frebreco.de/next`. Locally it runs on the Vite dev server.
-   - It talks to `nod serve` over loopback.
+   - It talks to `nod serve` over loopback. Another device (a phone on a tailnet) instead opens the web app that `nod serve` itself serves on one named host behind a TLS proxy, with its own token and its own unlock window ([ADR 0005](adr/0005-named-host.md)).
    - Deep links point at the hosted UI. They are stable public URLs that do nothing until the page is paired with the local server: the token from the host link is kept in that origin's storage.
    - `src/shared/protocol.ts` is the contract between the two halves.
 
