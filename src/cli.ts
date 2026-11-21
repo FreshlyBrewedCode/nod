@@ -3,12 +3,15 @@
  * `nod key` (the signing key, src/server/signer/key-cli.ts) and `nod init`
  * (opens the repo-owned setup PR, src/init/).
  */
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
 
 import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
 import { githubHost } from "./kit/host.ts";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
+import { parseNamedHost, type NamedHost } from "./server/named-host";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 
@@ -35,6 +38,10 @@ export interface ServeFlags {
   readonly tokenFile: string | null;
   readonly newToken: boolean;
   readonly open: boolean;
+  /** `--allow-host`: the TLS proxy's name in front of the port (another device). */
+  readonly allowHost: NamedHost | null;
+  /** `--web-dir`: the built web app served on that name. */
+  readonly webDir: string | null;
 }
 
 export type Command =
@@ -72,6 +79,12 @@ serve options:
   --token-file <path> where the pairing token is kept
                       (default $XDG_CONFIG_HOME/nod/serve-token)
   --new-token         replace the token: every paired browser pairs again
+  --allow-host <name[:port]>
+                      also answer to this https name, the TLS proxy's in
+                      front of the port (tailscale serve), and serve the
+                      web app there, for a phone (experimental)
+  --web-dir <path>    with --allow-host: the built web app (default: this
+                      checkout's dist/web, from bun run build)
   --open              open the host link in a browser
   --no-open           do not (the default)
 
@@ -116,6 +129,8 @@ function parseServe(args: string[]): Command {
         "token-file": { type: "string" },
         "new-token": { type: "boolean", default: false },
         open: { type: "boolean", default: false },
+        "allow-host": { type: "string" },
+        "web-dir": { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     }));
@@ -145,6 +160,16 @@ function parseServe(args: string[]): Command {
       return { kind: "error", message: `--host: ${(error as Error).message}` };
     }
   }
+  let allowHost: NamedHost | null = null;
+  if (values["allow-host"] !== undefined) {
+    try {
+      allowHost = parseNamedHost(values["allow-host"]);
+    } catch (error) {
+      return { kind: "error", message: `--allow-host: ${(error as Error).message}` };
+    }
+  }
+  if (values["web-dir"] !== undefined && !allowHost)
+    return { kind: "error", message: "--web-dir needs --allow-host" };
   const webUrl = values["web-url"] ?? null;
   if (webUrl !== null && !/^https?:\/\/[^/]+/.test(webUrl))
     return { kind: "error", message: "--web-url is an http(s) URL" };
@@ -163,6 +188,8 @@ function parseServe(args: string[]): Command {
       tokenFile: values["token-file"] ?? null,
       newToken: values["new-token"],
       open: values.open,
+      allowHost,
+      webDir: values["web-dir"] ?? null,
     },
   };
 }
@@ -172,6 +199,13 @@ async function runServe(flags: ServeFlags): Promise<number> {
   const { defaultWebUrl } = await import("./server/web-url");
   const { defaultTokenFile } = await import("./server/token");
   const webUrl = flags.webUrl ?? process.env.NOD_WEB_URL ?? defaultWebUrl(VERSION);
+  const webRoot = flags.allowHost
+    ? resolve(flags.webDir ?? new URL("../dist/web", import.meta.url).pathname)
+    : null;
+  if (webRoot && !existsSync(join(webRoot, "index.html"))) {
+    console.error(`nod serve: no web app in ${webRoot}. Run \`bun run build\`, or pass --web-dir.`);
+    return 1;
+  }
   let started;
   try {
     started = start({
@@ -185,6 +219,8 @@ async function runServe(flags: ServeFlags): Promise<number> {
       host: flags.host,
       ...(flags.dir !== null && { dir: flags.dir }),
       ...(flags.poll !== null && { pollMs: flags.poll * 1000 }),
+      namedHost: flags.allowHost,
+      webRoot,
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -206,7 +242,15 @@ async function runServe(flags: ServeFlags): Promise<number> {
     `nod serve on ${started.wsUrl} · ${what} · ${started.source.repo() ?? "no repo yet"}`,
   );
   console.log(`\n  open the dashboard:\n  ${started.link}\n`);
-  console.log("  keep this link to yourself: while signing is unlocked, it can sign.\n");
+  if (started.phoneLink)
+    console.log(
+      `  on another device, through ${flags.allowHost!.origin}:\n  ${started.phoneLink}\n`,
+    );
+  console.log(
+    started.phoneLink
+      ? "  keep these links to yourself: while signing is unlocked, they can sign.\n"
+      : "  keep this link to yourself: while signing is unlocked, it can sign.\n",
+  );
   if (flags.open) openBrowser(started.link);
 
   const stop = () => {

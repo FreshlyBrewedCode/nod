@@ -1,7 +1,7 @@
 /**
  * `nod serve`'s HTTP side: one WebSocket at `/ws` for the user's own
  * browser (any number of its tabs), `/health`, and nothing else. Loopback
- * only. The protocol itself is in `session.ts`.
+ * only, unless `--allow-host` names the TLS proxy in front of it. The protocol itself is in `session.ts`.
  *
  * Who gets in (canvas ADR 0001, the host-link part):
  * - **The token.** A WebSocket is not subject to CORS, so any page could open
@@ -16,6 +16,9 @@
  *   (a script, a test) and still needs the token.
  * - **The host name.** Only `127.0.0.1`, `localhost` and `[::1]`, so a DNS
  *   rebinding page (whose requests name its own host) gets nothing either.
+ *   `--allow-host` adds exactly one name: the TLS proxy's in front of this
+ *   port (`tailscale serve`, finding 04). That host gets the built web app
+ *   too (`webRoot`), so the page and the socket share its origin.
  * - **Private network access.** A page on a public origin (the hosted UI)
  *   reaching loopback makes Chrome send a preflight with
  *   `Access-Control-Request-Private-Network: true`; it is answered for
@@ -27,6 +30,7 @@ import type { Server, ServerWebSocket } from "bun";
 
 import { CLOSE_BAD_TOKEN, CLOSE_SHUTDOWN, PROTOCOL_VERSION, WS_PATH } from "../shared/protocol";
 import type { Client, Session } from "./session";
+import { serveStatic } from "./static-files";
 import { tokensEqual } from "./token";
 
 export interface ServeOptions {
@@ -35,6 +39,10 @@ export interface ServeOptions {
   readonly hostname?: string;
   readonly token: string;
   readonly allowedOrigins: ReadonlyArray<string>;
+  /** The one named host besides loopback (`--allow-host`), lowercase, no port. */
+  readonly namedHost?: string | null;
+  /** The built web app, served on `namedHost` only. */
+  readonly webRoot?: string | null;
   readonly session: Session;
   readonly version: string | null;
 }
@@ -75,7 +83,9 @@ export function serve(options: ServeOptions): Serving {
       const url = new URL(req.url);
       const origin = req.headers.get("origin");
       const name = hostName(req.headers.get("host"));
-      if (!name || !LOOPBACK_HOSTS.has(name)) return new Response("wrong host", { status: 421 });
+      const named = !!name && name === options.namedHost;
+      if (!name || (!LOOPBACK_HOSTS.has(name) && !named))
+        return new Response("wrong host", { status: 421 });
 
       if (req.method === "OPTIONS") {
         if (!origin || !allowed.has(origin)) return new Response(null, { status: 403 });
@@ -105,6 +115,9 @@ export function serve(options: ServeOptions): Serving {
           ? undefined
           : new Response("expected a WebSocket upgrade", { status: 426 });
       }
+
+      if (named && options.webRoot && (req.method === "GET" || req.method === "HEAD"))
+        return serveStatic(options.webRoot, url.pathname);
 
       return new Response("nod serve: open the link printed in your terminal", { status: 404 });
     },

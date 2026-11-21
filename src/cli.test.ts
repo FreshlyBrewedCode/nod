@@ -40,6 +40,8 @@ test("serve defaults: GitHub, port 4518, no browser", () => {
     tokenFile: null,
     newToken: false,
     open: false,
+    allowHost: null,
+    webDir: null,
   });
 });
 
@@ -73,6 +75,8 @@ test("serve flags", () => {
     tokenFile: "/tmp/t",
     newToken: true,
     open: true,
+    allowHost: null,
+    webDir: null,
   });
   expect(serveFlags(["--no-open"]).open).toBe(false);
   expect(serveFlags(["--dir", "/tmp/clone", "--poll", "30"])).toMatchObject({
@@ -81,6 +85,12 @@ test("serve flags", () => {
     poll: 30,
   });
   expect(serveFlags(["--host", "Acme.GHE.com"]).host).toBe("Acme.GHE.com");
+  expect(
+    serveFlags(["--fake", "--allow-host", "laptop.example-tailnet.ts.net:8445", "--web-dir", "/w"]),
+  ).toMatchObject({
+    allowHost: { origin: "https://laptop.example-tailnet.ts.net:8445" },
+    webDir: "/w",
+  });
 });
 
 test("init", () => {
@@ -115,6 +125,9 @@ test("bad arguments are errors", () => {
     ["serve", "--fake", "--host", "acme.ghe.com"],
     ["serve", "--host", "api.github.com"],
     ["serve", "--host", "not a host"],
+    ["serve", "--allow-host", "100.64.0.7"],
+    ["serve", "--allow-host", "https://laptop.example.test"],
+    ["serve", "--web-dir", "/w"],
     ["init", "x"],
     ["init", "--repo", "no-slash"],
     ["init", "--host", "https://acme.ghe.com/acme"],

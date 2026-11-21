@@ -5,6 +5,7 @@ import {
   PAIRING_KEY,
   PENDING_LINK_KEY,
   PENDING_LINK_MS,
+  isAllowedHost,
   isLoopbackHost,
   loadPairing,
   readHostLink,
@@ -46,6 +47,37 @@ test("a link may only point at this machine", () => {
   expect(isLoopbackHost("wss://evil.example")).toBe(false);
   expect(isLoopbackHost("http://127.0.0.1:4518")).toBe(false);
   expect(readHostLink("#host=ws%3A%2F%2Fevil.example&token=abc").pairing).toBeNull();
+});
+
+test("a page served over https may also pair with its own host, as wss only", () => {
+  const page = { protocol: "https:", host: "laptop.example-tailnet.ts.net:8445" };
+  const own = "wss://laptop.example-tailnet.ts.net:8445";
+  expect(isAllowedHost(own, page)).toBe(true);
+  expect(isAllowedHost("ws://127.0.0.1:4518", page)).toBe(true);
+  // not without a page, not over http, not another port, host or scheme
+  expect(isAllowedHost(own)).toBe(false);
+  expect(isAllowedHost(own, { ...page, protocol: "http:" })).toBe(false);
+  expect(isAllowedHost("wss://laptop.example-tailnet.ts.net:8446", page)).toBe(false);
+  expect(isAllowedHost("wss://other.example-tailnet.ts.net:8445", page)).toBe(false);
+  expect(isAllowedHost("ws://laptop.example-tailnet.ts.net:8445", page)).toBe(false);
+  expect(isAllowedHost(`${own}/elsewhere`, page)).toBe(false);
+  expect(
+    isAllowedHost("wss://ui.example.test", { protocol: "https:", host: "ui.example.test" }),
+  ).toBe(true);
+
+  const link = `#/pr/acme/widgets/7?host=${encodeURIComponent(own)}&token=abc`;
+  expect(readHostLink(link, page)).toEqual({
+    pairing: { host: own, token: "abc" },
+    rest: "/pr/acme/widgets/7",
+  });
+  expect(readHostLink(link).pairing).toBeNull();
+  const storage = memory({ [PAIRING_KEY]: JSON.stringify({ host: own, token: "abc" }) });
+  expect(loadPairing(storage, page)).toEqual({ host: own, token: "abc" });
+  expect(loadPairing(storage)).toBeNull();
+  const history = { replaceState: () => {} };
+  expect(
+    takePairing({ hash: link, pathname: "/", search: "", ...page }, history, memory())?.host,
+  ).toBe(own);
 });
 
 test("a fresh link is stored and taken out of the address bar; later visits use the stored one", () => {

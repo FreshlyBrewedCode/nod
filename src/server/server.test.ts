@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CLOSE_BAD_TOKEN, CLOSE_SHUTDOWN, type ServerToClient } from "../shared/protocol";
 import { NodClient, RequestFailed } from "../web/lib/connection";
 import { ManualClock } from "./clock";
-import { start, type Started } from "./start";
+import { parseNamedHost } from "./named-host";
+import { start, type StartOptions, type Started } from "./start";
 import { DEV_WEB_URL, NEXT_WEB_URL } from "./web-url";
 
 const running: Started[] = [];
@@ -16,7 +17,10 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function startFake(clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20))) {
+function startFake(
+  clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20)),
+  extra: Pick<StartOptions, "namedHost" | "webRoot"> = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), "nod-serve-"));
   dirs.push(dir);
   // Port 0: the OS picks a free one, so tests never collide with a running nod serve.
@@ -27,6 +31,7 @@ function startFake(clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20))) {
     version: null,
     fake: { scenario: "team", live: false },
     clock,
+    ...extra,
   });
   running.push(started);
   const http = `http://127.0.0.1:${started.serving.port}`;
@@ -153,6 +158,54 @@ describe("the socket", () => {
     running.splice(running.indexOf(started), 1);
     await started.stop();
     expect((await pending).code).toBe(CLOSE_SHUTDOWN);
+  });
+});
+
+describe("--allow-host: one named host behind a TLS proxy", () => {
+  const NAME = "laptop.example-tailnet.ts.net";
+  const named = parseNamedHost(`${NAME}:8445`);
+  const webRoot = mkdtempSync(join(tmpdir(), "nod-web-"));
+  writeFileSync(join(webRoot, "index.html"), "<!doctype html><title>nod</title>");
+  afterAll(() => rmSync(webRoot, { recursive: true, force: true }));
+
+  test("without it, nothing changes: the name is refused and no page is served", async () => {
+    const { http } = startFake(undefined, { webRoot });
+    const res = await fetch(`${http}/`, { headers: { Host: `${NAME}:8445` } });
+    expect(res.status).toBe(421);
+    expect((await fetch(`${http}/`)).status).toBe(404);
+  });
+
+  test("the named host gets the web app; loopback still does not; other names stay refused", async () => {
+    const { http, started } = startFake(undefined, { namedHost: named, webRoot });
+    expect(started.phoneLink).toBe(
+      `https://${NAME}:8445/#host=wss%3A%2F%2F${NAME}%3A8445&token=${started.token}`,
+    );
+    const page = await fetch(`${http}/pr/tallyho/fieldbook/7`, {
+      headers: { Host: `${NAME}:8445` },
+    });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("<title>nod</title>");
+    expect(page.headers.get("x-frame-options")).toBe("DENY");
+    expect((await fetch(`${http}/`)).status).toBe(404);
+    for (const host of [
+      `other.example-tailnet.ts.net:8445`,
+      `${NAME}.evil.example`,
+      "evil.example",
+    ])
+      expect((await fetch(`${http}/`, { headers: { Host: host } })).status).toBe(421);
+  });
+
+  test("the socket: the named origin with the token gets in; other origins do not", async () => {
+    const { started, ws } = startFake(undefined, { namedHost: named, webRoot });
+    const host = { Host: `${NAME}:8445` };
+    const ok = await probe(ws(started.token), { ...host, Origin: named.origin });
+    expect(ok.messages.map((m) => m.t)).toEqual(["welcome", "snapshot"]);
+    const bad = await probe(ws("wrong"), { ...host, Origin: named.origin });
+    expect(bad.code).toBe(CLOSE_BAD_TOKEN);
+    for (const origin of [`http://${NAME}:8445`, `https://${NAME}`, "https://evil.example"]) {
+      const result = await probe(ws(started.token), { ...host, Origin: origin });
+      expect(result.opened).toBe(false);
+    }
   });
 });
 

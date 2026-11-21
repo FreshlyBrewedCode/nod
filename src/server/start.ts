@@ -7,6 +7,7 @@
 import { systemClock, type Clock } from "./clock";
 import { FakeSource, scenarioHasKey, type FakeScenario } from "./fake-source";
 import { githubSource } from "./github-source";
+import type { NamedHost } from "./named-host";
 import { serve, type Serving } from "./server";
 import { Session } from "./session";
 import { FakeSigner, type Signer } from "./signer";
@@ -35,6 +36,14 @@ export interface StartOptions {
   readonly clock?: Clock;
   /** The signing key file (default `$XDG_CONFIG_HOME/nod/signing-key.json`); not with `fake`. */
   readonly keyFile?: string;
+  /**
+   * `--allow-host`: the TLS proxy's name in front of this port (finding 04).
+   * The server then also serves the built web app (`webRoot`) on that name,
+   * and `phoneLink` pairs a browser on another device with it.
+   */
+  readonly namedHost?: NamedHost | null;
+  /** The built web app (`dist/web`), needed with `namedHost`. */
+  readonly webRoot?: string | null;
 }
 
 export interface Started {
@@ -42,6 +51,8 @@ export interface Started {
   readonly token: string;
   readonly wsUrl: string;
   readonly link: string;
+  /** The host link on the named host, when there is one. */
+  readonly phoneLink: string | null;
   readonly session: Session;
   readonly source: Source;
   readonly signer: Signer;
@@ -77,13 +88,16 @@ export function start(options: StartOptions): Started {
       });
   const version = isRelease(options.version) ? options.version : null;
   const session = new Session({ source, signer, clock, version, fake: fake !== null });
+  const named = options.namedHost ?? null;
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });
   let serving: Serving;
   try {
     serving = serve({
       port: options.port,
       token,
-      allowedOrigins: allowedOrigins(options.webUrl),
+      allowedOrigins: [...allowedOrigins(options.webUrl), ...(named ? [named.origin] : [])],
+      namedHost: named?.hostname ?? null,
+      webRoot: named ? (options.webRoot ?? null) : null,
       session,
       version,
     });
@@ -99,6 +113,7 @@ export function start(options: StartOptions): Started {
     token,
     wsUrl,
     link: hostLink(options.webUrl, wsUrl, token),
+    phoneLink: named ? hostLink(named.origin, named.wsUrl, token) : null,
     session,
     source,
     signer,

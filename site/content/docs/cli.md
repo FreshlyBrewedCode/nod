@@ -37,6 +37,8 @@ of the repository.
 | `--frozen` | With `--fake`: nothing changes on its own |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token` |
 | `--new-token` | Replace the token: every paired browser pairs again |
+| `--allow-host <name[:port]>` | Experimental, not released: also answer to this https name, the one a TLS proxy such as `tailscale serve` gives the port, and serve the dashboard there for a phone. Prints a second link for the other device |
+| `--web-dir <path>` | With `--allow-host`: the built dashboard to serve. Default: the checkout's `dist/web` (`bun run build`) |
 | `--open` | Open the link in a browser |
 | `--no-open` | Do not. The default |
 

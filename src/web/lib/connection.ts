@@ -46,7 +46,13 @@ export interface Pairing {
 export const PAIRING_KEY = "nod.pairing";
 export const DEFAULT_HOST = `ws://127.0.0.1:${DEFAULT_SERVE_PORT}`;
 
-/** Only loopback: a link must not point this page at another machine. */
+/** Where the page itself was loaded from (`location`'s `protocol` and `host`). */
+export interface PageOrigin {
+  readonly protocol: string;
+  readonly host: string;
+}
+
+/** Loopback: `ws://` or `wss://` to `127.0.0.1`, `localhost` or `[::1]`. */
 export function isLoopbackHost(host: string): boolean {
   try {
     const url = new URL(host);
@@ -60,13 +66,33 @@ export function isLoopbackHost(host: string): boolean {
 }
 
 /**
+ * The servers a link may point this page at: loopback, or the very host
+ * that served the page over https, as `wss://` (`nod serve --allow-host`
+ * serves the web app behind a TLS proxy, finding 04). So a link cannot
+ * point the page at another machine, and plain `ws://` stays loopback.
+ */
+export function isAllowedHost(host: string, page: PageOrigin | null = null): boolean {
+  if (isLoopbackHost(host)) return true;
+  if (!page || page.protocol !== "https:") return false;
+  try {
+    const url = new URL(host);
+    return url.protocol === "wss:" && url.host === page.host && url.pathname === "/";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The pairing in a fragment, and the fragment without it. A token without a
  * host means the default port. The fragment is `host=…&token=…` as `nod
  * serve` prints it, or a route followed by them,
  * `/pr/<owner>/<repo>/<n>?host=…&token=…` (`lib/route.ts`); `rest` keeps
  * the route.
  */
-export function readHostLink(hash: string): { pairing: Pairing | null; rest: string } {
+export function readHostLink(
+  hash: string,
+  page: PageOrigin | null = null,
+): { pairing: Pairing | null; rest: string } {
   const { path, params: query } = fragmentOf(hash);
   const params = new URLSearchParams(query);
   const token = params.get("token");
@@ -75,7 +101,7 @@ export function readHostLink(hash: string): { pairing: Pairing | null; rest: str
   params.delete("host");
   const left = params.toString();
   const rest = path ? `${path}${left ? `?${left}` : ""}` : left;
-  if (!token || !isLoopbackHost(host)) return { pairing: null, rest };
+  if (!token || !isAllowedHost(host, page)) return { pairing: null, rest };
   return { pairing: { host: host.replace(/\/+$/, ""), token }, rest };
 }
 
@@ -86,14 +112,14 @@ export interface KeyValue {
   removeItem(key: string): void;
 }
 
-export function loadPairing(storage: KeyValue): Pairing | null {
+export function loadPairing(storage: KeyValue, page: PageOrigin | null = null): Pairing | null {
   try {
     const value = JSON.parse(storage.getItem(PAIRING_KEY) ?? "null") as Partial<Pairing> | null;
     if (
       value &&
       typeof value.host === "string" &&
       typeof value.token === "string" &&
-      isLoopbackHost(value.host)
+      isAllowedHost(value.host, page)
     )
       return { host: value.host, token: value.token };
   } catch {
@@ -163,12 +189,14 @@ export function takeLink(storage: KeyValue, now: number): string | null {
  * route of its own continues to the deep link remembered before pairing.
  */
 export function takePairing(
-  location: Pick<Location, "hash" | "pathname" | "search">,
+  location: Pick<Location, "hash" | "pathname" | "search"> &
+    Partial<Pick<Location, "protocol" | "host">>,
   history: Pick<History, "replaceState">,
   storage: KeyValue,
   now: number = Date.now(),
 ): Pairing | null {
-  const { pairing, rest } = readHostLink(location.hash);
+  const page = location.protocol && location.host ? (location as PageOrigin) : null;
+  const { pairing, rest } = readHostLink(location.hash, page);
   if (pairing) {
     savePairing(storage, pairing);
     // Taken either way: a remembered link is used once, or not at all.
@@ -177,7 +205,7 @@ export function takePairing(
     history.replaceState(null, "", `${location.pathname}${location.search}${fragment}`);
     return pairing;
   }
-  return loadPairing(storage);
+  return loadPairing(storage, page);
 }
 
 export function socketUrl(pairing: Pairing): string {
