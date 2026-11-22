@@ -24,8 +24,15 @@
  * - **The side.** The Host header picks the side, and the side picks the
  *   rest: the named host lets in only its own origin with the remote token,
  *   loopback only the web app's and the dev server's origins with the
- *   loopback token. Neither token opens the other side, and each side has
- *   its own unlock window (`Client.side`).
+ *   loopback token (and, on either side, a client with no `Origin` at all,
+ *   with that side's token). Neither token opens the other side, and each
+ *   side has its own unlock window (`Client.side`).
+ * - **A proxied request is never loopback.** `tailscale serve` forwards the
+ *   client's own Host, so a tailnet client could ask for `127.0.0.1`. It
+ *   also sets `X-Forwarded-For`, `-Host` and `-Proto` on every request and
+ *   drops what the client sent under those names, so a request carrying any
+ *   of them (or `Forwarded`) came through a proxy: it gets the named host
+ *   or 421 (ADR 0005).
  * - **Private network access.** A page on a public origin (the hosted UI)
  *   reaching loopback makes Chrome send a preflight with
  *   `Access-Control-Request-Private-Network: true`; it is answered for
@@ -79,6 +86,8 @@ export interface Serving {
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+/** What a proxy in front of this port adds; `tailscale serve` sets the first three always. */
+const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded"];
 
 /** `127.0.0.1:4518` → `127.0.0.1`; `[::1]:4518` → `[::1]`. */
 function hostName(host: string | null): string | null {
@@ -98,19 +107,25 @@ export function serve(options: ServeOptions): Serving {
   const server = Bun.serve<SocketData>({
     port: options.port,
     hostname: options.hostname ?? "127.0.0.1",
+    // No development error page: it would show paths and source lines.
+    development: false,
+    error: () => new Response("nod serve: internal error", { status: 500 }),
     fetch(req, server) {
-      const url = new URL(req.url);
       const origin = req.headers.get("origin");
       const name = hostName(req.headers.get("host"));
+      const proxied = PROXY_HEADERS.some((header) => req.headers.has(header));
       const side: Side | null = !name
         ? null
-        : LOOPBACK_HOSTS.has(name)
+        : LOOPBACK_HOSTS.has(name) && !proxied
           ? "loopback"
           : named && name === named.hostname
             ? "named-host"
             : null;
       const rules = side && sides[side];
       if (!side || !rules) return new Response("wrong host", { status: 421 });
+      // The Host is one of ours, so the URL parses; checked first all the same.
+      const url = URL.parse(req.url);
+      if (!url) return new Response("bad request", { status: 400 });
       const allowed = rules.allowed;
       const cors = (origin: string | null): Record<string, string> =>
         origin && allowed.has(origin)

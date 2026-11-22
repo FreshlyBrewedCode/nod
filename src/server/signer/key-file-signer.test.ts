@@ -107,6 +107,29 @@ test("a wrong passphrase: typed, delayed, and the key stays locked", async () =>
   }
 });
 
+test("one side's wrong passphrases do not hold up the other side's unlock", async () => {
+  await createKeyFile(file, PASS, { scrypt: CHEAP });
+  const s = signer(new ManualClock(0), 400);
+  // Five guesses at once from the phone: one is checked, the rest refused at once.
+  const guesses = Array.from({ length: 5 }, () =>
+    code(s.unlock("not the passphrase", { side: "named-host" })),
+  );
+  await Bun.sleep(20);
+  const started = performance.now();
+  await s.unlock(PASS, { side: "loopback" });
+  expect(performance.now() - started).toBeLessThan(200);
+  expect(s.status("loopback").state).toBe("unlocked");
+  expect(await Promise.all(guesses)).toEqual([
+    "bad-passphrase",
+    "unlock-pending",
+    "unlock-pending",
+    "unlock-pending",
+    "unlock-pending",
+  ]);
+  // Once the guess is answered, that side may try again: about one a second.
+  expect(await code(s.unlock(PASS, { side: "named-host" }))).toBe("ok");
+});
+
 test("once: locks right after the next signature, and a racing second one is refused", async () => {
   await createKeyFile(file, PASS, { scrypt: CHEAP });
   const s = signer();

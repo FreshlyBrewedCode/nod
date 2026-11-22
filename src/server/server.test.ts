@@ -67,6 +67,22 @@ function probe(url: string, headers: Record<string, string> = {}, ms = 300) {
   );
 }
 
+/** One raw HTTP/1.1 request, for a Host that `fetch` would not send. */
+async function rawGet(port: number, host: string): Promise<{ status: number; text: string }> {
+  const { connect } = await import("node:net");
+  return new Promise((resolve, reject) => {
+    let data = "";
+    const socket = connect(port, "127.0.0.1", () =>
+      socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`),
+    );
+    socket.on("data", (chunk) => (data += chunk.toString()));
+    socket.on("error", reject);
+    socket.on("close", () =>
+      resolve({ status: Number(/^HTTP\/1\.1 (\d+)/.exec(data)?.[1] ?? 0), text: data }),
+    );
+  });
+}
+
 const until = async (check: () => boolean, ms = 2000) => {
   const end = Date.now() + ms;
   while (!check()) {
@@ -116,6 +132,16 @@ describe("http", () => {
     const res = await fetch(`${http}/health`, { headers: { Host: "evil.example:4518" } });
     expect(res.status).toBe(421);
     expect((await fetch(`${http}/nope`)).status).toBe(404);
+  });
+
+  test("a malformed Host gets a bare refusal, never an error page with paths", async () => {
+    const { started } = startFake();
+    for (const host of ["nod.example.test%zz", "[x", "127.0.0.1:47811,x", "127.0.0.1%zz"]) {
+      const { status, text } = await rawGet(started.serving.port, host);
+      expect([400, 421]).toContain(status);
+      expect(text.length).toBeLessThan(400);
+      expect(text).not.toContain("/src/");
+    }
   });
 });
 
@@ -247,6 +273,39 @@ describe("--allow-host: one named host behind a TLS proxy (ADR 0005)", () => {
       [remote, { ...onName, Origin: "https://evil.example" }],
     ] as const)
       expect((await probe(ws(token), headers)).opened).toBe(false);
+  });
+
+  test("a proxied request is never loopback: forwarded headers with a loopback Host get 421", async () => {
+    // tailscale serve forwards the client's own Host and always sets
+    // X-Forwarded-For/-Host/-Proto (finding 04), so a tailnet client asking
+    // for Host 127.0.0.1 must not land on the loopback side.
+    for (const extra of [{}, named]) {
+      const { started, http, ws } = startFake(undefined, extra);
+      for (const forwarded of <Record<string, string>[]>[
+        { "X-Forwarded-For": "100.64.0.7" },
+        { "X-Forwarded-Host": "127.0.0.1:4518" },
+        { "X-Forwarded-Proto": "https" },
+        { Forwarded: "for=100.64.0.7" },
+      ]) {
+        for (const loopback of ["127.0.0.1:4518", "localhost", "[::1]:4518"])
+          expect(
+            (await fetch(`${http}/health`, { headers: { ...forwarded, Host: loopback } })).status,
+          ).toBe(421);
+        const result = await probe(ws(started.token), forwarded);
+        expect(result.opened).toBe(false);
+        expect(result.messages).toEqual([]);
+      }
+    }
+    // The proxy's own requests, on the named host, still get in.
+    const { started, ws } = startFake(undefined, named);
+    const proxied = await probe(ws(started.remoteToken!), {
+      ...onName,
+      Origin: host.origin,
+      "X-Forwarded-For": "100.64.0.7",
+      "X-Forwarded-Host": `${NAME}:8445`,
+      "X-Forwarded-Proto": "https",
+    });
+    expect(proxied.messages.map((m) => m.t)).toEqual(["welcome", "snapshot"]);
   });
 
   test("an unlock on the desk does not let the phone sign, and back", async () => {

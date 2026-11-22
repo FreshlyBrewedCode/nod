@@ -53,7 +53,6 @@ test("a page served over https may also pair with its own host, as wss only", ()
   const page = { protocol: "https:", host: "laptop.example-tailnet.ts.net:8445" };
   const own = "wss://laptop.example-tailnet.ts.net:8445";
   expect(isAllowedHost(own, page)).toBe(true);
-  expect(isAllowedHost("ws://127.0.0.1:4518", page)).toBe(true);
   // not without a page, not over http, not another port, host or scheme
   expect(isAllowedHost(own)).toBe(false);
   expect(isAllowedHost(own, { ...page, protocol: "http:" })).toBe(false);
@@ -78,6 +77,55 @@ test("a page served over https may also pair with its own host, as wss only", ()
   expect(
     takePairing({ hash: link, pathname: "/", search: "", ...page }, history, memory())?.host,
   ).toBe(own);
+});
+
+test("the named host's page pairs only with itself: on a phone, loopback is the phone", () => {
+  const page = { protocol: "https:", host: "laptop.example-tailnet.ts.net:8445" };
+  const own = { host: "wss://laptop.example-tailnet.ts.net:8445", token: "real" };
+  for (const host of [
+    "ws://127.0.0.1:4518",
+    "wss://127.0.0.1:4518",
+    "ws://localhost",
+    "ws://[::1]:1",
+  ])
+    expect(isAllowedHost(host, page)).toBe(false);
+  // A crafted link does not replace the real pairing.
+  const storage = memory({ [PAIRING_KEY]: JSON.stringify(own) });
+  const crafted = {
+    hash: "#host=ws%3A%2F%2F127.0.0.1%3A4518&token=ATTACKER",
+    pathname: "/",
+    search: "",
+  };
+  expect(takePairing({ ...crafted, ...page }, { replaceState: () => {} }, storage)).toEqual(own);
+  expect(JSON.parse(storage.data[PAIRING_KEY]!)).toEqual(own);
+  // A loopback pairing stored there before is dropped on load.
+  const old = memory({
+    [PAIRING_KEY]: JSON.stringify({ host: "ws://127.0.0.1:4518", token: "t" }),
+  });
+  expect(loadPairing(old, page)).toBeNull();
+  expect(old.data[PAIRING_KEY]).toBeUndefined();
+  // Any other https page that is not the hosted UI is held to the same rule.
+  expect(
+    isAllowedHost("ws://127.0.0.1:4518", { protocol: "https:", host: "ui.example.test" }),
+  ).toBe(false);
+});
+
+test("loopback stays allowed on the hosted UI and on a page on this machine", () => {
+  for (const page of [
+    { protocol: "https:", host: "ui.nod.frebreco.de" },
+    { protocol: "http:", host: "localhost:4517" },
+    { protocol: "http:", host: "127.0.0.1:4517" },
+    { protocol: "http:", host: "[::1]:4519" },
+    null,
+  ])
+    expect(isAllowedHost("ws://127.0.0.1:4518", page)).toBe(true);
+  // Not the hosted UI's name on another scheme or port.
+  for (const page of [
+    { protocol: "http:", host: "ui.nod.frebreco.de" },
+    { protocol: "https:", host: "ui.nod.frebreco.de:8443" },
+    { protocol: "https:", host: "ui.nod.frebreco.de.evil.example" },
+  ])
+    expect(isAllowedHost("ws://127.0.0.1:4518", page)).toBe(false);
 });
 
 test("a fresh link is stored and taken out of the address bar; later visits use the stored one", () => {

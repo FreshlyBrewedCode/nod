@@ -86,6 +86,7 @@ export type SignerErrorCode =
   | "no-key"
   | "locked"
   | "bad-passphrase"
+  | "unlock-pending"
   | "weak-passphrase"
   | "key-exists"
   | "bad-key-file"
@@ -143,6 +144,8 @@ interface Window {
 export abstract class UnlockWindow implements Signer {
   private key: SignerKey | null;
   private readonly windows = new Map<Side, Window>();
+  /** The sides with an unlock being checked: one at a time per side. */
+  private readonly unlocking = new Set<Side>();
   private listeners = new Set<() => void>();
 
   constructor(
@@ -166,7 +169,20 @@ export abstract class UnlockWindow implements Signer {
   async unlock(passphrase: string, options: UnlockOptions = {}): Promise<void> {
     if (!this.key) throw new SignerError("no-key", "There is no signing key yet.");
     const side = options.side ?? "loopback";
-    await this.open(passphrase);
+    // One guess at a time per side (a wrong one waits a second, `open`), so
+    // guessing stays slow, and one side's guesses never queue up in front
+    // of the other side's unlock.
+    if (this.unlocking.has(side))
+      throw new SignerError(
+        "unlock-pending",
+        "The last passphrase is still being checked. Try again in a moment.",
+      );
+    this.unlocking.add(side);
+    try {
+      await this.open(passphrase);
+    } finally {
+      this.unlocking.delete(side);
+    }
     this.windows.get(side)?.timer.clear();
     const ms = unlockMinutes(options.minutes) * 60_000;
     this.windows.set(side, {

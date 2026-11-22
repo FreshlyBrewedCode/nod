@@ -31,7 +31,7 @@ of the repository.
 | `--repo <owner/name>` | The repository. Default: the clone's `origin` |
 | `--host <host>` | Its GitHub host: `github.com`, `<name>.ghe.com` or a GitHub Enterprise Server. Default: the host of the clone's `origin`. Needed when `origin` names an ssh alias |
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
-| `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL` |
+| `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
 | `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh` or `join` |
 | `--frozen` | With `--fake`: nothing changes on its own |

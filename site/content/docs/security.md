@@ -107,7 +107,8 @@ These close most of the gaps above without any change to nod.
 ## The local server
 
 `nod serve` listens on `127.0.0.1` only. It has one WebSocket, guarded by a pairing token and an
-origin check: only the web app's origin, and the local dev server, may connect. It answers only
+origin check: of the pages in a browser, only the web app's and the local dev server's may connect.
+A program that is not a browser page sends no origin; it is let in with the token. It answers only
 requests that name `127.0.0.1`, `localhost` or `[::1]`, so a page that rebinds its own name to
 your machine gets nothing. The token is in the link `nod serve` prints and is kept in
 `$XDG_CONFIG_HOME/nod/serve-token`; `--new-token` replaces it. The passphrase is sent over that
@@ -120,11 +121,17 @@ With `--allow-host` (not released), `nod serve` also answers to one
 dashboard there. It still listens on `127.0.0.1`; only the proxy, and programs on your machine,
 reach it.
 
-- The named host is a side of its own. Its socket takes only the named host's own origin and the
-  remote token; loopback takes only the web app's origins and the host link's token. Neither
-  token opens the other side.
+- The named host is a side of its own. Its socket takes the remote token, from a page on the
+  named host or from a program that sends no origin; loopback takes the host link's token, from
+  the web app's pages or from a program that sends no origin. Neither token opens the other side.
+- A request that came through the proxy is never loopback's, whatever host it names: it gets
+  the named host or nothing. `tailscale serve` marks every request it forwards, and a device on
+  the tailnet cannot remove the mark.
+- The dashboard on the named host pairs only with the named host, so a link cannot point it at
+  the phone's own `127.0.0.1`.
 - Each side has its own unlock: a window opened at your desk does not let the phone sign, and
-  the other way round.
+  the other way round. Each side checks one passphrase at a time, and a wrong one waits a second,
+  so wrong guesses on the phone do not hold up an unlock at your desk.
 - Who can try to connect grows to every device and person your tailnet lets reach that port.
   The remote token is what keeps them out. Use `tailscale serve`, not Funnel, which would put the
   name on the internet.

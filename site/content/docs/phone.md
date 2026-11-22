@@ -58,7 +58,8 @@ The named host is a side of its own:
 - **Its own unlock.** Unlocking on your machine does not let the phone sign, and unlocking on the
   phone does not let your machine sign. Each side shows its own lock: the phone says "locked"
   while your machine is unlocked.
-- **The dashboard of this very `nod serve`**: the same version, always.
+- **The dashboard of this very `nod serve`**: the same version, always. It pairs only with the
+  named host, never with the phone's own `127.0.0.1`.
 
 ## A lost phone
 

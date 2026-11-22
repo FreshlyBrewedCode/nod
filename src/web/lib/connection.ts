@@ -32,6 +32,7 @@ import {
   type Snapshot,
   type Welcome,
 } from "../../shared/protocol";
+import { STABLE_WEB_URL } from "../../server/web-url";
 import { fragmentOf } from "./route";
 
 // ---------------------------------------------------------------------------
@@ -52,27 +53,44 @@ export interface PageOrigin {
   readonly host: string;
 }
 
+const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
+
 /** Loopback: `ws://` or `wss://` to `127.0.0.1`, `localhost` or `[::1]`. */
 export function isLoopbackHost(host: string): boolean {
   try {
     const url = new URL(host);
-    return (
-      (url.protocol === "ws:" || url.protocol === "wss:") &&
-      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-    );
+    return (url.protocol === "ws:" || url.protocol === "wss:") && LOOPBACK.includes(url.hostname);
   } catch {
     return false;
   }
 }
 
 /**
- * The servers a link may point this page at: loopback, or the very host
- * that served the page over https, as `wss://` (`nod serve --allow-host`
- * serves the web app behind a TLS proxy, finding 04). So a link cannot
- * point the page at another machine, and plain `ws://` stays loopback.
+ * Whether this page may pair with loopback: the hosted UI (both channels
+ * share its origin), or a page on this machine (the dev server, a
+ * preview). Any other page, above all the named host's on a phone, where
+ * loopback is the phone itself, pairs only with its own host. No page (a
+ * test, a script) is not a browser's and may.
+ */
+function pairsWithLoopback(page: PageOrigin | null): boolean {
+  if (!page) return true;
+  const origin = URL.parse(`${page.protocol}//${page.host}`);
+  return (
+    !!origin &&
+    (origin.origin === new URL(STABLE_WEB_URL).origin || LOOPBACK.includes(origin.hostname))
+  );
+}
+
+/**
+ * The servers a link may point this page at: loopback, from the pages that
+ * may (`pairsWithLoopback`), or the very host that served the page over
+ * https, as `wss://` (`nod serve --allow-host` serves the web app behind a
+ * TLS proxy, ADR 0005). So a link cannot point the page at another
+ * machine, the named host's page cannot be pointed at the phone's own
+ * loopback, and plain `ws://` stays loopback.
  */
 export function isAllowedHost(host: string, page: PageOrigin | null = null): boolean {
-  if (isLoopbackHost(host)) return true;
+  if (isLoopbackHost(host)) return pairsWithLoopback(page);
   if (!page || page.protocol !== "https:") return false;
   try {
     const url = new URL(host);
@@ -112,16 +130,18 @@ export interface KeyValue {
   removeItem(key: string): void;
 }
 
+/** The stored pairing; one this page may not use (it may have been stored by an older one) is dropped. */
 export function loadPairing(storage: KeyValue, page: PageOrigin | null = null): Pairing | null {
   try {
     const value = JSON.parse(storage.getItem(PAIRING_KEY) ?? "null") as Partial<Pairing> | null;
+    if (!value) return null;
     if (
-      value &&
       typeof value.host === "string" &&
       typeof value.token === "string" &&
       isAllowedHost(value.host, page)
     )
       return { host: value.host, token: value.token };
+    storage.removeItem(PAIRING_KEY);
   } catch {
     // a broken entry is no pairing
   }
