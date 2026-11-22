@@ -768,6 +768,9 @@ function ErrorStep({
   onBack: () => void;
 }) {
   const { failure } = state;
+  // The connection dropped, or went quiet, after the request went out: the
+  // server may have signed and posted. "Nothing was signed" would be a guess.
+  const uncertain = failure.uncertain === true;
   const explained =
     failure.code === "bad-key-file"
       ? cannotSignText({ state: "bad-key-file" })
@@ -778,14 +781,21 @@ function ErrorStep({
     <>
       <Header
         title={
-          failure.code === "bad-key-file" ? "The key cannot be unlocked" : "Nothing was signed"
+          failure.code === "bad-key-file"
+            ? "The key cannot be unlocked"
+            : uncertain
+              ? "Not sure whether it was signed"
+              : "Nothing was signed"
         }
       >
-        {explained ?? failure.message}
+        {explained ??
+          (uncertain
+            ? "The connection to nod serve dropped while it was signing, so the nod may be posted already. Wait for it to reconnect, then look for the nod on the PRs before you sign again."
+            : failure.message)}
       </Header>
       <div className="flex flex-none items-center gap-2.5 px-[30px] pt-[18px] pb-6">
         <span className="flex-1" />
-        {!explained && (
+        {!explained && !uncertain && (
           <button type="button" className={GHOST} onClick={onBack}>
             Back to the batch
           </button>

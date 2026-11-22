@@ -33,6 +33,7 @@ import {
 import type { PrView, SetupStatus, SignerState, Snapshot, Welcome } from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
+import { useReconnectNotice } from "@/hooks/use-reconnect-notice";
 import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
 import { githubOf } from "@/lib/deep-link";
 import type { Status } from "@/lib/connection";
@@ -132,6 +133,7 @@ function DashboardInner({
   go,
 }: DashboardProps) {
   const { openBatch } = useBatch();
+  const notice = useReconnectNotice(status === "open");
   const now = useNow(MINUTE);
   const utcOffsetMinutes = useUtcOffset();
   const view: View = viewOf(route);
@@ -525,11 +527,16 @@ function DashboardInner({
           <LockChip signer={signer} actions={actions} />
           <Me login={me} people={snapshot.people} onSetup={() => go({ view: "setup" })} />
         </TopBarShell>
-        {status !== "open" && (
-          <div className="bg-need-bg text-need border-line border-b px-5 py-1.5 text-[12.5px]">
-            Reconnecting to nod serve… What you see is from{" "}
+        {notice === "quiet" && (
+          <output className="text-tx3 border-line block border-b px-5 py-1 text-[12.5px]">
+            Reconnecting…
+          </output>
+        )}
+        {notice === "stale" && (
+          <output className="bg-need-bg text-need border-line block border-b px-5 py-1.5 text-[12.5px]">
+            nod serve is not reachable; this page reconnects on its own. What you see is from{" "}
             {snapshot.sync.at ? clockTime(snapshot.sync.at, utcOffsetMinutes) : "earlier"}.
-          </div>
+          </output>
         )}
         {landing ? (
           <div className="min-h-0 flex-1 overflow-auto">

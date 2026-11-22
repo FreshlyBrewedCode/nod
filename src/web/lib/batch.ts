@@ -358,6 +358,8 @@ export interface Attempt {
 export interface Failure {
   readonly code: ErrorCode | "offline" | "timeout";
   readonly message: string;
+  /** The request went out and nothing says what became of it (`RequestFailed.uncertain`). */
+  readonly uncertain?: boolean;
 }
 
 export type BatchState =

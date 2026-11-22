@@ -151,8 +151,12 @@ export function cannotSignText(state: Readiness | { state: "bad-key-file" }): Re
 }
 
 export function failureOf(error: unknown): Failure {
-  const e = error as { code?: Failure["code"]; message?: string };
-  return { code: e.code ?? "internal", message: e.message ?? "Something went wrong." };
+  const e = error as { code?: Failure["code"]; message?: string; uncertain?: boolean };
+  return {
+    code: e.code ?? "internal",
+    message: e.message ?? "Something went wrong.",
+    ...(e.uncertain && { uncertain: true }),
+  };
 }
 
 const CHIP =

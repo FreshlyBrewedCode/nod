@@ -14,6 +14,11 @@
  * (re)connect brings a fresh `welcome` and `snapshot`, so nothing is
  * replayed. A token the server refuses (close code 4401) stops the retries:
  * the page has to be paired again.
+ *
+ * A tab that wakes (a phone unlocked, the network back) checks the socket
+ * instead of trusting it: `wake()` sends a `ping` with a short timeout and
+ * replaces a socket that does not answer, with the backoff reset. A socket
+ * waiting in backoff connects at once. One check at a time.
  */
 
 import {
@@ -270,9 +275,63 @@ export class RequestFailed extends Error {
     readonly code: ErrorCode | "offline" | "timeout",
     message: string,
     readonly details?: RequestError["details"],
+    /**
+     * The request went out and no reply says what became of it (the socket
+     * dropped, or the answer never came), so the server may have done it.
+     * A request that was never sent, or got an error reply, is not uncertain.
+     */
+    readonly uncertain: boolean = false,
   ) {
     super(message);
   }
+}
+
+/** Timers and the clock, injectable so tests need no real time. */
+export interface Scheduler {
+  now(): number;
+  setTimeout(fn: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const REAL_TIME: Scheduler = {
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+/** What tells the page it woke: the window's events and the document's visibility. */
+export interface WakeEnv {
+  readonly win: EventTarget;
+  readonly doc: EventTarget & { readonly visibilityState: string };
+}
+
+/** The page's own window and document, or null where there are none (tests, scripts). */
+export function browserWakeEnv(): WakeEnv | null {
+  return typeof window === "undefined" || typeof document === "undefined"
+    ? null
+    : { win: window, doc: document };
+}
+
+/**
+ * Call `wake` when the page becomes visible, is restored from the
+ * back/forward cache (`pageshow` with `persisted`), or the browser goes
+ * online. Returns the way to stop listening.
+ */
+export function onWake(env: WakeEnv, wake: () => void): () => void {
+  const visible = () => {
+    if (env.doc.visibilityState === "visible") wake();
+  };
+  const shown = (event: Event) => {
+    if ((event as Event & { persisted?: boolean }).persisted) wake();
+  };
+  env.doc.addEventListener("visibilitychange", visible);
+  env.win.addEventListener("pageshow", shown);
+  env.win.addEventListener("online", wake);
+  return () => {
+    env.doc.removeEventListener("visibilitychange", visible);
+    env.win.removeEventListener("pageshow", shown);
+    env.win.removeEventListener("online", wake);
+  };
 }
 
 export interface ClientOptions {
@@ -280,25 +339,36 @@ export interface ClientOptions {
   /** A request without a reply fails after this long (signing posts comments: generous). */
   readonly timeoutMs?: number;
   readonly maxBackoffMs?: number;
+  /** How long the wake check waits for its `ping` before it drops the socket. */
+  readonly wakeCheckMs?: number;
+  /** Where wake events come from; `null` listens to nothing. Default: the page's own. */
+  readonly wakeEnv?: WakeEnv | null;
+  readonly scheduler?: Scheduler;
 }
 
 type Pending = {
   resolve: (result: unknown) => void;
   reject: (error: RequestFailed) => void;
-  timer: ReturnType<typeof setTimeout>;
+  timer: unknown;
 };
 
 export class NodClient {
   private ws: WebSocket | null = null;
   private retry = 0;
-  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: unknown = null;
   private stopped = false;
+  /** A wake check is waiting for its ping: no second one meanwhile. */
+  private checking = false;
+  private connectingSince = 0;
+  private readonly stopWake: () => void;
   private nextId = 0;
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<() => void>();
   private readonly Socket: typeof WebSocket;
   private readonly timeoutMs: number;
   private readonly maxBackoffMs: number;
+  private readonly wakeCheckMs: number;
+  private readonly time: Scheduler;
   state: ConnectionState = INITIAL_STATE;
 
   constructor(
@@ -308,6 +378,10 @@ export class NodClient {
     this.Socket = options.WebSocket ?? WebSocket;
     this.timeoutMs = options.timeoutMs ?? 60_000;
     this.maxBackoffMs = options.maxBackoffMs ?? 10_000;
+    this.wakeCheckMs = options.wakeCheckMs ?? 3_000;
+    this.time = options.scheduler ?? REAL_TIME;
+    const env = options.wakeEnv === undefined ? browserWakeEnv() : options.wakeEnv;
+    this.stopWake = env ? onWake(env, () => this.wake()) : () => {};
     this.connect();
   }
 
@@ -317,25 +391,82 @@ export class NodClient {
   }
 
   /** Send a request; resolves with its typed result, rejects with `RequestFailed`. */
-  request<K extends RequestType>(t: K, body: RequestBody<K>): Promise<RequestResult<K>> {
+  request<K extends RequestType>(
+    t: K,
+    body: RequestBody<K>,
+    options: { readonly timeoutMs?: number } = {},
+  ): Promise<RequestResult<K>> {
     const ws = this.ws;
     if (!ws || ws.readyState !== this.Socket.OPEN || this.state.status !== "open")
       return Promise.reject(new RequestFailed("offline", "Not connected to nod serve."));
     const id = `r${++this.nextId}`;
     return new Promise<RequestResult<K>>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = this.time.setTimeout(() => {
         this.pending.delete(id);
-        reject(new RequestFailed("timeout", "nod serve did not answer in time."));
-      }, this.timeoutMs);
+        reject(new RequestFailed("timeout", "nod serve did not answer in time.", undefined, true));
+      }, options.timeoutMs ?? this.timeoutMs);
       this.pending.set(id, { resolve: resolve as (r: unknown) => void, reject, timer });
       ws.send(JSON.stringify({ ...body, t, id }));
     });
   }
 
+  /**
+   * The page woke (or the network came back): do not trust the socket.
+   * Open: a `ping` with a short timeout, and a socket that does not answer
+   * is replaced at once. Any reply proves the socket lives, an error reply
+   * from an older server that does not know `ping` included. Closed and
+   * waiting in backoff: connect now. Connecting for longer than the check
+   * takes: start over. Not while a check is running, and not for a token
+   * the server refused or a protocol it does not speak.
+   */
+  wake(): void {
+    if (this.stopped || this.checking) return;
+    const { status } = this.state;
+    if (status === "refused" || status === "outdated") return;
+    const ws = this.ws;
+    if (status === "closed") return this.replace(null);
+    if (status === "connecting") {
+      if (ws && this.time.now() - this.connectingSince >= this.wakeCheckMs) this.replace(ws);
+      return;
+    }
+    this.checking = true;
+    this.request("ping", {}, { timeoutMs: this.wakeCheckMs })
+      .then(
+        () => {},
+        (error: unknown) => {
+          if (error instanceof RequestFailed && error.code === "timeout" && this.ws === ws)
+            this.replace(ws);
+        },
+      )
+      .finally(() => {
+        this.checking = false;
+      });
+  }
+
+  /** Drop `ws` (it is not heard from again) and connect now, with the backoff reset. */
+  private replace(ws: WebSocket | null) {
+    if (ws) {
+      this.ws = null;
+      ws.onmessage = ws.onclose = null;
+      try {
+        ws.close();
+      } catch {
+        // already gone
+      }
+      this.failPending();
+      this.set({ reconnects: this.state.reconnects + 1 });
+    }
+    if (this.retryTimer) this.time.clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retry = 0;
+    this.connect();
+  }
+
   /** Stop for good (the page is closing, or pairing changed). */
   close(): void {
     this.stopped = true;
-    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.stopWake();
+    if (this.retryTimer) this.time.clearTimeout(this.retryTimer);
     this.ws?.close();
     this.failPending();
   }
@@ -349,9 +480,12 @@ export class NodClient {
     if (this.stopped) return;
     const ws = new this.Socket(this.url);
     this.ws = ws;
+    this.connectingSince = this.time.now();
     this.set({ status: "connecting" });
     // "open" waits for the welcome: only then is it the server we expect.
-    ws.onmessage = (event) => this.receive(JSON.parse(String(event.data)) as ServerToClient);
+    ws.onmessage = (event) => {
+      if (this.ws === ws) this.receive(JSON.parse(String(event.data)) as ServerToClient);
+    };
     ws.onclose = (event) => {
       if (this.ws !== ws) return;
       this.failPending();
@@ -360,7 +494,7 @@ export class NodClient {
       if (this.state.status === "outdated") return;
       this.set({ status: "closed", reconnects: this.state.reconnects + 1 });
       const delay = Math.min(this.maxBackoffMs, 500 * 2 ** this.retry++);
-      this.retryTimer = setTimeout(() => this.connect(), delay);
+      this.retryTimer = this.time.setTimeout(() => this.connect(), delay);
     };
   }
 
@@ -395,7 +529,7 @@ export class NodClient {
         const pending = this.pending.get(message.id);
         if (!pending) return;
         this.pending.delete(message.id);
-        clearTimeout(pending.timer);
+        this.time.clearTimeout(pending.timer);
         if (message.ok) pending.resolve(message.result);
         else
           pending.reject(
@@ -408,8 +542,10 @@ export class NodClient {
 
   private failPending() {
     for (const [id, p] of this.pending) {
-      clearTimeout(p.timer);
-      p.reject(new RequestFailed("offline", "The connection to nod serve closed."));
+      this.time.clearTimeout(p.timer);
+      p.reject(
+        new RequestFailed("offline", "The connection to nod serve closed.", undefined, true),
+      );
       this.pending.delete(id);
     }
   }
