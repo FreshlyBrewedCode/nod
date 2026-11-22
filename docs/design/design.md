@@ -462,6 +462,38 @@ class edited (epic #30).
 - **Checked by a browser**: `bun run check:phone` opens every route at 360 × 780 and 390 × 844 with a
   touch device and fails when a page scrolls sideways. It is not part of `bun run check`. Screenshots of the calm pages on a phone: `docs/design/m1/impl/` (390 × 844, scale 2).
 
+### The list on a phone
+
+Direction A of round m1, "Stacked rows" (`docs/design/m1/`; the mockup wins on layout, r3's tokens on
+colour and type). Below 640 px:
+
+- **Top bar**: the logo, the repo (it gives way first, with an ellipsis), the lock chip, the avatar
+  menu. No List / Board switch: the board is off on a phone, and a route to it (`#/board`) shows the
+  list (`viewFor` in `lib/route.ts`, the one place). The chip is a 32 px pill with a 44 px target;
+  unlocked it shows the countdown only ("Unlocked" and "Lock" stay in its label); a key that is not
+  usable says "Pending" or "Not enrolled". The `?` shortcuts hint is gone; the avatar menu holds "How
+  this list works" (the legend, with a line on what the avatar, the bars and the numbers mean) and,
+  in fake mode, "Fake data". Popovers are at most the screen wide.
+- **The switch**: under the top bar, the full width, "By attention | Chronological" (38 px high
+  segments), then the "Since …" line. The Details toggle is gone: a tap on a row opens the details
+  (until the detail page exists, over the whole list, with its close button).
+- **A row** is the desktop row stacked, in a 46 px checkbox column (a 22 px box in a 44 px target,
+  always there on tiers 1 and 2) and the content: the title wraps (15 px), tier 1 has two lines of the
+  brief, then the meta line: the avatar without the name, the age (in the chronological view the time,
+  with what happened on a line of its own), the classifier chip, the diff numbers (no 38 px bar), the
+  risk bars (none at no risk). "needs #492 first" is a line of its own. The ask ("Sign as owner",
+  "Self-attest", "Got it", …) is a tappable amber or blue word at the right of the meta line, 44 px
+  high; it does what it does on desktop (the batch for that one PR; acknowledging an FYI). Tier 3
+  one-liners have no checkbox column: title, meta, the ask centred at the right, a status on the meta
+  line. A folded cluster is a line "▸ 7 low-risk changes" and two of text, expanding in place. Rows
+  are full-bleed between hairlines, lane headers 16 px in.
+- **Selecting**: the checkbox toggles; a selected row has the focus tint and an amber bar on its left.
+  The selection bar is a bar along the bottom edge ("2 selected", Clear, "Review & sign 2", 46 px
+  high) with the safe-area inset; the list gets bottom padding so the last row stays reachable.
+- **Touch forms**: the risk bars, the diff bar and the avatar have a `title=` on a desktop; on a phone
+  the legend says what they are and the detail page (next) spells them out. The list's keys are not
+  replaced: a keyboard still works.
+
 ## Do's and Don'ts
 
 **Do**
