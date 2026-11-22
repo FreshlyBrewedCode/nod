@@ -11,9 +11,13 @@ const DialogClose = DialogPrimitive.Close;
 /** The r3 dialog: a dark scrim, a 680 px panel with a 16 px radius. */
 function DialogContent({
   className,
+  closeClassName,
   children,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content>) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  /** Extra classes for the corner close button (a phone's sheet has its own, in its header). */
+  closeClassName?: string;
+}) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-[#05070bd0]" />
@@ -27,7 +31,10 @@ function DialogContent({
       >
         {children}
         <DialogPrimitive.Close
-          className="text-tx3 hover:text-tx absolute top-4 right-4 rounded-sm p-1"
+          className={cn(
+            "text-tx3 hover:text-tx absolute top-4 right-4 rounded-sm p-1",
+            closeClassName,
+          )}
           title="Close (esc)"
         >
           <X className="size-4" />

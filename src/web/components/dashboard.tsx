@@ -35,6 +35,7 @@ import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useReconnectNotice } from "@/hooks/use-reconnect-notice";
 import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
+import { useBackStop } from "@/hooks/use-back-stop";
 import { useIsPhone } from "@/hooks/use-is-phone";
 import { githubOf } from "@/lib/deep-link";
 import type { Status } from "@/lib/connection";
@@ -49,6 +50,7 @@ import {
   type FocusKey,
 } from "@/lib/focus";
 import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs } from "@/lib/panel";
+import { needsYouOrder } from "@/lib/next";
 import { isLinkRoute, viewFor, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
 import { keyNoteOf } from "@/lib/wording";
@@ -63,6 +65,7 @@ import {
 import { clockTime, duration, sinceText } from "@/lib/time";
 import { BatchProvider, useBatch } from "./batch-dialog";
 import { Board, BoardBar, type BoardColumnView, type GroupBy } from "./board";
+import { DetailPage } from "./detail-page";
 import { DetailPanel } from "./detail-panel";
 import { Legend } from "./legend";
 import { LinkLanding } from "./link-landing";
@@ -86,9 +89,17 @@ export interface DashboardProps {
 }
 
 export function Dashboard(props: DashboardProps) {
+  // "Open the last one" on the sign sheet (above the dashboard) shows a PR's page, which is
+  // the dashboard's: the dashboard registers how.
+  const openPr = useRef<(pr: number) => void>(() => {});
   return (
-    <BatchProvider snapshot={props.snapshot} signer={props.signer} actions={props.actions}>
-      <DashboardInner {...props} />
+    <BatchProvider
+      snapshot={props.snapshot}
+      signer={props.signer}
+      actions={props.actions}
+      onOpenPr={(pr) => openPr.current(pr)}
+    >
+      <DashboardInner {...props} openPrRef={openPr} />
     </BatchProvider>
   );
 }
@@ -133,7 +144,8 @@ function DashboardInner({
   actions,
   route,
   go,
-}: DashboardProps) {
+  openPrRef,
+}: DashboardProps & { openPrRef: { current: (pr: number) => void } }) {
   const { openBatch } = useBatch();
   const notice = useReconnectNotice(status === "open");
   const now = useNow(MINUTE);
@@ -260,6 +272,10 @@ function DashboardInner({
   }, [keys]);
   const panelPr = prOfKey(focus) ?? focusState.pr;
   const shownPr = panelPr === null ? null : (prs.find((p) => p.number === panelPr) ?? null);
+  // A phone shows the details as a full-screen page, one history entry deep: back closes it.
+  const pageOpen = phone && drawerOpen && shownPr !== null && !onBoard;
+  useBackStop(pageOpen, () => setDrawerOpen(false));
+  const needOrder = useMemo(() => needsYouOrder(lanes[0]!.items), [lanes]);
 
   // "Opened in the UI", per PR, for the batch dialog's "not opened" mark.
   const shownNumber = shownPr?.number ?? null;
@@ -302,11 +318,19 @@ function DashboardInner({
     (pr: number) => {
       setFocusState({ key: prKey(pr), pr });
       setPrefs((p) => ({ ...p, open: true }));
+      // On a phone "Open" shows the PR's page over the list.
+      if (phone) setDrawerOpen(true);
       scrollOnFocus.current = true;
       go({ view: "list" });
     },
-    [go],
+    [go, phone],
   );
+  useLayoutEffect(() => {
+    openPrRef.current = (pr) => {
+      setFocusState({ key: prKey(pr), pr });
+      setDrawerOpen(true);
+    };
+  }, [openPrRef]);
 
   const focusRow = useCallback(
     (key: FocusKey, options: { open?: boolean } = {}) => {
@@ -328,9 +352,29 @@ function DashboardInner({
   // -- the keyboard ------------------------------------------------------------------
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const onLanding = landing !== null;
-  const latest = useRef({ view, keys, columnKeys, focus, panelOpen, selection, prs, onLanding });
+  const latest = useRef({
+    view,
+    keys,
+    columnKeys,
+    focus,
+    panelOpen,
+    selection,
+    prs,
+    onLanding,
+    pageOpen,
+  });
   useLayoutEffect(() => {
-    latest.current = { view, keys, columnKeys, focus, panelOpen, selection, prs, onLanding };
+    latest.current = {
+      view,
+      keys,
+      columnKeys,
+      focus,
+      panelOpen,
+      selection,
+      prs,
+      onLanding,
+      pageOpen,
+    };
   });
   useEffect(() => {
     let chord = false;
@@ -360,6 +404,11 @@ function DashboardInner({
       if (e.key === "?") {
         e.preventDefault();
         setShortcutsOpen(true);
+        return;
+      }
+      // A phone's detail page covers the list: only Escape (a hardware keyboard) acts.
+      if (s.pageOpen) {
+        if (e.key === "Escape") setPanelOpen(false);
         return;
       }
       // The landing of a deep link has no rows to move through.
@@ -523,9 +572,8 @@ function DashboardInner({
     </div>
   );
 
-  // The board's overlay drawer (r3 `10`); on a phone the same over the whole list,
-  // until the detail page of the next phone PR.
-  const drawer = drawerOpen && (
+  // The board's overlay drawer (r3 `10`). A phone has no board: its details are a page.
+  const drawer = drawerOpen && !phone && (
     <>
       <div
         aria-hidden
@@ -543,7 +591,7 @@ function DashboardInner({
 
   return (
     <DashboardContext.Provider value={state}>
-      <div className="pt-safe px-safe flex h-full flex-col">
+      <div className="pt-safe px-safe flex h-full flex-col" inert={pageOpen}>
         {/* The avatar's 44 px target sits at the edge: less padding there. */}
         <TopBarShell className="phone:pr-1 phone:pl-3.5">
           <Logo />
@@ -640,8 +688,17 @@ function DashboardInner({
             )}
           </ResizablePanelGroup>
         )}
-        <SelectionBar />
+        {!pageOpen && <SelectionBar />}
       </div>
+      {pageOpen && (
+        <DetailPage
+          key={shownPr.number}
+          pr={shownPr}
+          order={needOrder}
+          onClose={() => setDrawerOpen(false)}
+          onOpen={(pr) => setFocus(prKey(pr))}
+        />
+      )}
     </DashboardContext.Provider>
   );
 }

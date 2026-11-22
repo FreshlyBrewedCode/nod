@@ -41,6 +41,7 @@ export function PassphraseField({
   disabled,
   onFilled,
   id,
+  side,
 }: {
   inputRef: RefObject<HTMLInputElement | null>;
   error: string | null;
@@ -48,33 +49,58 @@ export function PassphraseField({
   /** Whether the field has something in it (for the button), never what. */
   onFilled: (filled: boolean) => void;
   id: string;
+  /** A phone's docked field has its button at its right: the field and it share a row. */
+  side?: ReactNode;
 }) {
-  return (
-    <>
-      <input
-        ref={inputRef}
-        id={id}
-        type="password"
-        autoComplete="current-password"
-        spellCheck={false}
-        // oxlint-disable-next-line jsx-a11y/no-autofocus
-        autoFocus
-        disabled={disabled}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-error` : undefined}
-        onInput={(e) => onFilled(e.currentTarget.value.length > 0)}
-        className={cn(
-          "bg-panel text-tx h-[42px] w-full rounded-lg border px-3 text-lg tracking-[3px] outline-none",
-          error
-            ? "border-bad shadow-[0_0_0_3px_var(--bad-bg)]"
-            : "border-need shadow-[0_0_0_3px_var(--need-bg)]",
-        )}
-      />
-      {error && (
-        <p id={`${id}-error`} role="alert" className="text-bad m-0 mt-2 text-[12.5px]">
-          {error}
-        </p>
+  // 16 px on a phone (`styles.css`): iOS zooms into a smaller field. `name`, the password type
+  // and `current-password` are what a password manager looks for; Enter ("go" on a phone's
+  // keyboard) submits the form the field is in.
+  const input = (
+    <input
+      ref={inputRef}
+      id={id}
+      name="passphrase"
+      type="password"
+      autoComplete="current-password"
+      autoCapitalize="off"
+      autoCorrect="off"
+      enterKeyHint="go"
+      spellCheck={false}
+      // oxlint-disable-next-line jsx-a11y/no-autofocus
+      autoFocus
+      disabled={disabled}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? `${id}-error` : undefined}
+      onInput={(e) => onFilled(e.currentTarget.value.length > 0)}
+      className={cn(
+        "bg-panel text-tx h-[42px] w-full min-w-0 rounded-lg border px-3 text-lg tracking-[3px] outline-none phone:h-12 phone:rounded-[11px] phone:px-3.5",
+        error
+          ? "border-bad shadow-[0_0_0_3px_var(--bad-bg)]"
+          : "border-need shadow-[0_0_0_3px_var(--need-bg)]",
       )}
+    />
+  );
+  const message = error && (
+    <p
+      id={`${id}-error`}
+      role="alert"
+      className="text-bad m-0 mt-2 text-[12.5px] phone:text-[13px]"
+    >
+      {error}
+    </p>
+  );
+  return side ? (
+    <>
+      <div className="flex items-center gap-2">
+        {input}
+        {side}
+      </div>
+      {message}
+    </>
+  ) : (
+    <>
+      {input}
+      {message}
     </>
   );
 }
@@ -83,11 +109,11 @@ export function PassphraseField({
 export function StayUnlocked({ once, onOnce }: { once: boolean; onOnce: (once: boolean) => void }) {
   const chip = (on: boolean) =>
     cn(
-      "rounded-md border px-2.5 py-1 text-[13px]",
+      "rounded-md border px-2.5 py-1 text-[13px] phone:inline-flex phone:min-h-9 phone:items-center phone:rounded-[9px] phone:px-3",
       on ? "border-need text-need bg-need-bg" : "border-line text-tx2 hover:text-tx",
     );
   return (
-    <fieldset className="text-tx3 m-0 mt-3 flex items-center gap-1.5 border-0 p-0 text-[13px]">
+    <fieldset className="text-tx3 m-0 mt-3 flex flex-wrap items-center gap-1.5 border-0 p-0 text-[13px] phone:mt-2 phone:gap-2">
       Stay unlocked
       <button
         type="button"

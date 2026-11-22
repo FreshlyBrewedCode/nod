@@ -104,7 +104,6 @@ export function DetailPanel({
 function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
   const { people, me, openBatch, selection, toggleSelected } = useDashboard();
   const now = useNow(MINUTE);
-  const offset = useUtcOffset();
   const checks = checksTag(pr);
   const selected = selection.includes(pr.number);
   return (
@@ -191,100 +190,139 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
 
       <div className="mt-[22px]">
         <Fold title="Why this needs you" summary={reasonsSummary(pr)} open={wide}>
-          {pr.reasons.map((r) => (
-            <div
-              key={`${r.classifier}:${r.fact}`}
-              className="grid grid-cols-[1fr_auto] gap-2.5 py-1.5 text-[13.5px]"
-            >
-              <span>{r.fact}</span>
-              <span className={r.raises ? "text-need" : "text-tx3"}>
-                {r.raises ? "↑ " : ""}
-                {r.effect}
-              </span>
-            </div>
-          ))}
-          <p className="text-tx3 mt-2 mb-0 text-[12.5px]">
-            Policy rule <span className="font-mono">{pr.requirement.policy}</span>, read from{" "}
-            {pr.base}.
-          </p>
+          <ReasonsBody pr={pr} />
         </Fold>
         <Fold title="Signatures" summary={signaturesSummary(pr)} open={wide}>
-          {pr.requirement.slots.length === 0 && (
-            <p className="text-tx3 m-0 text-[13px]">{pr.requirement.label}.</p>
-          )}
-          {pr.requirement.slots.map((slot, i) => {
-            const sig = slot.signature === null ? null : (pr.signatures[slot.signature] ?? null);
-            const t = slotText(slot, sig, people, me, now, offset);
-            return (
-              <div key={i} className="grid grid-cols-[22px_1fr] gap-2.5 py-[7px] text-[13.5px]">
-                <span
-                  className={cn(
-                    "mt-0.5 grid size-[18px] place-items-center rounded-full text-[11px] font-bold",
-                    slot.state === "ok"
-                      ? "bg-ok text-[#06140d]"
-                      : slot.state === "stale"
-                        ? "border-bad text-bad border-[1.5px]"
-                        : "border-need border-[1.5px]",
-                  )}
-                >
-                  {slot.state === "ok" ? "✓" : slot.state === "stale" ? "!" : ""}
-                </span>
-                <div>
-                  {t.who}
-                  <small className="text-tx3 block text-[12.5px]">{t.detail}</small>
-                </div>
-              </div>
-            );
-          })}
+          <SignaturesBody pr={pr} />
         </Fold>
         {pr.fyi && (
           <Fold title="FYI" summary={fyiSummary(pr.fyi, people, me)} open={wide}>
-            <p className="text-tx2 m-0 text-[13px]">{pr.fyi.reason}</p>
-            {pr.fyi.pending.length > 0 && (
-              <p className="text-tx3 mt-1 mb-0 text-[12.5px]">
-                Not seen yet by{" "}
-                {pr.fyi.pending
-                  .map((l) => (l.toLowerCase() === me.toLowerCase() ? "you" : shortName(l, people)))
-                  .join(", ")}
-                .
-              </p>
-            )}
+            <FyiBody fyi={pr.fyi} />
           </Fold>
         )}
         <Fold title="Files" summary={filesSummary(pr)} open={wide}>
-          {pr.files ? (
-            pr.files.map((f) => (
-              <div
-                key={f.path}
-                className="text-tx2 grid grid-cols-[1fr_90px_80px] gap-2.5 py-[5px] text-[12.5px]"
-              >
-                <span className="truncate font-mono text-xs">{f.path}</span>
-                <span>
-                  <span className="text-ok">+{f.added}</span>{" "}
-                  <span className="text-bad">−{f.removed}</span>
-                </span>
-                <span className="text-tx3 truncate">{f.excluded ?? f.area ?? ""}</span>
-              </div>
-            ))
-          ) : (
-            <p className="text-tx3 m-0 text-[13px]">
-              The file list is on{" "}
-              <a className="underline" href={`${pr.url}/files`} target="_blank" rel="noreferrer">
-                GitHub
-              </a>
-              .
-            </p>
-          )}
-          {pr.diff.excluded.files > 0 && (
-            <p className="text-tx3 mt-2 mb-0 text-[12.5px]">
-              Not counted: {pr.diff.excluded.files} lockfile or generated file
-              {pr.diff.excluded.files === 1 ? "" : "s"} (+{pr.diff.excluded.added} −
-              {pr.diff.excluded.removed}).
-            </p>
-          )}
+          <FilesBody pr={pr} />
         </Fold>
       </div>
     </div>
+  );
+}
+
+/** The inside of the "Why this needs you" fold (the panel's and the phone page's). */
+export function ReasonsBody({ pr }: { pr: PrView }) {
+  return (
+    <>
+      {pr.reasons.map((r) => (
+        <div
+          key={`${r.classifier}:${r.fact}`}
+          className="grid grid-cols-[1fr_auto] gap-2.5 py-1.5 text-[13.5px]"
+        >
+          <span>{r.fact}</span>
+          <span className={r.raises ? "text-need" : "text-tx3"}>
+            {r.raises ? "↑ " : ""}
+            {r.effect}
+          </span>
+        </div>
+      ))}
+      <p className="text-tx3 mt-2 mb-0 text-[12.5px]">
+        Policy rule <span className="font-mono">{pr.requirement.policy}</span>, read from {pr.base}.
+      </p>
+    </>
+  );
+}
+
+/** The inside of the "Signatures" fold. */
+export function SignaturesBody({ pr }: { pr: PrView }) {
+  const { people, me } = useDashboard();
+  const now = useNow(MINUTE);
+  const offset = useUtcOffset();
+  return (
+    <>
+      {pr.requirement.slots.length === 0 && (
+        <p className="text-tx3 m-0 text-[13px]">{pr.requirement.label}.</p>
+      )}
+      {pr.requirement.slots.map((slot, i) => {
+        const sig = slot.signature === null ? null : (pr.signatures[slot.signature] ?? null);
+        const t = slotText(slot, sig, people, me, now, offset);
+        return (
+          <div key={i} className="grid grid-cols-[22px_1fr] gap-2.5 py-[7px] text-[13.5px]">
+            <span
+              className={cn(
+                "mt-0.5 grid size-[18px] place-items-center rounded-full text-[11px] font-bold",
+                slot.state === "ok"
+                  ? "bg-ok text-[#06140d]"
+                  : slot.state === "stale"
+                    ? "border-bad text-bad border-[1.5px]"
+                    : "border-need border-[1.5px]",
+              )}
+            >
+              {slot.state === "ok" ? "✓" : slot.state === "stale" ? "!" : ""}
+            </span>
+            <div>
+              {t.who}
+              <small className="text-tx3 block text-[12.5px]">{t.detail}</small>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/** The inside of the "FYI" fold. */
+export function FyiBody({ fyi }: { fyi: NonNullable<PrView["fyi"]> }) {
+  const { people, me } = useDashboard();
+  return (
+    <>
+      <p className="text-tx2 m-0 text-[13px]">{fyi.reason}</p>
+      {fyi.pending.length > 0 && (
+        <p className="text-tx3 mt-1 mb-0 text-[12.5px]">
+          Not seen yet by{" "}
+          {fyi.pending
+            .map((l) => (l.toLowerCase() === me.toLowerCase() ? "you" : shortName(l, people)))
+            .join(", ")}
+          .
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The inside of the "Files" fold. */
+export function FilesBody({ pr }: { pr: PrView }) {
+  return (
+    <>
+      {pr.files ? (
+        pr.files.map((f) => (
+          <div
+            key={f.path}
+            className="text-tx2 grid grid-cols-[1fr_90px_80px] gap-2.5 py-[5px] text-[12.5px]"
+          >
+            <span className="truncate font-mono text-xs">{f.path}</span>
+            <span>
+              <span className="text-ok">+{f.added}</span>{" "}
+              <span className="text-bad">−{f.removed}</span>
+            </span>
+            <span className="text-tx3 truncate">{f.excluded ?? f.area ?? ""}</span>
+          </div>
+        ))
+      ) : (
+        <p className="text-tx3 m-0 text-[13px]">
+          The file list is on{" "}
+          <a className="underline" href={`${pr.url}/files`} target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+          .
+        </p>
+      )}
+      {pr.diff.excluded.files > 0 && (
+        <p className="text-tx3 mt-2 mb-0 text-[12.5px]">
+          Not counted: {pr.diff.excluded.files} lockfile or generated file
+          {pr.diff.excluded.files === 1 ? "" : "s"} (+{pr.diff.excluded.added} −
+          {pr.diff.excluded.removed}).
+        </p>
+      )}
+    </>
   );
 }
 
@@ -337,10 +375,17 @@ function useJourneyText() {
   return (e: JourneyEvent) => journeyDetail(e, now, offset);
 }
 
-function JourneyList({ events }: { events: ReadonlyArray<JourneyEvent> }) {
+/** The journey as a vertical list: the narrow panel's, and the phone page's fold. */
+export function JourneyList({
+  events,
+  className,
+}: {
+  events: ReadonlyArray<JourneyEvent>;
+  className?: string;
+}) {
   const detail = useJourneyText();
   return (
-    <ul className="journey-v relative mt-6 mb-1.5 list-none p-0">
+    <ul className={cn("journey-v relative mt-6 mb-1.5 list-none p-0", className)}>
       {events.map((e, i) => (
         <li
           key={i}

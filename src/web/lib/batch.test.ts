@@ -17,6 +17,7 @@ import {
   outcomeSentence,
   readiness,
   reviewAgain,
+  roleShort,
   staleText,
   summarySentence,
   toggleRow,
@@ -334,5 +335,15 @@ describe("the state machine", () => {
     expect(
       mergeResults(result, { payload: "p", posted: [{ pr: 482, url: "x" }], failed: [] }).posted,
     ).toEqual([{ pr: 482, url: "u1" }]);
+  });
+});
+
+describe("roleShort", () => {
+  test("is a word or two per role", () => {
+    expect(roleShort("peer")).toBe("as peer");
+    expect(roleShort("owner")).toBe("as owner");
+    expect(roleShort("re-attest")).toBe("again");
+    expect(roleShort("self")).toBe("your own");
+    expect(roleShort(null)).toBe("");
   });
 });

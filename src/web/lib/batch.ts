@@ -473,3 +473,22 @@ export function batchReducer(state: BatchState, event: BatchEvent): BatchState {
       return INITIAL_BATCH;
   }
 }
+
+/**
+ * A role in one or two words, for a row that has no room for its group's
+ * heading (a phone's sheet while the passphrase is asked): "as peer", "again".
+ */
+export function roleShort(role: Role | null): string {
+  switch (role) {
+    case "peer":
+      return "as peer";
+    case "owner":
+      return "as owner";
+    case "re-attest":
+      return "again";
+    case "self":
+      return "your own";
+    case null:
+      return "";
+  }
+}
