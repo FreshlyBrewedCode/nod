@@ -19,16 +19,19 @@ export function FullPage({
   command?: string;
 }) {
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
         <Logo />
       </TopBarShell>
-      <main className="mx-auto mt-24 w-full max-w-[560px] px-6" aria-live="polite">
-        <div className="border-line bg-panel rounded-2xl border px-9 py-8">
+      <main
+        className="mx-auto mt-24 w-full max-w-[560px] px-6 phone:mt-6 phone:px-4"
+        aria-live="polite"
+      >
+        <div className="border-line bg-panel rounded-2xl border px-9 py-8 phone:px-5 phone:py-6">
           <h1 className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">{title}</h1>
           <div className="text-tx2 [&_p]:m-0 [&_p+p]:mt-2">{children}</div>
           {command && (
-            <div className="bg-bg border-line text-tx my-4 mb-0 flex items-center gap-2.5 rounded-lg border px-3.5 py-2.5 font-mono text-[12.5px]">
+            <div className="bg-bg border-line text-tx fs-note my-4 mb-0 flex items-center gap-2.5 overflow-x-auto rounded-lg border px-3.5 py-2.5 font-mono phone:select-all">
               {command}
             </div>
           )}

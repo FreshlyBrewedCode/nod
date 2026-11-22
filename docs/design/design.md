@@ -435,6 +435,33 @@ not steps, and they should never look like step cards.
 **Buttons** — shadcn defaults: `h-9` default, `h-8` sm, `h-10` lg, `size-9` /
 `size-8` icon. Ghost is the workhorse; `default` (amber) is rare by design.
 
+## Phone
+
+r3 is the desktop reference and does not change. A phone gets rules added on top, never a desktop
+class edited (epic #30).
+
+- **One breakpoint**, defined once: a phone is narrower than 640 px (`PHONE_BREAKPOINT` in
+  `src/web/lib/phone.ts`, the `phone` custom variant in `src/web/styles.css`; a test keeps the two
+  equal). In markup it is `phone:` in front of a utility (`grid-cols-[230px_1fr] phone:grid-cols-1`);
+  where behaviour, not layout, differs, `useIsPhone()` (`src/web/hooks/use-is-phone.ts`, matchMedia).
+  Layout alone is CSS; do not branch in JavaScript for it.
+- **Touch targets** are at least 44 × 44 px: a button, a link that is an action, a checkbox (grow the
+  hit area, not the mark). Inline links in a sentence are exempt.
+- **Text** is at least 13 px on a phone. `fs-note` (12.5 px on desktop) and `fs-code` (12 px) become
+  13 px; uppercase labels may stay at 11 px.
+- **Fields** use at least 16 px: iOS zooms into anything smaller when it takes focus. `styles.css`
+  sets it for every text field below the breakpoint.
+- **Safe areas**: the page sets `viewport-fit=cover`; `pt-safe`, `pb-safe` and `px-safe` pad a page
+  by the insets (zero on a desktop). A bar fixed to a screen edge adds the inset to its own padding.
+- **Height** is `dvh`, never `vh` or `h-screen`: `100vh` is taller than what a phone shows while its
+  address bar is out. `html`, `body` and `#root` are `100dvh`.
+- **No hover, no keyboard**: what a `title=` or a key says gets a visible or tappable form on a phone
+  (a line of text, a label next to the mark).
+- **No bounce or flash**: `overscroll-behavior: none` on `html` so nothing scrolls behind a full-screen
+  page or sheet; no tap highlight; `touch-action: manipulation` on controls (no double-tap delay).
+- **Checked by a browser**: `bun run check:phone` opens every route at 360 × 780 and 390 × 844 with a
+  touch device and fails when a page scrolls sideways. It is not part of `bun run check`. Screenshots of the calm pages on a phone: `docs/design/m1/impl/` (390 × 844, scale 2).
+
 ## Do's and Don'ts
 
 **Do**

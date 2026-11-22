@@ -63,7 +63,16 @@ export function Avatar({
 const RISK_NAMES = ["none", "low", "medium", "high"] as const;
 
 /** Three small bars; amber, red when high; invisible (but in place) at none. */
-export function RiskBars({ risk, className }: { risk: Risk; className?: string }) {
+export function RiskBars({
+  risk,
+  label = false,
+  className,
+}: {
+  risk: Risk;
+  /** Say the risk in words next to the bars on a phone, where there is no tooltip. */
+  label?: boolean;
+  className?: string;
+}) {
   return (
     <span
       className={cn("inline-flex items-end gap-0.5", risk === 0 && "invisible", className)}
@@ -79,6 +88,14 @@ export function RiskBars({ risk, className }: { risk: Risk; className?: string }
           )}
         />
       ))}
+      {label && (
+        <span
+          aria-hidden
+          className="ml-1.5 hidden self-center text-[13px] leading-none phone:inline"
+        >
+          {RISK_NAMES[risk]} risk
+        </span>
+      )}
     </span>
   );
 }
