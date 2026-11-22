@@ -1,6 +1,7 @@
 /**
  * The top bar (r3): the product, the repo, the view switch List / Board,
- * the shortcuts, the signing lock chip with its countdown, and me.
+ * the shortcuts, the signing lock chip with its countdown, and me. On a
+ * phone it is the logo, the repo, the lock chip and the avatar menu (docs/design/m1).
  */
 
 import { useState } from "react";
@@ -22,31 +23,50 @@ export function Logo() {
   );
 }
 
-export function TopBarShell({ children }: { children: React.ReactNode }) {
+export function TopBarShell({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <header className="border-line bg-bg sticky top-0 z-30 flex h-[52px] flex-none items-center gap-5 border-b px-5">
+    <header
+      className={cn(
+        "border-line bg-bg sticky top-0 z-30 flex h-[52px] flex-none items-center gap-5 border-b px-5 phone:gap-2",
+        className,
+      )}
+    >
       {children}
     </header>
   );
 }
 
-/** A segmented switch, r3's `.seg`. */
+/** A segmented switch, r3's `.seg`. `fill`: the full width, taller segments, on a phone. */
 export function Segmented<T extends string>({
   value,
   options,
   onChange,
   label,
+  fill = false,
+  className,
 }: {
   value: T | null;
   options: ReadonlyArray<{ value: T; label: string; title?: string; disabled?: boolean }>;
   onChange: (value: T) => void;
   label: string;
+  fill?: boolean;
+  className?: string;
 }) {
   return (
     <div
       role="tablist"
       aria-label={label}
-      className="border-line bg-panel2 flex rounded-lg border p-0.5"
+      className={cn(
+        "border-line bg-panel2 flex rounded-lg border p-0.5",
+        fill && "phone:w-full phone:rounded-xl phone:p-[3px]",
+        className,
+      )}
     >
       {options.map((o) => (
         <button
@@ -59,6 +79,7 @@ export function Segmented<T extends string>({
           onClick={() => !o.disabled && onChange(o.value)}
           className={cn(
             "rounded-md px-3 py-[3px] text-[13px]",
+            fill && "phone:min-h-[38px] phone:flex-1 phone:rounded-[9px] phone:text-sm",
             o.value === value
               ? "bg-bg text-tx font-semibold shadow-[0_0_0_1px_var(--line2)]"
               : o.disabled
@@ -96,7 +117,7 @@ export function ShortcutsHelp({
 }) {
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger className="text-tx3 hover:text-tx2 flex items-center gap-1.5 text-[12.5px]">
+      <PopoverTrigger className="text-tx3 hover:text-tx2 flex items-center gap-1.5 text-[12.5px] phone:hidden">
         <Kbd>?</Kbd> shortcuts
       </PopoverTrigger>
       <PopoverContent className="w-[330px] px-4 py-3">
@@ -122,25 +143,36 @@ export function ShortcutsHelp({
 
 /**
  * Me, and the avatar menu: who `nod serve` is signed in as, and "Setup and
- * checks" to reopen onboarding (r3 shows no other place for it).
+ * checks" to reopen onboarding (r3 shows no other place for it). On a phone
+ * the menu also holds what the top bar has no room for: "How this list works"
+ * (the legend, where a desktop has the `?` key) and the fake-data note.
  */
 export function Me({
   login,
   people,
   onSetup,
+  onLegend,
+  fake = false,
 }: {
   login: string;
   people: ReadonlyArray<Person>;
   onSetup: () => void;
+  /** Shows the legend again (phone only). */
+  onLegend?: () => void;
+  /** `nod serve --fake`: said in the menu on a phone, where the top bar has no room. */
+  fake?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const name = people.find((p) => p.login.toLowerCase() === login.toLowerCase())?.name;
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="rounded-full" aria-label={`${login}: menu`}>
+      <PopoverTrigger
+        className="rounded-full phone:grid phone:size-11 phone:place-items-center"
+        aria-label={`${login}: menu`}
+      >
         <Avatar login={login} people={people} large />
       </PopoverTrigger>
-      <PopoverContent className="w-[240px] p-1.5">
+      <PopoverContent className="w-[240px] p-1.5 phone:w-[min(300px,calc(100vw-16px))]">
         <div className="px-2.5 pt-1.5 pb-2 text-[13px]">
           <b className="block font-semibold">{name ?? login}</b>
           <span className="text-tx3 text-[12.5px]">
@@ -153,13 +185,29 @@ export function Me({
             setOpen(false);
             onSetup();
           }}
-          className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px]"
+          className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
         >
           Setup and checks
-          <span className="text-tx3 block text-[12px]">
-            repository, signing key, test signature
-          </span>
+          <span className="text-tx3 fs-code block">repository, signing key, test signature</span>
         </button>
+        {onLegend && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onLegend();
+            }}
+            className="text-tx2 hover:text-tx hover:bg-bg hidden min-h-11 w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:block"
+          >
+            How this list works
+            <span className="text-tx3 fs-code block">sizes, lanes, risk, the numbers</span>
+          </button>
+        )}
+        {fake && (
+          <p className="text-tx3 fs-note m-0 hidden px-2.5 pt-1.5 pb-1 phone:block">
+            Fake data: <code className="font-mono fs-code">nod serve --fake</code>
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );

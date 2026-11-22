@@ -17,7 +17,7 @@ export function Rows({ children, label }: { children: React.ReactNode; label: st
       role="listbox"
       aria-label={label}
       aria-multiselectable
-      className="border-line bg-panel divide-line divide-y overflow-hidden rounded-xl border"
+      className="border-line bg-panel divide-line divide-y overflow-hidden rounded-xl border phone:rounded-none phone:border-x-0"
     >
       {children}
     </div>
@@ -64,11 +64,11 @@ export function LaneHeader({
   hint?: string | null;
 }) {
   return (
-    <div className="flex items-baseline gap-2.5 px-1 pb-2.5">
+    <div className="flex items-baseline gap-2.5 px-1 pb-2.5 phone:px-4 phone:pt-[22px]">
       <span className={cn("size-2 flex-none self-center rounded-[2px]", DOT[lane])} />
       <h2 className="m-0 text-[15px] font-semibold">{title}</h2>
       <span className="text-tx3">{count}</span>
-      {hint && <span className="text-tx3 ml-auto text-[12.5px]">{hint}</span>}
+      {hint && <span className="text-tx3 fs-note ml-auto">{hint}</span>}
     </div>
   );
 }
@@ -76,7 +76,7 @@ export function LaneHeader({
 /** An empty lane: one sentence in a dashed box. */
 export function EmptyLane({ children }: { children: React.ReactNode }) {
   return (
-    <div className="border-line2 text-tx3 rounded-xl border border-dashed px-[18px] py-[22px]">
+    <div className="border-line2 text-tx3 rounded-xl border border-dashed px-[18px] py-[22px] phone:mx-4 phone:px-4 phone:py-[18px]">
       {children}
     </div>
   );
@@ -94,7 +94,7 @@ export function LaneSection({
   chrono?: boolean;
 }) {
   return (
-    <section className="mb-[34px]" aria-label={lane.title}>
+    <section className="mb-[34px] phone:mb-0" aria-label={lane.title}>
       <LaneHeader lane={lane.lane} title={lane.title} count={lane.count} hint={hint} />
       {lane.items.length ? (
         <ItemRows items={lane.items} chrono={chrono} label={lane.title} />
@@ -108,7 +108,7 @@ export function LaneSection({
 export function BucketSection({ bucket }: { bucket: Bucket }) {
   return (
     <section aria-label={bucket.label}>
-      <div className="text-tx3 flex gap-2.5 px-1.5 pt-4 pb-2 text-xs font-semibold tracking-[0.06em] uppercase">
+      <div className="text-tx3 flex gap-2.5 px-1.5 pt-4 pb-2 text-xs font-semibold tracking-[0.06em] uppercase phone:px-4 phone:pt-[22px] phone:pb-2.5">
         {bucket.label}
         <span className="font-normal tracking-normal normal-case">
           {bucket.count} change{bucket.count === 1 ? "" : "s"}

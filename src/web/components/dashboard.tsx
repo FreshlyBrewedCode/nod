@@ -35,6 +35,7 @@ import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useReconnectNotice } from "@/hooks/use-reconnect-notice";
 import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
+import { useIsPhone } from "@/hooks/use-is-phone";
 import { githubOf } from "@/lib/deep-link";
 import type { Status } from "@/lib/connection";
 import {
@@ -48,7 +49,7 @@ import {
   type FocusKey,
 } from "@/lib/focus";
 import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs } from "@/lib/panel";
-import { isLinkRoute, viewOf, type Route, type View } from "@/lib/route";
+import { isLinkRoute, viewFor, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
 import { keyNoteOf } from "@/lib/wording";
 import {
@@ -70,6 +71,7 @@ import { SelectionBar } from "./selection-bar";
 import { SubBar } from "./sub-bar";
 import { Logo, Me, Segmented, ShortcutsHelp, TopBarShell } from "./top-bar";
 import { LockChip } from "./unlock";
+import { cn } from "@/lib/utils";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "./ui/resizable";
 
 export interface DashboardProps {
@@ -136,7 +138,9 @@ function DashboardInner({
   const notice = useReconnectNotice(status === "open");
   const now = useNow(MINUTE);
   const utcOffsetMinutes = useUtcOffset();
-  const view: View = viewOf(route);
+  // The board is off on a phone: a route to it shows the list (the route itself stays valid).
+  const phone = useIsPhone();
+  const view: View = viewFor(route, phone);
   const me = snapshot.me;
 
   // -- FYI acks leave the lane at once; the next snapshot confirms ---------
@@ -210,18 +214,20 @@ function DashboardInner({
     return () => clearTimeout(t);
   }, [prefs]);
   const onBoard = view === "board";
-  const listPanelOpen = prefs.open && !onBoard;
+  // The board's drawer, and a phone's panel over the list: not remembered, they open on
+  // a card or a row (r3 `10`). Beside the list the panel is remembered.
+  const overlay = onBoard || phone;
+  const listPanelOpen = prefs.open && !overlay;
   const panelWidth = clampPanelWidth(prefs.width, windowWidth);
-  // The board's drawer: not remembered, it opens on a card (r3 `10`).
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const panelOpen = onBoard ? drawerOpen : listPanelOpen;
+  const panelOpen = overlay ? drawerOpen : listPanelOpen;
   const setPanelOpen = useCallback(
     (open: boolean) =>
-      onBoard ? setDrawerOpen(open) : setPrefs((p) => (p.open === open ? p : { ...p, open })),
-    [onBoard],
+      overlay ? setDrawerOpen(open) : setPrefs((p) => (p.open === open ? p : { ...p, open })),
+    [overlay],
   );
-  // Leaving the board closes its drawer.
-  if (!onBoard && drawerOpen) setDrawerOpen(false);
+  // Leaving the board (or the phone) closes its drawer.
+  if (!overlay && drawerOpen) setDrawerOpen(false);
   const [dragging, setDragging] = useState(false);
   useEffect(() => {
     if (!dragging) return;
@@ -420,11 +426,18 @@ function DashboardInner({
   const [legendDismissed, setLegendDismissed] = useState(
     () => readJson(browserStorage(), STORAGE_KEYS.legend) === "dismissed",
   );
+  // "How this list works" in a phone's avatar menu shows it again, on top of the list.
+  const [legendAsked, setLegendAsked] = useState(false);
   const dismissLegend = () => {
     writeJson(browserStorage(), STORAGE_KEYS.legend, "dismissed");
     setLegendDismissed(true);
+    setLegendAsked(false);
   };
-  const showLegend = !legendDismissed && (firstRun || setup?.state === "pending");
+  const askLegend = () => {
+    setLegendAsked(true);
+    document.getElementById("list-scroll")?.scrollTo({ top: 0 });
+  };
+  const showLegend = legendAsked || (!legendDismissed && (firstRun || setup?.state === "pending"));
 
   const since = useLastVisit(now);
   const github = githubOf(welcome);
@@ -466,7 +479,15 @@ function DashboardInner({
           onTogglePanel={() => setPanelOpen(!panelOpen)}
         />
       )}
-      <main className="mx-auto max-w-[1000px] px-6 pt-[22px] pb-[110px]">
+      <main
+        className={cn(
+          "mx-auto max-w-[1000px] px-6 pt-[22px] pb-[110px] phone:px-0 phone:pt-0",
+          // Room for the selection bar, and the home indicator under it.
+          selection.length
+            ? "phone:pb-[calc(6rem+env(safe-area-inset-bottom))]"
+            : "phone:pb-[calc(2rem+env(safe-area-inset-bottom))]",
+        )}
+      >
         {showLegend && <Legend onDismiss={dismissLegend} />}
         <KeyNote signer={signer} setup={setup} onSetup={() => go({ view: "setup" })} />
         {view === "chrono" && !firstRun ? (
@@ -476,7 +497,7 @@ function DashboardInner({
         ) : (
           <>
             {needs.count > 0 && merged > 0 && (
-              <p className="text-tx3 m-0 mb-[22px] text-[13px]">
+              <p className="text-tx3 m-0 mb-[22px] text-[13px] phone:mb-0 phone:px-4 phone:pt-3">
                 Since {sinceText(since, now, utcOffsetMinutes)}: {merged} merged on their own.
               </p>
             )}
@@ -502,13 +523,33 @@ function DashboardInner({
     </div>
   );
 
+  // The board's overlay drawer (r3 `10`); on a phone the same over the whole list,
+  // until the detail page of the next phone PR.
+  const drawer = drawerOpen && (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-[52px] bottom-0 z-20 bg-[#05070b88]"
+      />
+      <div className="border-line2 shadow-float fixed top-[52px] right-0 bottom-0 z-20 w-[540px] max-w-full border-l phone:top-[calc(52px+env(safe-area-inset-top))] phone:w-full phone:border-l-0">
+        <DetailPanel
+          pr={shownPr}
+          width={phone ? windowWidth : 540}
+          onClose={() => setDrawerOpen(false)}
+        />
+      </div>
+    </>
+  );
+
   return (
     <DashboardContext.Provider value={state}>
-      <div className="flex h-full flex-col">
-        <TopBarShell>
+      <div className="pt-safe px-safe flex h-full flex-col">
+        {/* The avatar's 44 px target sits at the edge: less padding there. */}
+        <TopBarShell className="phone:pr-1 phone:pl-3.5">
           <Logo />
-          <span className="text-tx3 text-[13px]">{snapshot.repo}</span>
+          <span className="text-tx3 min-w-0 truncate text-[13px]">{snapshot.repo}</span>
           <Segmented
+            className="phone:hidden"
             label="View"
             value={view === "board" ? "board" : "list"}
             options={[
@@ -519,13 +560,19 @@ function DashboardInner({
           />
           <span className="flex-1" />
           {welcome?.fake && (
-            <span className="text-tx3 text-[12.5px]" title="nod serve --fake">
+            <span className="text-tx3 text-[12.5px] phone:hidden" title="nod serve --fake">
               fake data
             </span>
           )}
           <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
           <LockChip signer={signer} actions={actions} />
-          <Me login={me} people={snapshot.people} onSetup={() => go({ view: "setup" })} />
+          <Me
+            login={me}
+            people={snapshot.people}
+            onSetup={() => go({ view: "setup" })}
+            onLegend={askLegend}
+            fake={welcome?.fake}
+          />
         </TopBarShell>
         {notice === "quiet" && (
           <output className="text-tx3 border-line block border-b px-5 py-1 text-[12.5px]">
@@ -553,17 +600,12 @@ function DashboardInner({
           <>
             <BoardBar group={group} onGroup={chooseGroup} />
             <Board columns={columns} onBackground={() => setDrawerOpen(false)} />
-            {drawerOpen && (
-              <>
-                <div
-                  aria-hidden
-                  className="pointer-events-none fixed inset-x-0 top-[52px] bottom-0 z-20 bg-[#05070b88]"
-                />
-                <div className="border-line2 shadow-float fixed top-[52px] right-0 bottom-0 z-20 w-[540px] max-w-full border-l">
-                  <DetailPanel pr={shownPr} width={540} onClose={() => setDrawerOpen(false)} />
-                </div>
-              </>
-            )}
+            {drawer}
+          </>
+        ) : phone ? (
+          <>
+            <div className="min-h-0 flex-1">{list}</div>
+            {drawer}
           </>
         ) : (
           <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
@@ -659,13 +701,13 @@ function FirstRunLanes({ unclassified, repo }: { unclassified: number; repo: str
   return (
     <>
       {lanes.map(([lane, title, text]) => (
-        <section key={lane} className="mb-[34px]" aria-label={title}>
+        <section key={lane} className="mb-[34px] phone:mb-0" aria-label={title}>
           <LaneHeader lane={lane} title={title} count={0} />
           <EmptyLane>{text}</EmptyLane>
         </section>
       ))}
       {unclassified > 0 && (
-        <p className="text-tx3 text-[12.5px] leading-[1.55]">
+        <p className="text-tx3 text-[12.5px] leading-[1.55] phone:px-4">
           {unclassified} open pull request{unclassified === 1 ? "" : "s"} in {repo}{" "}
           {unclassified === 1 ? "is" : "are"} not classified yet. They show up once the verifier has
           run on them.
@@ -805,7 +847,7 @@ function KeyNote({
 }) {
   if (!signer) return null;
   const box =
-    "border-line2 text-tx2 mb-[26px] rounded-[10px] border border-dashed px-3.5 py-2.5 text-[13px] leading-[1.55]";
+    "border-line2 text-tx2 mb-[26px] rounded-[10px] border border-dashed px-3.5 py-2.5 text-[13px] leading-[1.55] phone:mx-4 phone:mt-4 phone:mb-0";
   const link = "underline underline-offset-2 hover:text-tx";
   if (signer.state === "no-key")
     return (

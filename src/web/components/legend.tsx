@@ -43,7 +43,7 @@ const ROWS = [
 export function Legend({ onDismiss }: { onDismiss: () => void }) {
   return (
     <section
-      className="border-line2 bg-panel mb-[30px] rounded-xl border px-[22px] py-5 phone:px-4"
+      className="border-line2 bg-panel mb-[30px] rounded-xl border px-[22px] py-5 phone:mx-4 phone:mt-4 phone:px-4"
       aria-label="How to read this"
     >
       <h3 className="m-0 mb-1 text-[15px] font-bold">How to read this</h3>
@@ -68,6 +68,13 @@ export function Legend({ onDismiss }: { onDismiss: () => void }) {
           </div>
         ))}
       </div>
+      {/* What a desktop says in tooltips, written out where there is no hover. */}
+      <p className="text-tx3 fs-note m-0 mt-3 hidden leading-[1.55] phone:block">
+        <b className="text-tx2 font-semibold">On a row:</b> the round letter is who prompted the
+        change. The bars are its risk: one low, two medium, three (red) high. The green and red
+        numbers are lines added and removed, lockfiles and generated files left out. “needs #492
+        first” means it waits for that one.
+      </p>
       <div className="mt-3.5 flex items-center gap-2.5 phone:flex-col phone:items-stretch phone:gap-3">
         <span className="text-tx3 fs-note leading-[1.55]">
           Lanes: <b className="text-need">Needs you</b> waits for your signature ·{" "}
