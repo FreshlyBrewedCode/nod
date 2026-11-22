@@ -669,7 +669,7 @@ function ReviewRow({
         ) : (
           head
         )}
-        {(details || tapped) && (
+        {details && !tapped && (
           <div
             className="text-tx3 mt-0.5 font-mono text-xs phone:mt-1.5 phone:text-[12.5px]"
             title={`head ${row.headSha}\npatch ${pr.patchId ?? "not known yet"}`}

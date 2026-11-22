@@ -485,7 +485,8 @@ colour and type). Below 640 px:
   "Self-attest", "Got it", …) is a tappable amber or blue word at the right of the meta line, 44 px
   high; it does what it does on desktop (the batch for that one PR; acknowledging an FYI). Tier 3
   one-liners have no checkbox column: title, meta, the ask centred at the right, a status on the meta
-  line. A folded cluster is a line "▸ 7 low-risk changes" and two of text, expanding in place. Rows
+  line. Their text starts at 16 px, left of the rows with a checkbox (52 px): the mockup's `.ar.k` does the
+  same on purpose, a one-liner has nothing to select, so the edge is kept, in both orders. A folded cluster is a line "▸ 7 low-risk changes" and two of text, expanding in place. Rows
   are full-bleed between hairlines, lane headers 16 px in.
 - **Selecting**: the checkbox toggles; a selected row has the focus tint and an amber bar on its left.
   The selection bar is a bar along the bottom edge ("2 selected", Clear, "Review & sign 2", 46 px
@@ -538,6 +539,9 @@ Direction A, with C's "1 of 6 that need you" and `Next ›` (`a-detail`, `a-unlo
   same field.
 - **Checked**: `check:phone` taps the page, its folds, `Next ›`, back, every sheet step it can reach
   with `--fake`, the docked field above an emulated keyboard, and "Open the last one".
+  Screenshots (390 × 844, scale 2): `docs/design/m1/impl/02-detail-page.png`, `02b-…`, `11-batch-sheet.png`
+  to `11g-…`. The keyboard shot is an emulated visual viewport; a real iOS or Android keyboard was not
+  tested.
 
 ## Do's and Don'ts
 

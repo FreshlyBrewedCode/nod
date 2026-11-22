@@ -215,10 +215,10 @@ export function ReasonsBody({ pr }: { pr: PrView }) {
       {pr.reasons.map((r) => (
         <div
           key={`${r.classifier}:${r.fact}`}
-          className="grid grid-cols-[1fr_auto] gap-2.5 py-1.5 text-[13.5px]"
+          className="grid grid-cols-[1fr_auto] gap-2.5 py-1.5 text-[13.5px] phone:border-line phone:grid-cols-1 phone:gap-0 phone:border-t phone:py-2 phone:text-sm phone:first:border-t-0 phone:first:pt-0"
         >
           <span>{r.fact}</span>
-          <span className={r.raises ? "text-need" : "text-tx3"}>
+          <span className={cn(r.raises ? "text-need" : "text-tx3", "phone:text-[13px]")}>
             {r.raises ? "↑ " : ""}
             {r.effect}
           </span>
@@ -296,14 +296,16 @@ export function FilesBody({ pr }: { pr: PrView }) {
         pr.files.map((f) => (
           <div
             key={f.path}
-            className="text-tx2 grid grid-cols-[1fr_90px_80px] gap-2.5 py-[5px] text-[12.5px]"
+            className="text-tx2 grid grid-cols-[1fr_90px_80px] gap-2.5 py-[5px] text-[12.5px] phone:border-line phone:grid-cols-[minmax(0,1fr)_auto] phone:items-center phone:border-t phone:py-1 phone:first:border-t-0 phone:min-h-9"
           >
-            <span className="truncate font-mono text-xs">{f.path}</span>
-            <span>
+            <span className="truncate font-mono text-xs phone:fs-code">{f.path}</span>
+            <span className="phone:text-[13px]">
               <span className="text-ok">+{f.added}</span>{" "}
               <span className="text-bad">−{f.removed}</span>
             </span>
-            <span className="text-tx3 truncate">{f.excluded ?? f.area ?? ""}</span>
+            <span className="text-tx3 truncate phone:col-span-2 phone:text-[13px] phone:empty:hidden">
+              {f.excluded ?? f.area ?? ""}
+            </span>
           </div>
         ))
       ) : (

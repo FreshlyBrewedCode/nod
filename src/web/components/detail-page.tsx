@@ -249,7 +249,7 @@ function RiskLine({ risk, word }: { risk: PrView["risk"]; word: string | null })
   return (
     <span className="mr-1.5 inline-flex items-center gap-1.5 align-[-1px]">
       <RiskBars risk={risk} />
-      {word && <span className="text-tx2 text-[13px]">{word}</span>}
+      {word && <span className="text-tx">{word.charAt(0).toUpperCase() + word.slice(1)}.</span>}
     </span>
   );
 }
