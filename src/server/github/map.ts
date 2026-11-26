@@ -293,6 +293,8 @@ function signaturesOf(
  * `evaluateNods` counts: any counting nod fills the prompter's slot, a
  * counting peer nod the peer slot, a named person's nod their slot. A slot
  * none fills but whose candidate's nod went stale is `stale` (re-attest).
+ * A slot the summary says a GitHub approval filled (`filled`, ADR 0006) is
+ * `ok` with `approval` set; one the policy keeps for nods has `nodsOnly`.
  */
 function slotsOf(summary: CheckSummary, nods: readonly NodEvaluation[], author: Login): Slot[] {
   const index = (pred: (n: NodEvaluation) => boolean, prefer?: Login | null) => {
@@ -301,6 +303,17 @@ function slotsOf(summary: CheckSummary, nods: readonly NodEvaluation[], author: 
     return (preferred ?? hits[0])?.[1] ?? null;
   };
   const stale = (n: NodEvaluation) => !n.counts && n.why_not?.code === "stale";
+  const { level, named } = summary.requirement;
+  const nodsOnly = summary.requirement.nodsOnly ?? { level: "none", named: [] };
+  const nodNamed = (login: Login) => nodsOnly.named.some((l) => sameLogin(l, login));
+  const filledSlots = summary.filled ?? [];
+  // The approval the verifier says fills a slot (it lists a nod first when both do).
+  const approvedBy = (kind: "self" | "peer" | "named", login: Login | null): Login | null => {
+    const f = filledSlots.find(
+      (x) => x.slot === kind && (kind !== "named" || sameLogin(x.login ?? null, login)),
+    );
+    return f?.by === "approval" ? f.reviewer : null;
+  };
   const slot = (
     role: Slot["role"],
     label: string,
@@ -308,22 +321,36 @@ function slotsOf(summary: CheckSummary, nods: readonly NodEvaluation[], author: 
     except: Login | null,
     filled: (n: NodEvaluation) => boolean,
     candidate: (n: NodEvaluation) => boolean,
+    approval: Login | null,
+    onlyNods: boolean,
   ): Slot => {
+    const base = { role, label, who, except, ...(onlyNods ? { nodsOnly: true } : {}) };
     const ok = index((n) => n.counts && filled(n), who);
-    if (ok !== null) return { role, label, who, except, state: "ok", signature: ok };
+    if (ok !== null) return { ...base, state: "ok", signature: ok };
+    if (approval) return { ...base, state: "ok", signature: null, approval };
     const old = index((n) => stale(n) && candidate(n));
     return old !== null
-      ? { role, label, who, except, state: "stale", signature: old }
-      : { role, label, who, except, state: "missing", signature: null };
+      ? { ...base, state: "stale", signature: old }
+      : { ...base, state: "missing", signature: null };
   };
-  const { level, named } = summary.requirement;
   const slots: Slot[] = [];
   const namedAuthor = named.some((l) => sameLogin(l, author));
   const byAuthor = (n: NodEvaluation) => sameLogin(n.reviewer, author);
-  // `self` is met by any counting nod; the author named by name only by their own.
-  if (level === "self" || namedAuthor)
+  // `self` is met by any counting nod (or approval); the author named by name only by their own nod.
+  // A peer level that takes approvals with a nod-only self below it shows both slots.
+  const selfSlot = level === "self" || (level === "peer" && nodsOnly.level === "self");
+  if (selfSlot || namedAuthor)
     slots.push(
-      slot("prompter", "Prompter", author, null, namedAuthor ? byAuthor : () => true, byAuthor),
+      slot(
+        "prompter",
+        "Prompter",
+        author,
+        null,
+        namedAuthor ? byAuthor : () => true,
+        byAuthor,
+        namedAuthor || nodsOnly.level !== "none" ? null : approvedBy("self", null),
+        namedAuthor || nodsOnly.level !== "none",
+      ),
     );
   if (level === "peer")
     slots.push(
@@ -334,6 +361,8 @@ function slotsOf(summary: CheckSummary, nods: readonly NodEvaluation[], author: 
         author,
         (n) => n.role === "peer",
         (n) => n.role === "peer",
+        nodsOnly.level === "peer" ? null : approvedBy("peer", null),
+        nodsOnly.level === "peer",
       ),
     );
   for (const login of named) {
@@ -346,6 +375,8 @@ function slotsOf(summary: CheckSummary, nods: readonly NodEvaluation[], author: 
         null,
         (n) => sameLogin(n.reviewer, login),
         (n) => sameLogin(n.reviewer, login),
+        nodNamed(login) ? null : approvedBy("named", login),
+        nodNamed(login),
       ),
     );
   }
@@ -510,6 +541,7 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
       policy: summary.reasons[0]?.tag ?? summary.requirement.level,
       label: requirementLabel(summary, author),
       slots: slotsOf(summary, evaluated, author),
+      enforced: summary.enforcement.enforced,
     };
     fyi = fyiOf(pr, summary, ctx.team, author);
     if (isLive && summary.errors.some((e) => e.source === "verifier"))

@@ -133,6 +133,24 @@ describe("the panel", () => {
     );
   });
 
+  test("a slot filled by a GitHub approval says so (ADR 0006)", () => {
+    const base = pr(482);
+    const approved = {
+      ...base,
+      requirement: {
+        ...base.requirement,
+        slots: [{ ...base.requirement.slots[0]!, state: "ok" as const, approval: "inescal" }],
+      },
+    };
+    const slot = approved.requirement.slots[0]!;
+    expect(slotText(slot, null, people, me, NOW, 0)).toEqual({
+      who: "Anyone but Jonas, as peer",
+      detail: "approved on GitHub by Ines",
+    });
+    const [pip] = signaturePips(approved, me, people);
+    expect(pip).toMatchObject({ tone: "ok", title: "Peer: approved on GitHub" });
+  });
+
   test("journey steps: the detail, else how long now, else the clock", () => {
     const e = (over: Partial<JourneyEvent>): JourneyEvent => ({
       kind: "waiting",

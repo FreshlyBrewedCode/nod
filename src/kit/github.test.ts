@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
+import { getEnforcement, requiredByProtection, requiredByRules } from "./enforcement.ts";
 import {
+  canWrite,
   createCheckRun,
   getPullRequest,
+  getRepoPermission,
   GitHubError,
   listIssueComments,
+  listReviews,
   syncLabels,
   upsertStickyComment,
   type GitHubOptions,
@@ -111,15 +115,22 @@ describe("github helpers", () => {
     });
   });
 
-  test("createCheckRun refuses neutral or skipped", async () => {
-    const { options } = fake({});
-    const bad = {
+  test("createCheckRun takes neutral (not enforced), refuses skipped", async () => {
+    const { calls, options } = fake({ "POST /repos/acme/widgets/check-runs": () => ({ id: 5 }) });
+    await createCheckRun(options, {
       head_sha: "6".repeat(40),
       conclusion: "neutral",
+      title: "waiting for a peer approval or nod",
+      summary: "",
+    });
+    expect((calls[0]!.body as { conclusion: string }).conclusion).toBe("neutral");
+    const bad = {
+      head_sha: "6".repeat(40),
+      conclusion: "skipped",
       title: "",
       summary: "",
     } as unknown as Parameters<typeof createCheckRun>[1];
-    await expect(createCheckRun(options, bad)).rejects.toThrow("only success or failure");
+    await expect(createCheckRun(options, bad)).rejects.toThrow("only success, failure or neutral");
   });
 
   test("upsertStickyComment edits the bot's comment, ignores a planted marker", async () => {
@@ -177,6 +188,72 @@ describe("github helpers", () => {
       }),
     ).toBe(3);
     expect(same.calls).toEqual([]);
+  });
+
+  test("upsertStickyComment with create: false updates one but never creates one", async () => {
+    const { calls, options } = fake({
+      "GET /repos/acme/widgets/issues/6/comments?per_page=100&page=1": () => [],
+    });
+    expect(await upsertStickyComment(options, 6, `${STICKY_MARKER}\nhi`, { create: false })).toBe(
+      null,
+    );
+    expect(calls.map((c) => c.method)).toEqual(["GET"]);
+    const existing = [
+      {
+        id: 4,
+        body: `${STICKY_MARKER}\nold`,
+        author: "github-actions[bot]",
+        authorType: "Bot",
+        created_at: "t",
+        updated_at: "t",
+      },
+    ];
+    const upd = fake({ "PATCH /repos/acme/widgets/issues/comments/4": () => ({ id: 4 }) });
+    expect(
+      await upsertStickyComment(upd.options, 6, `${STICKY_MARKER}\nnew`, {
+        comments: existing,
+        create: false,
+      }),
+    ).toBe(4);
+  });
+
+  test("listReviews maps the fields and follows pages", async () => {
+    const { options } = fake({
+      "GET /repos/acme/widgets/pulls/6/reviews?per_page=100&page=1": () => [
+        {
+          user: { login: "bob", type: "User" },
+          state: "APPROVED",
+          commit_id: "6".repeat(40),
+          submitted_at: "2026-11-26T09:00:00Z",
+        },
+        { user: null, state: "COMMENTED" },
+      ],
+    });
+    expect(await listReviews(options, 6)).toEqual([
+      {
+        reviewer: "bob",
+        reviewerType: "User",
+        state: "APPROVED",
+        commit_id: "6".repeat(40),
+        submitted_at: "2026-11-26T09:00:00Z",
+      },
+      { reviewer: "", reviewerType: "", state: "COMMENTED", commit_id: null, submitted_at: null },
+    ]);
+  });
+
+  test("getRepoPermission reads role_name, else permission; canWrite", async () => {
+    const { options } = fake({
+      "GET /repos/acme/widgets/collaborators/bob/permission": () => ({
+        permission: "write",
+        role_name: "maintain",
+      }),
+      "GET /repos/acme/widgets/collaborators/carol/permission": () => ({ permission: "read" }),
+    });
+    expect(await getRepoPermission(options, "bob")).toBe("maintain");
+    expect(await getRepoPermission(options, "carol")).toBe("read");
+    await expect(getRepoPermission(options, "dave")).rejects.toThrow("GitHub 404");
+    expect(["admin", "maintain", "write"].every((p) => canWrite(p as "write"))).toBe(true);
+    expect(canWrite("triage") || canWrite("read") || canWrite("none")).toBe(false);
   });
 
   test("syncLabels only touches its own prefix", async () => {
@@ -238,5 +315,114 @@ describe("github helpers", () => {
     ).catch(() => {});
     expect(ghe.calls[0]!.url).toBe("https://api.acme.ghe.com/repos/mona_acme/widgets/pulls/6");
     expect(ghe.calls[0]!.headers.authorization).toBe("Bearer tok-123");
+  });
+});
+
+describe("enforcement (ADR 0006)", () => {
+  const RULES = "GET /repos/acme/widgets/rules/branches/main";
+  const BRANCH = "GET /repos/acme/widgets/branches/main";
+  const unprotected = () => ({ name: "main", protected: false });
+  const nodRule = {
+    type: "required_status_checks",
+    parameters: { required_status_checks: [{ context: "nod", integration_id: 15368 }] },
+  };
+
+  test("a ruleset requiring nod: enforced by the ruleset, the branch is not asked", async () => {
+    const { calls, options } = fake({ [RULES]: () => [{ type: "deletion" }, nodRule] });
+    expect(await getEnforcement(options, "main")).toEqual({ enforced: true, by: "ruleset" });
+    expect(calls).toHaveLength(1);
+  });
+
+  test("no rule and no protection: not enforced", async () => {
+    const { options } = fake({
+      [RULES]: () => [
+        {
+          type: "required_status_checks",
+          parameters: { required_status_checks: [{ context: "test" }] },
+        },
+      ],
+      [BRANCH]: unprotected,
+    });
+    expect(await getEnforcement(options, "main")).toEqual({ enforced: false, by: null });
+  });
+
+  test("classic branch protection requiring nod: enforced", async () => {
+    const { options } = fake({
+      [RULES]: () => [],
+      [BRANCH]: () => ({
+        protected: true,
+        protection: {
+          enabled: true,
+          required_status_checks: {
+            enforcement_level: "non_admins",
+            contexts: ["nod"],
+            checks: [{ context: "nod", app_id: 15368 }],
+          },
+        },
+      }),
+    });
+    expect(await getEnforcement(options, "main")).toEqual({
+      enforced: true,
+      by: "branch_protection",
+    });
+  });
+
+  test("a failed lookup counts as enforced, with the reason", async () => {
+    const { options } = fake({
+      [RULES]: () => new Response(JSON.stringify({ message: "Server Error" }), { status: 500 }),
+    });
+    const e = await getEnforcement(options, "main");
+    expect(e).toMatchObject({ enforced: true, by: "unknown" });
+    expect(e.detail).toContain("GitHub 500");
+    expect(e.detail).not.toContain("tok-123");
+  });
+
+  test("a protected branch whose required checks are not readable counts as enforced", async () => {
+    const { options } = fake({ [RULES]: () => [], [BRANCH]: () => ({ protected: true }) });
+    expect(await getEnforcement(options, "main")).toMatchObject({ enforced: true, by: "unknown" });
+  });
+
+  test("enforced: true in the policy asks nobody", async () => {
+    const { calls, options } = fake({});
+    expect(await getEnforcement(options, "main", { policy: { enforced: true } })).toEqual({
+      enforced: true,
+      by: "policy",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test("a branch with slashes keeps them; odd characters are encoded", async () => {
+    const { calls, options } = fake({
+      "GET /repos/acme/widgets/rules/branches/stack/part%231": () => [],
+      "GET /repos/acme/widgets/branches/stack/part%231": unprotected,
+    });
+    expect(await getEnforcement(options, "stack/part#1")).toEqual({ enforced: false, by: null });
+    expect(calls).toHaveLength(2);
+  });
+
+  test("the parsers", () => {
+    expect(requiredByRules([nodRule])).toBe(true);
+    expect(requiredByRules([nodRule], "other")).toBe(false);
+    expect(() => requiredByRules({ message: "x" })).toThrow();
+    // the sandbox's shape: protected by a ruleset only, classic checks off
+    expect(
+      requiredByProtection({
+        protected: true,
+        protection: {
+          enabled: false,
+          required_status_checks: { checks: [], contexts: [], enforcement_level: "off" },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      requiredByProtection({
+        protected: true,
+        protection: {
+          required_status_checks: { enforcement_level: "everyone", contexts: ["ci"], checks: [] },
+        },
+      }),
+    ).toBe(false);
+    expect(requiredByProtection({ protected: true, protection: {} })).toBe(null);
+    expect(requiredByProtection(null)).toBe(false);
   });
 });

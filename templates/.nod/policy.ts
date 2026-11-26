@@ -13,14 +13,25 @@
  *    in 18 files", "module billing is tier 1".
  * 2. **Rules** turn findings into what the PR needs:
  *    - `none`: nobody has to nod; the PR merges on its own once CI is green;
- *    - `self`: the human behind the agent (the PR author) nods, or anyone enrolled;
- *    - `peer`: someone other than the PR author nods;
- *    - `named("login")`: that person nods.
+ *    - `self`: the human behind the agent (the PR author) nods, or anyone
+ *      enrolled, or anyone with write access approves the PR on GitHub;
+ *    - `peer`: someone other than the PR author nods or approves;
+ *    - `named("login")`: that person nods or approves.
+ *
+ * A plain GitHub approval of the PR's head commit counts, so teammates who
+ * don't use nod keep their usual review. Where only a signed nod will do,
+ * say so: `peer({ approvals: false })`, `self({ approvals: false })`,
+ * `named("login", { approvals: false })`.
  *
  * Everything combines to the strictest: the risk is the highest risk of any
  * finding, and no rule can lower what another rule asked for. On top of the
- * rules, the kit always asks for a peer when `.nod/**` or
- * `.github/workflows/**` change, and when a classifier or rule crashes.
+ * rules, the kit always asks for a peer's nod (an approval is not enough)
+ * when `.nod/**` or `.github/workflows/**` change, and when a classifier or
+ * rule crashes.
+ *
+ * The `nod` check only blocks a merge once the default branch requires it
+ * (`nod init --ruleset`). Until then an unmet requirement shows as a grey,
+ * neutral check. `enforced: true` below makes it red without a ruleset.
  *
  * The PR's category follows: `decide` when someone has to nod, `fyi` when a
  * rule marked it as worth knowing about, `auto` otherwise.
@@ -93,7 +104,12 @@ export default definePolicy({
     // rule("billing needs alice", (f) => f.has("tier-1") && named("alice")),
     // rule("big changes need a peer", (f) => f.has("size:l", "size:xl") && peer),
     // rule("migrations need alice and a peer", (f) => f.has("migration") && [named("alice"), peer]),
+    // rule("auth needs a signed peer nod", (f) => f.has("auth") && peer({ approvals: false })),
     // To let something through, narrow the rule that asks for more: a rule
     // returning `none` adds nothing, it cannot lower another rule's ask.
   ],
+
+  // The verifier asks GitHub whether the base branch requires the `nod`
+  // check; while it doesn't, an unmet requirement is neutral, not a failure.
+  // enforced: true,
 });

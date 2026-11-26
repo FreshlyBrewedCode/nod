@@ -155,6 +155,9 @@ describe("the setup PR body", () => {
     expect(body).toContain("`workflow` scope");
     expect(body).toContain("only human");
     expect(body).toContain("2026-12-02");
+    expect(body).toContain("**Nothing is blocked yet.**");
+    expect(body).toContain("grey, neutral `nod` check");
+    expect(body).toContain("an approval is not enough");
     expect(body).not.toMatch(/\n\n\n/);
   });
 

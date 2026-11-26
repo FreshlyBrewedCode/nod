@@ -5,12 +5,15 @@
  * - the nod format: {@link serializePayload}, {@link renderNodComment}, {@link parseNodComments}
  * - signatures via `ssh-keygen`: {@link verifyNodBlocks}, {@link enrolledLogins}
  * - the diff via `git`: {@link patchId}, {@link changedFiles}
- * - which nods count: {@link evaluateNods}
+ * - which nods and GitHub approvals count: {@link evaluateNods}, {@link evaluateApprovals}
+ * - whether the `nod` check is enforced on a branch: {@link getEnforcement}
  * - classifiers and the policy: {@link paths}, {@link diffSize}, {@link dependencies},
  *   {@link declared}, {@link definePolicy}, {@link defaultRules}, {@link evaluatePolicy}
- * - requirements: {@link none}, {@link self}, {@link peer}, {@link named}, {@link strictest}
+ * - requirements: {@link none}, {@link self}, {@link peer}, {@link named}, {@link strictest};
+ *   `peer({ approvals: false })` asks for a nod only
  * - output: {@link buildSummary}, {@link encodeSummary}, {@link checkTitle}, {@link renderSticky}
- * - GitHub REST: {@link getPullRequest}, {@link createCheckRun}, {@link upsertStickyComment}
+ * - GitHub REST: {@link getPullRequest}, {@link listReviews}, {@link getRepoPermission},
+ *   {@link createCheckRun}, {@link upsertStickyComment}
  * - GitHub hosts (github.com, GHE.com, GitHub Enterprise Server): {@link githubHost},
  *   {@link parseRemote}, {@link fetchWithToken}
  *
@@ -22,6 +25,7 @@
 export const KIT_VERSION = 1;
 
 export * from "./classifiers/index.ts";
+export * from "./enforcement.ts";
 export * from "./evaluate.ts";
 export * from "./github.ts";
 export * from "./host.ts";

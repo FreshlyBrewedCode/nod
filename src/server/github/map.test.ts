@@ -489,3 +489,60 @@ test("nodCheckRun takes the newest nod run from the verifier's app only", () => 
   expect(nodCheckRun(withForged)?.databaseId).toBe(5);
   expect(ciChecks(withForged).total).toBe(1); // test only: nod and verify are left out
 });
+
+test("a GitHub approval fills the peer slot; enforcement is carried (ADR 0006)", () => {
+  const raw = rawPr({ number: 40, author: BOB, files: [["core/scheduler.ts", 30, 4]] });
+  const { view } = seen(raw, {
+    risk: 3,
+    requirement: { level: "peer", named: [] },
+    approvals: [
+      {
+        reviewer: CAROL,
+        counts: true,
+        commit_id: raw.headRefOid,
+        submitted_at: iso(30),
+        why_not: null,
+      },
+    ],
+    filled: [{ slot: "peer", reviewer: CAROL, by: "approval" }],
+    satisfied: true,
+    enforcement: { enforced: false, by: null },
+  });
+  expect(view.requirement).toMatchObject({ satisfied: true, enforced: false });
+  expect(view.requirement.slots).toEqual([
+    {
+      role: "peer",
+      label: "Peer",
+      who: null,
+      except: BOB,
+      state: "ok",
+      signature: null,
+      approval: CAROL,
+    },
+  ]);
+  expect(view.needsMe).toBe(false);
+});
+
+test("a slot the policy keeps for nods says so, and an approval does not fill it", () => {
+  const raw = rawPr({ number: 41, author: BOB, files: [[".nod/policy.ts", 3, 1]] });
+  const { view } = seen(raw, {
+    risk: 3,
+    requirement: { level: "peer", named: [], nodsOnly: { level: "peer", named: [] } },
+    approvals: [
+      {
+        reviewer: CAROL,
+        counts: true,
+        commit_id: raw.headRefOid,
+        submitted_at: iso(30),
+        why_not: null,
+      },
+    ],
+    missing: [{ kind: "peer", approval: false }],
+    satisfied: false,
+  });
+  expect(view.requirement.slots).toEqual([
+    expect.objectContaining({ role: "peer", state: "missing", nodsOnly: true, signature: null }),
+  ]);
+  expect(view.requirement.slots[0]!.approval).toBeUndefined();
+  expect(view.requirement.enforced).toBe(true);
+});

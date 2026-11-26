@@ -63,13 +63,23 @@ export interface Policy {
   readonly classifiers: readonly Classifier[];
   readonly rules: readonly Rule[];
   readonly protectedPaths: readonly string[];
+  /**
+   * `true`: the verifier treats the `nod` check as enforced without asking
+   * GitHub (ADR 0006), so an unmet requirement is `failure`, never `neutral`.
+   */
+  readonly enforced?: true;
 }
 
+/** A peer's nod; a GitHub approval does not fill it. What the kit's own protections ask for. */
+const PEER_NOD: Requirement = peer({ approvals: false });
+
 /**
- * Paths that always need a peer nod, whatever the rules say: the trust root,
- * the policy and the verifier (`.nod/**`, ADR 0002), and workflows, which
- * could create a `nod` check of their own. Override with `protectedPaths`
- * in {@link definePolicy}, visibly in the repo's policy file.
+ * Paths that always need a peer's nod, whatever the rules say: the trust
+ * root, the policy and the verifier (`.nod/**`, ADR 0002), and workflows,
+ * which could create a `nod` check of their own. A GitHub approval does not
+ * count for them (ADR 0006): changing nod's own setup takes a signature from
+ * a key the agents don't have. Override with `protectedPaths` in
+ * {@link definePolicy}, visibly in the repo's policy file.
  */
 export const PROTECTED_PATHS: readonly string[] = [".nod/**", ".github/workflows/**"];
 
@@ -79,19 +89,25 @@ export const PROTECTED_PATHS: readonly string[] = [".nod/**", ".github/workflows
  *
  * Built in, and never lowered by rules:
  * - a changed file under `protectedPaths` (default {@link PROTECTED_PATHS})
- *   gives a risk-3 finding tagged `protected` and requires a peer;
+ *   gives a risk-3 finding tagged `protected` and requires a peer's nod;
  * - a classifier or rule that throws gives a risk-3 finding tagged `error`
- *   and requires a peer, so a broken policy fails safe.
+ *   and requires a peer's nod, so a broken policy fails safe.
+ *
+ * `enforced: true` makes the verifier treat the `nod` check as required
+ * without asking GitHub (ADR 0006); leave it out and the verifier asks
+ * whether the base branch requires the check.
  */
 export function definePolicy(policy: {
   classifiers: readonly Classifier[];
   rules: readonly Rule[];
   protectedPaths?: readonly string[];
+  enforced?: true;
 }): Policy {
   return {
     classifiers: policy.classifiers,
     rules: policy.rules,
     protectedPaths: policy.protectedPaths ?? PROTECTED_PATHS,
+    ...(policy.enforced === true ? { enforced: true as const } : {}),
   };
 }
 
@@ -146,8 +162,8 @@ export async function evaluatePolicy(
       risk: 3,
       detail: `changes nod's own setup: ${preview(guarded)}`,
     });
-    requirements.push(peer);
-    applied.push({ rule: "protected paths", requirement: peer, fyi: false });
+    requirements.push(PEER_NOD);
+    applied.push({ rule: "protected paths", requirement: PEER_NOD, fyi: false });
   }
 
   for (const [i, classify] of policy.classifiers.entries()) {
@@ -162,7 +178,7 @@ export async function evaluatePolicy(
         risk: 3,
         detail: `classifier failed: ${message(e)}`,
       });
-      requirements.push(peer);
+      requirements.push(PEER_NOD);
     }
   }
 
@@ -175,8 +191,8 @@ export async function evaluatePolicy(
       result = r(facts);
     } catch (e) {
       errors.push(`${name}: ${message(e)}`);
-      requirements.push(peer);
-      applied.push({ rule: name, requirement: peer, fyi: false });
+      requirements.push(PEER_NOD);
+      applied.push({ rule: name, requirement: PEER_NOD, fyi: false });
       continue;
     }
     if (!result) continue;
@@ -185,11 +201,12 @@ export async function evaluatePolicy(
     let marked = false;
     for (const o of outcomes) {
       if (isFyiMark(o)) marked = true;
-      else if (isRequirement(o)) req = req ? strictest(req, o) : o;
+      // strictest() also turns `peer` and `self`, which are functions as well, into plain objects
+      else if (isRequirement(o)) req = req ? strictest(req, o) : strictest(o);
       else if (o) {
         // e.g. an async rule returning a promise: fail safe rather than ignore it
         errors.push(`${name}: returned something that is not a requirement or fyi`);
-        req = req ? strictest(req, peer) : peer;
+        req = req ? strictest(req, PEER_NOD) : PEER_NOD;
       }
     }
     if (req) requirements.push(req);
@@ -221,9 +238,10 @@ export interface DefaultRulesOptions {
 }
 
 /**
- * A sensible starting point:
- * - risk 3, or a change under `.nod/**` or `.github/**` → a peer nod;
- * - risk 1 or 2 → a self nod;
+ * A sensible starting point (a GitHub approval fills a slot, as everywhere
+ * unless a rule says `approvals: false`):
+ * - risk 3, or a change under `.nod/**` or `.github/**` → a peer;
+ * - risk 1 or 2 → a self nod (or any approval);
  * - risk 0 → nothing (auto-merge);
  * - a finding tagged `fyi` → FYI.
  */
@@ -260,7 +278,10 @@ function isFyiMark(o: unknown): o is FyiMark {
 
 function isRequirement(o: unknown): o is Requirement {
   return (
-    typeof o === "object" && o !== null && "level" in o && Array.isArray((o as Requirement).named)
+    (typeof o === "object" || typeof o === "function") &&
+    o !== null &&
+    "level" in o &&
+    Array.isArray((o as Requirement).named)
   );
 }
 

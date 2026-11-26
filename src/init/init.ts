@@ -206,14 +206,16 @@ export async function setupRepo(
   await switchBack(runner, root, previous);
   const prUrl = url.split("\n").pop() ?? url;
   log(`opened the setup PR: ${prUrl}`);
-  log("It merges under this repository's current rules. After the merge, a repo admin runs:");
+  log("It merges under this repository's current rules. After the merge the nod check shows");
+  log("what each PR needs but never blocks; to make it required, a repo admin runs:");
   log(`  ${rulesetCommand(host.name, info.repo)}`);
   return prUrl;
 }
 
 /**
  * `nod init --ruleset`: creates or updates the ruleset `nod` on the default
- * branch and enables auto-merge. Refuses while the verifier is not on the
+ * branch, enables auto-merge and re-runs the verifier on open PRs whose
+ * `nod` check is still neutral. Refuses while the verifier is not on the
  * default branch yet (requiring `nod` then blocks every merge).
  */
 async function applyRuleset(
@@ -298,6 +300,8 @@ async function applyRuleset(
       "could not enable auto-merge (GitHub kept it off; on private repositories it needs a paid plan). Enable it under Settings → General → Pull Requests.",
     );
 
+  await rerunNeutralChecks(runner, api, repo, defaultBranch, log);
+
   const protection = await runner.run(
     api(
       `repos/${repo}/branches/${encodeURIComponent(defaultBranch)}/protection`,
@@ -311,6 +315,77 @@ async function applyRuleset(
     );
   }
   return 0;
+}
+
+/**
+ * After the ruleset: an open PR whose latest `nod` check concluded `neutral`
+ * (the check was not required yet, ADR 0006) would pass the new required
+ * check until the verifier runs again. For each such PR into the default
+ * branch, re-run the verifier's last `pull_request_target` run on its head;
+ * it then sees the ruleset and concludes `success` or `failure`. The PRs it
+ * cannot re-run are named, with what does it by hand.
+ */
+async function rerunNeutralChecks(
+  runner: Runner,
+  api: (...args: string[]) => string[],
+  repo: string,
+  branch: string,
+  log: (l: string) => void,
+): Promise<void> {
+  const byHand = "push to them, comment on them, or re-run their verify job";
+  const open = await runner.run(
+    api(
+      `repos/${repo}/pulls?state=open&base=${encodeURIComponent(branch)}&per_page=100`,
+      "--paginate",
+      "--jq",
+      ".[] | [.number, .head.sha] | @tsv",
+    ),
+  );
+  if (open.status !== 0) {
+    log(
+      `note: could not list the open PRs. A PR whose nod check is still neutral passes the new requirement until the verifier runs again: ${byHand}.`,
+    );
+    return;
+  }
+  const rerun: number[] = [];
+  const missed: number[] = [];
+  for (const line of open.stdout.split("\n")) {
+    const [n, sha] = line.trim().split("\t");
+    if (!n || !/^\d+$/.test(n) || !sha || !/^[0-9a-f]{40,64}$/.test(sha)) continue;
+    const check = await runner.run(
+      api(
+        `repos/${repo}/commits/${sha}/check-runs?check_name=nod&filter=latest`,
+        "--jq",
+        '.check_runs | sort_by(.completed_at // "") | last | .conclusion // ""',
+      ),
+    );
+    if (check.status === 0 && check.stdout.trim() !== "neutral") continue;
+    const run = await runner.run(
+      api(
+        `repos/${repo}/actions/workflows/nod.yml/runs?event=pull_request_target&head_sha=${sha}&per_page=1`,
+        "--jq",
+        '.workflow_runs[0].id // ""',
+      ),
+    );
+    const id = run.stdout.trim();
+    if (check.status === 0 && run.status === 0 && /^\d+$/.test(id)) {
+      const again = await runner.run(api("-X", "POST", `repos/${repo}/actions/runs/${id}/rerun`));
+      if (again.status === 0) {
+        rerun.push(Number(n));
+        continue;
+      }
+    }
+    missed.push(Number(n));
+  }
+  const list = (ns: number[]) => ns.map((n) => `#${n}`).join(", ");
+  if (rerun.length)
+    log(
+      `re-ran the verifier on ${list(rerun)}: their nod check was neutral, which would pass the new requirement.`,
+    );
+  if (missed.length)
+    log(
+      `note: could not re-run the verifier on ${list(missed)}; their nod check may still be neutral and pass the new requirement until it runs again: ${byHand}.`,
+    );
 }
 
 /**

@@ -13,11 +13,14 @@
  *  3. changed files and patch-id, from git
  *  4. classify with the policy (.nod/policy.ts)
  *  5. verify every nod block in the PR's comments with ssh-keygen,
- *     against .nod/allowed_signers
- *  6. evaluate: which nods count, is the requirement met
- *  7. create the check run `nod` on the head SHA (success or failure only),
- *     with the machine-readable summary in its output
- *  8. update the sticky comment and the display labels
+ *     against .nod/allowed_signers, and read the PR's GitHub approvals
+ *  6. evaluate: which nods and approvals count, is the requirement met
+ *  7. ask GitHub whether the base branch requires the `nod` check
+ *  8. create the check run `nod` on the head SHA, with the machine-readable
+ *     summary in its output: success when the requirement is met; else
+ *     failure where the check is required, neutral where it is not
+ *  9. update the sticky comment (only while the check is required) and the
+ *     display labels
  *
  * A crash ends as a red `nod` check with the error in its summary, never as
  * a green one. The helpers come from `@frebreco/nod/kit`; the crypto is
@@ -28,19 +31,24 @@ import { join } from "node:path";
 
 import {
   buildSummary,
+  canWrite,
   changedFiles,
   checkConclusion,
   checkTitle,
   createCheckRun,
   encodeSummary,
   enrolledLogins,
+  evaluateApprovals,
   evaluateNods,
   evaluatePolicy,
   fetchPullRequestObjects,
+  getEnforcement,
   getPullRequest,
+  getRepoPermission,
   gitFileReader,
   githubRequest,
   listIssueComments,
+  listReviews,
   parseNodComments,
   patchId,
   peer,
@@ -128,7 +136,7 @@ try {
   process.exit(1);
 }
 
-/** Steps 2 to 6: everything up to the verdict. */
+/** Steps 2 to 7: everything up to the verdict. */
 async function verify(pr: PullRequest): Promise<CheckSummary> {
   // 2. The PR's base tip and head commit, as objects only.
   const baseTip = await fetchPullRequestObjects({
@@ -167,19 +175,39 @@ async function verify(pr: PullRequest): Promise<CheckSummary> {
   const { verified, rejected } = await verifyNodBlocks(blocks, {
     allowedSignersPath: ALLOWED_SIGNERS,
   });
+  //    And the GitHub approvals: each reviewer's latest deciding review, if it
+  //    approves the head commit, from a human with write access, not the author.
+  const approvals = await evaluateApprovals({
+    pr: state,
+    reviews: await listReviews(gh, pr.number),
+    canApprove: async (login) => canWrite(await getRepoPermission(gh, login)),
+  });
 
-  // 6. Which nods count, and is the requirement met?
-  const nods = evaluateNods({ pr: state, requirement: result.requirement, verified, rejected });
+  // 6. Which nods and approvals count, and is the requirement met? An approval
+  //    fills any slot the policy did not reserve for nods (approvals: false).
+  const nods = evaluateNods({
+    pr: state,
+    requirement: result.requirement,
+    verified,
+    rejected,
+    approvals,
+  });
   const signers = enrolledLogins(await readFile(ALLOWED_SIGNERS, "utf8"));
-  return buildSummary({ pr: state, policy: result, nods, signers });
+
+  // 7. Is the check enforced? Only a clear "the base branch does not require
+  //    `nod`" makes an unmet requirement neutral instead of failure: neutral
+  //    would pass a required check, so any doubt counts as enforced.
+  //    `enforced: true` in the policy skips the question.
+  const enforcement = await getEnforcement(gh, pr.base, { policy });
+  return buildSummary({ pr: state, policy: result, nods, signers, enforcement });
 }
 
-/** Steps 7 and 8: tell GitHub. The check is the gate; the rest is display. */
+/** Steps 8 and 9: tell GitHub. The check is the gate; the rest is display. */
 async function report(pr: PullRequest, summary: CheckSummary): Promise<void> {
   // The link names the host off github.com, so it never opens a same-named repo elsewhere.
   const sticky = renderSticky(summary, { uiBase: UI_BASE, host: serverUrl });
 
-  // 7. The check run `nod` on the head SHA: the only thing the ruleset reads.
+  // 8. The check run `nod` on the head SHA: the only thing the ruleset reads.
   await createCheckRun(checks, {
     head_sha: pr.head_sha,
     conclusion: checkConclusion(summary),
@@ -190,9 +218,12 @@ async function report(pr: PullRequest, summary: CheckSummary): Promise<void> {
   });
   console.log(`nod ${checkConclusion(summary)} on ${pr.head_sha}: ${checkTitle(summary)}`);
 
-  // 8. Display only: a failure here never changes the verdict.
+  // 9. Display only: a failure here never changes the verdict. While the check
+  //    is not enforced no sticky comment is posted; one posted before is kept current.
   try {
-    await upsertStickyComment(gh, pr.number, sticky);
+    await upsertStickyComment(gh, pr.number, sticky, {
+      create: summary.enforcement.enforced,
+    });
     const wanted = summaryLabels(summary);
     await createMissingLabels(wanted.filter((l) => !pr.labels.includes(l)));
     await syncLabels(gh, pr.number, wanted, { current: pr.labels });
@@ -225,7 +256,7 @@ async function createMissingLabels(labels: readonly string[]): Promise<void> {
   }
 }
 
-/** The summary of a run that crashed: needs a peer, satisfied never. */
+/** The summary of a run that crashed: needs a peer's nod, satisfied never. */
 function failedSummary(
   pr: PullRequest | undefined,
   prNumber: number,
@@ -235,7 +266,7 @@ function failedSummary(
   const policyResult: PolicyResult = {
     category: "decide",
     risk: 3,
-    requirement: peer,
+    requirement: peer({ approvals: false }),
     fyi: false,
     reasons: [],
     rules: [],
@@ -251,8 +282,16 @@ function failedSummary(
       patch_id: "",
     },
     policy: policyResult,
-    nods: { nods: [], satisfied: false, missing: [{ kind: "peer" }] },
+    nods: {
+      nods: [],
+      approvals: [],
+      satisfied: false,
+      filled: [],
+      missing: [{ kind: "peer", approval: false }],
+    },
     signers: [],
     errors: [message],
+    // A crash is always a red check, whatever the branch requires.
+    enforcement: { enforced: true, by: "unknown", detail: "the verifier crashed" },
   });
 }
