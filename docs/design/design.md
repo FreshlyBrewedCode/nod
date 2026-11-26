@@ -476,7 +476,7 @@ colour and type). Below 640 px:
   in fake mode, "Fake data". Popovers are at most the screen wide.
 - **The switch**: under the top bar, the full width, "By attention | Chronological" (38 px high
   segments), then the "Since …" line. The Details toggle is gone: a tap on a row opens the details
-  (until the detail page exists, over the whole list, with its close button).
+  as a full-screen page (next section).
 - **A row** is the desktop row stacked, in a 46 px checkbox column (a 22 px box in a 44 px target,
   always there on tiers 1 and 2) and the content: the title wraps (15 px), tier 1 has two lines of the
   brief, then the meta line: the avatar without the name, the age (in the chronological view the time,
@@ -485,7 +485,8 @@ colour and type). Below 640 px:
   "Self-attest", "Got it", …) is a tappable amber or blue word at the right of the meta line, 44 px
   high; it does what it does on desktop (the batch for that one PR; acknowledging an FYI). Tier 3
   one-liners have no checkbox column: title, meta, the ask centred at the right, a status on the meta
-  line. A folded cluster is a line "▸ 7 low-risk changes" and two of text, expanding in place. Rows
+  line. Their text starts at 16 px, left of the rows with a checkbox (52 px): the mockup's `.ar.k` does the
+  same on purpose, a one-liner has nothing to select, so the edge is kept, in both orders. A folded cluster is a line "▸ 7 low-risk changes" and two of text, expanding in place. Rows
   are full-bleed between hairlines, lane headers 16 px in.
 - **Selecting**: the checkbox toggles; a selected row has the focus tint and an amber bar on its left.
   The selection bar is a bar along the bottom edge ("2 selected", Clear, "Review & sign 2", 46 px
@@ -493,6 +494,54 @@ colour and type). Below 640 px:
 - **Touch forms**: the risk bars, the diff bar and the avatar have a `title=` on a desktop; on a phone
   the legend says what they are and the detail page (next) spells them out. The list's keys are not
   replaced: a keyboard still works.
+
+### The detail page and the sign sheet on a phone
+
+Direction A, with C's "1 of 6 that need you" and `Next ›` (`a-detail`, `a-unlock`, `a-signed`,
+`c-detail`, `c-signed`). Below 640 px:
+
+- **The page** (`detail-page.tsx`) covers the whole screen. Header (52 px): back, "#476 · Auth
+  hardening", or "1 of 6 that need you" when the PR is one of those that need you (the Needs you lane,
+  in list order), and the GitHub link. Then the title, the meta line, the brief stacked under small
+  caps labels (What, Why, Risk, Verified), and the folds Journey, Why this needs you, Signatures, FYI
+  and Files, **closed**, each a 50 px row with its summary. It shares the fold bodies with the desktop
+  panel. What has a tooltip on a desktop is spelled out: the risk bars get "high risk" next to them
+  unless the brief's text starts with the level, the avatar is the name in the meta line.
+- **The action bar** is sticky at the bottom with the safe-area inset: the "Needed from you: sign as
+  owner of core/auth. Then …" line, the primary action ("Sign as owner" and the other asks, which
+  open the sign sheet for this PR; "Got it" for an FYI), "Add to batch" (it turns into "✓ In the
+  batch", and takes the PR out again), and `Next ›`, the next PR that needs you (hidden after the
+  last; a PR that no longer needs you takes the first). With `Next ›` the batch button is the short
+  "+ Batch" / "✓ Batch" of `c-detail`, as three full labels do not fit 360 px.
+- **Back closes it.** Opening the page (and the sheet) pushes one history entry whose `history.state`
+  carries a layer number; the address does not change (`lib/back-stack.ts`,
+  `hooks/use-back-stop.ts`). Not a route: a route would clash with the deep links (`#/pr/…` is the
+  landing), would reach into desktop routing, and could not bring a sheet back anyway (its model and
+  passphrase field are in memory). A reload shows the list. The list stays mounted underneath, so it
+  is where it was. Page over list is layer 1, a sheet over the page layer 2: back closes the sheet,
+  back again the page. A forward into a page that is gone is undone.
+- **The sign sheet** (`batch-dialog.tsx`) is the batch dialog, full screen (`100dvh`) for every step.
+  Header: close, "Sign 5 pull requests", the summary sentence under it; a bar with the buttons at the
+  bottom (46 px). Review rows have a 44 px checkbox; tapping the rest of a row shows what a desktop
+  has in tooltips: head and patch-id in full, "You never opened its details here", "Take out of the
+  batch". At the unlock step the rows shrink to a line each (title, role) and the passphrase field
+  docks at the bottom: label, the field with "Sign 5" at its right, the "Stay unlocked" chips; the
+  titles stay visible above. Signed: the check, the sentence, one result per PR with its outcome
+  under the title, "Signing stays unlocked for 14:54", Done; with exactly one PR left that needs you
+  also its card and "Open the last one", which shows that PR's page.
+- **The keyboard.** iOS and Android Chrome shrink only the visual viewport when the on-screen keyboard
+  opens, so `100dvh` does not follow it. The sheet is placed on `window.visualViewport`
+  (`hooks/use-visual-viewport.ts`, `lib/viewport.ts`) and the docked field stays above the keyboard;
+  while the page is zoomed, or without a visual viewport, it is `100dvh`.
+- **The field**: 16 px, `type="password"`, `name="passphrase"`, `autocomplete="current-password"`,
+  `enterkeyhint="go"`, in a form with a submit button, so Enter or "go" submits and a password manager
+  can offer to fill. The passphrase still lives only in the input. The lock chip's popover uses the
+  same field.
+- **Checked**: `check:phone` taps the page, its folds, `Next ›`, back, every sheet step it can reach
+  with `--fake`, the docked field above an emulated keyboard, and "Open the last one".
+  Screenshots (390 × 844, scale 2): `docs/design/m1/impl/02-detail-page.png`, `02b-…`, `11-batch-sheet.png`
+  to `11g-…`. The keyboard shot is an emulated visual viewport; a real iOS or Android keyboard was not
+  tested.
 
 ## Do's and Don'ts
 

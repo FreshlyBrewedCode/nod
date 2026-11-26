@@ -13,8 +13,11 @@ import {
   fyiSummary,
   fyiWhy,
   journeyDetail,
+  journeySummary,
   keyNoteOf,
+  neededFromYou,
   reasonsSummary,
+  riskWords,
   rowTag,
   signaturePips,
   signaturesSummary,
@@ -169,5 +172,56 @@ describe("a key that cannot sign", () => {
       waitingOn: [{ kind: "me" }],
     } as PrView;
     expect(statusText(waiting, people)).toBe("waits on you, once your key is enrolled");
+  });
+});
+
+describe("journeySummary", () => {
+  const event = (over: Partial<JourneyEvent>): JourneyEvent => ({
+    kind: "waiting",
+    text: "Waiting on you",
+    phase: "now",
+    tone: "plain",
+    at: null,
+    detail: null,
+    ...over,
+  });
+  test("is the present step, lower case, with its small text", () => {
+    const events = [
+      event({ kind: "opened", text: "Opened", phase: "done" }),
+      event({ detail: "6h" }),
+    ];
+    expect(journeySummary(events, 0, 0)).toBe("waiting on you, 6h");
+  });
+  test("without a small text it is the step alone", () => {
+    expect(journeySummary([event({})], 0, 0)).toBe("waiting on you");
+  });
+  test("a journey without a present step ends on its last", () => {
+    expect(journeySummary([event({ text: "Merged", phase: "done" })], 0, 0)).toBe("merged");
+    expect(journeySummary([], 0, 0)).toBe("");
+  });
+});
+
+describe("riskWords", () => {
+  test("says the level when the brief does not", () => {
+    expect(riskWords(3, "Touches core/auth/session.ts.")).toBe("high risk");
+    expect(riskWords(1, null)).toBe("low risk");
+  });
+  test("is silent when the brief starts with it", () => {
+    expect(riskWords(3, "High. Touches core/auth/session.ts.")).toBeNull();
+    expect(riskWords(2, "  medium: money math")).toBeNull();
+  });
+  test("a different level in the text is still said", () => {
+    expect(riskWords(3, "Low in theory, but…")).toBe("high risk");
+  });
+});
+
+describe("neededFromYou", () => {
+  test("is the ask's headline as a sentence", () => {
+    const needing = snapshot.prs.find((p) => p.ask?.kind === "owner")!;
+    expect(neededFromYou(needing)).toMatch(/^Needed from you: sign as owner/);
+    expect(neededFromYou(needing)!.endsWith(".")).toBe(true);
+  });
+  test("is null without an ask", () => {
+    expect(neededFromYou(snapshot.prs.find((p) => !p.ask)!)).toBeNull();
   });
 });

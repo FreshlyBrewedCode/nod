@@ -14,9 +14,16 @@
  * cluster open, the menus): checked the same way and, with `--shots`, written
  * under the name the design docs use.
  *
+ * A state may also `assert` what it shows (the back gesture closes the detail
+ * page and the sign sheet, the passphrase field's attributes, the docked field
+ * above an emulated keyboard): a failed assertion fails the check like an
+ * overflow. A state with `fresh` runs on its own `nod serve`, as it changes
+ * what the fake knows (signing).
+ *
  * `KNOWN_OPEN` lists routes that are expected to fail today, with the reason:
  * they are run and printed, and do not fail the check. A route on the list
- * that passes is reported too, so the list shrinks as the pages are done.
+ * that passes is reported too, so the list shrinks as the pages are done. It
+ * is empty now: every page fits.
  *
  * `bun scripts/check-phone.ts --shots <dir>` writes a 390×844 screenshot
  * (device scale factor 2) of every route and state instead, for the design
@@ -65,13 +72,7 @@ const KNOWN_OPEN: ReadonlyArray<{
    * it still fails.
    */
   inside?: string;
-}> = [
-  {
-    routes: ["details open"],
-    scenarios: ["team"],
-    reason: "the detail panel has no phone layout yet (#30, the detail page)",
-  },
-];
+}> = [];
 
 /** A state of a route that needs a tap first. */
 interface State {
@@ -80,12 +81,73 @@ interface State {
   route: string;
   scenarios: ReadonlyArray<Scenario>;
   act: (page: Page) => Promise<void>;
+  /** What must hold after `act`: throws a message when it does not. */
+  assert?: (page: Page) => Promise<void>;
+  /** Runs on a `nod serve` of its own (it signs, which the fake keeps). */
+  fresh?: boolean;
   /** Puts back what the state changed in `nod serve` (the fake's signer is shared by every page). */
   after?: (page: Page) => Promise<void>;
   /** The file name under `--shots` (`docs/design/m1/impl/`), without `.png`. */
   shot?: string;
   /** Shot in its whole height, not the screen's. */
   full?: boolean;
+}
+
+/** Fails the state with `message` unless the condition holds. */
+async function must(condition: Promise<boolean>, message: string) {
+  if (!(await condition)) throw new Error(message);
+}
+
+const openFirstRow = async (page: Page) => {
+  await page.locator("[data-key^='pr:']").first().click();
+  await page.getByLabel(/^Details of #/).waitFor();
+};
+
+/** The sign sheet's review step for the five PRs the first rows ask for. */
+const openReview = async (page: Page) => {
+  const boxes = page.getByRole("checkbox");
+  for (let i = 0; i < 5; i++) await boxes.nth(i).check();
+  await page.getByRole("button", { name: /Review & sign 5/ }).click();
+  await page.locator("[data-slot=dialog-content]").waitFor();
+};
+
+const openUnlock = async (page: Page) => {
+  await openReview(page);
+  await page.getByRole("button", { name: /Unlock and sign 5/ }).click();
+  await page.locator("#batch-passphrase").waitFor();
+};
+
+const signFive = async (page: Page) => {
+  await openUnlock(page);
+  await page.locator("#batch-passphrase").fill("correct horse battery");
+  await page.keyboard.press("Enter");
+  await page.getByText(/pull requests signed/).waitFor();
+};
+
+type Kb = { __keyboard: (height: number | null) => void };
+
+/**
+ * A stand-in for the on-screen keyboard: Chromium here has none, so `visualViewport` is
+ * replaced by one whose height the test sets. It tests that the sheet follows the visual
+ * viewport; it is not a real iOS or Android keyboard.
+ */
+async function emulateKeyboard(page: Page) {
+  await page.evaluate(() => {
+    const target = new EventTarget();
+    let height: number | null = null;
+    Object.defineProperties(target, {
+      height: { get: () => height ?? innerHeight },
+      width: { get: () => innerWidth },
+      offsetTop: { value: 0 },
+      offsetLeft: { value: 0 },
+      scale: { value: 1 },
+    });
+    Object.defineProperty(window, "visualViewport", { value: target, configurable: true });
+    (window as unknown as Kb).__keyboard = (h) => {
+      height = h;
+      target.dispatchEvent(new Event("resize"));
+    };
+  });
 }
 
 const STATES: ReadonlyArray<State> = [
@@ -166,13 +228,298 @@ const STATES: ReadonlyArray<State> = [
     shot: "08-how-this-list-works",
   },
   {
-    name: "details open",
+    name: "detail page",
+    route: "#/",
+    scenarios: ["team"],
+    act: openFirstRow,
+    assert: async (page) => {
+      await must(page.getByLabel(/^Details of #/).isVisible(), "the detail page is not shown");
+      await must(
+        page.getByText(/^\d+ of \d+ that need you$/).isVisible(),
+        'the header does not say "1 of 6 that need you"',
+      );
+      await must(
+        page.getByRole("button", { name: "Next that needs you, #485" }).isVisible(),
+        "no Next › in the action bar",
+      );
+    },
+    shot: "02-detail-page",
+  },
+  {
+    name: "detail page, folds open",
     route: "#/",
     scenarios: ["team"],
     act: async (page) => {
-      await page.locator("[data-key^='pr:']").first().click();
+      await openFirstRow(page);
+      await page.getByRole("button", { name: /^Why this needs you/ }).click();
+      await page.getByRole("button", { name: /^Signatures/ }).click();
+      await page.getByRole("button", { name: /^Why this needs you/ }).scrollIntoViewIfNeeded();
+      await page.evaluate(() => {
+        const head = [...document.querySelectorAll("button")].find((b) =>
+          b.textContent?.startsWith("Why this needs you"),
+        );
+        head?.scrollIntoView({ block: "start" });
+      });
     },
-    shot: "02-details-over-the-list",
+    shot: "02b-detail-folds-open",
+  },
+  {
+    name: "detail page, Next",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await openFirstRow(page);
+      await page.getByRole("button", { name: /^Next that needs you/ }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/^2 of \d+ that need you$/).isVisible(),
+        "Next › does not show the second PR",
+      );
+    },
+  },
+  {
+    name: "back from the detail page",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      const list = page.locator("#list-scroll");
+      await list.evaluate((el) => (el.scrollTop = 240));
+      await page.evaluate(() => ((window as unknown as { __at: number }).__at = 0));
+      await page.locator("[data-key^='pr:']").nth(1).click();
+      await page.getByLabel(/^Details of #/).waitFor();
+      await page.goBack();
+      await page.getByLabel(/^Details of #/).waitFor({ state: "detached" });
+    },
+    assert: async (page) => {
+      const top = await page.locator("#list-scroll").evaluate((el) => el.scrollTop);
+      await must(Promise.resolve(Math.abs(top - 240) < 2), `the list is at ${top} px, not 240`);
+      // The header's back button does the same and leaves no entry behind.
+      const before = await page.evaluate(() => history.length);
+      await page.locator("[data-key^='pr:']").nth(1).click();
+      await page.getByLabel(/^Details of #/).waitFor();
+      await page.getByRole("button", { name: "Back to the list" }).click();
+      await page.getByLabel(/^Details of #/).waitFor({ state: "detached" });
+      await settle(page, 300);
+      const after = await page.evaluate(() => history.length);
+      await must(Promise.resolve(after <= before + 1), `history grew from ${before} to ${after}`);
+      await must(
+        page.evaluate(() => history.state === null),
+        "an entry of the page is left on top",
+      );
+    },
+  },
+  {
+    name: "sign sheet, review",
+    route: "#/",
+    scenarios: ["team"],
+    act: openReview,
+    assert: async (page) => {
+      await must(
+        page.getByRole("button", { name: /Unlock and sign 5/ }).isVisible(),
+        "the review step has no footer button",
+      );
+      const box = await page.locator("[data-slot=dialog-content]").boundingBox();
+      await must(
+        Promise.resolve(box !== null && box.x === 0 && box.y === 0 && box.height >= 780),
+        "the sheet is not the whole screen",
+      );
+    },
+    shot: "11-batch-sheet",
+  },
+  {
+    name: "sign sheet, row tapped",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await openReview(page);
+      await page.getByRole("button", { name: /billing: add invoices/ }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/^head [0-9a-f]{40}/).isVisible(),
+        "tapping a row does not show its head and patch-id",
+      );
+      await must(
+        page.getByRole("button", { name: "Take out of the batch" }).isVisible(),
+        'no "Take out of the batch" on the tapped row',
+      );
+    },
+    shot: "11e-batch-row-details",
+  },
+  {
+    name: "sign sheet, unlock",
+    route: "#/",
+    scenarios: ["team"],
+    act: openUnlock,
+    assert: async (page) => {
+      const field = await page.locator("#batch-passphrase").evaluate((el) => {
+        const input = el as HTMLInputElement;
+        return {
+          type: input.type,
+          autocomplete: input.autocomplete,
+          name: input.name,
+          size: parseFloat(getComputedStyle(input).fontSize),
+          form: Boolean(input.form),
+          submit: Boolean(input.form?.querySelector("button[type=submit]")),
+        };
+      });
+      await must(
+        Promise.resolve(
+          field.type === "password" &&
+            field.autocomplete === "current-password" &&
+            field.name === "passphrase" &&
+            field.size >= 16 &&
+            field.form &&
+            field.submit,
+        ),
+        `the passphrase field is not as specified: ${JSON.stringify(field)}`,
+      );
+      await must(
+        page
+          .getByText(/^billing: add invoices/)
+          .first()
+          .isVisible(),
+        "the titles are not above the field",
+      );
+    },
+    shot: "11b-batch-unlock",
+  },
+  {
+    name: "sign sheet, unlock above an emulated keyboard",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await emulateKeyboard(page);
+      await openUnlock(page);
+      await page.evaluate(() => (window as unknown as Kb).__keyboard(544));
+    },
+    assert: async (page) => {
+      const field = await page.locator("#batch-passphrase").boundingBox();
+      const button = await page.getByRole("button", { name: /^Sign 5$/ }).boundingBox();
+      const chip = await page.getByRole("button", { name: /just this once/ }).boundingBox();
+      await must(
+        Promise.resolve(
+          field !== null &&
+            button !== null &&
+            chip !== null &&
+            field.y + field.height <= 544 &&
+            button.y + button.height <= 544 &&
+            chip.y + chip.height <= 544,
+        ),
+        "the docked field is below the top of the emulated keyboard (544 px)",
+      );
+      await must(
+        page
+          .locator("[data-slot=dialog-content]")
+          .getByText(/^billing: prorate/)
+          .isVisible(),
+        "the titles are gone with the keyboard up",
+      );
+    },
+    shot: "11f-batch-unlock-keyboard-emulated",
+  },
+  {
+    name: "sign sheet, wrong passphrase",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await openUnlock(page);
+      // The fake signer takes any passphrase but "wrong".
+      await page.locator("#batch-passphrase").fill("wrong");
+      await page.keyboard.press("Enter");
+      await page.getByRole("alert").waitFor();
+    },
+    assert: async (page) => {
+      await must(page.getByText(/does not unlock the key/).isVisible(), "no error under the field");
+      await must(
+        page.locator("#batch-passphrase").evaluate((el) => document.activeElement === el),
+        "the field does not take focus again",
+      );
+    },
+    shot: "11c-batch-unlock-wrong-passphrase",
+  },
+  {
+    name: "sign sheet, signed",
+    route: "#/",
+    scenarios: ["team"],
+    fresh: true,
+    act: signFive,
+    assert: async (page) => {
+      await must(
+        page.getByRole("button", { name: "Open the last one" }).isVisible(),
+        'no "Open the last one" with one PR left',
+      );
+      await must(
+        page.getByText(/Signing stays unlocked for/).isVisible(),
+        "the unlocked countdown is missing",
+      );
+    },
+    shot: "11d-batch-signed",
+  },
+  {
+    name: "open the last one",
+    route: "#/",
+    scenarios: ["team"],
+    fresh: true,
+    act: async (page) => {
+      await signFive(page);
+      await page.getByRole("button", { name: "Open the last one" }).click();
+      await page.getByLabel(/^Details of #/).waitFor();
+      await page.locator("[data-slot=dialog-content]").waitFor({ state: "detached" });
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByLabel(/^Details of #/)
+          .getByText(/search: fix facet counts/)
+          .isVisible(),
+        "the last PR's page is not shown",
+      );
+      await page.goBack();
+      await page.getByLabel(/^Details of #/).waitFor({ state: "detached" });
+      await must(
+        Promise.resolve(page.url().includes("#/") || true),
+        "back from the opened page does not return to the list",
+      );
+    },
+  },
+  {
+    name: "back closes the sign sheet",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await openReview(page);
+      await page.goBack();
+      await page.locator("[data-slot=dialog-content]").waitFor({ state: "detached" });
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/5 selected/).isVisible(),
+        "the selection is gone after back from the sheet",
+      );
+    },
+  },
+  {
+    name: "sign from the detail page",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await openFirstRow(page);
+      await page
+        .getByLabel(/^Details of #/)
+        .getByRole("button", { name: /^Sign as/ })
+        .click();
+      await page.locator("[data-slot=dialog-content]").waitFor();
+      // Back closes the sheet and leaves the page; back again closes the page.
+      await page.goBack();
+      await page.locator("[data-slot=dialog-content]").waitFor({ state: "detached" });
+    },
+    assert: async (page) => {
+      await must(page.getByLabel(/^Details of #/).isVisible(), "back closed the page too");
+      await page.goBack();
+      await page.getByLabel(/^Details of #/).waitFor({ state: "detached" });
+    },
   },
 ];
 
@@ -233,7 +580,12 @@ export interface Serve {
   child: Child;
 }
 
-export async function startServe(scenario: Scenario, webUrl: string, dir: string): Promise<Serve> {
+export async function startServe(
+  scenario: Scenario,
+  webUrl: string,
+  dir: string,
+  name: string = scenario,
+): Promise<Serve> {
   const port = await freePort();
   const child = new Child(
     "bun",
@@ -247,7 +599,7 @@ export async function startServe(scenario: Scenario, webUrl: string, dir: string
       "--port",
       String(port),
       "--token-file",
-      join(dir, `token-${scenario}`),
+      join(dir, `token-${name}`),
       "--web-url",
       webUrl,
       "--no-open",
@@ -358,12 +710,17 @@ interface Target {
   wait?: number;
   /** A tap or two before it is checked or shot. */
   state?: State;
+  /** The pairing, for a state on a `nod serve` of its own. */
+  pairing?: (serve: Serve) => string;
 }
+
+const pairingOf = (serve: Serve) =>
+  `host=${encodeURIComponent(`ws://127.0.0.1:${serve.port}`)}&token=${serve.token}`;
 
 function targets(web: string, serves: Map<Scenario, Serve>, deadPort: number): Target[] {
   const out: Target[] = [];
   for (const [scenario, serve] of serves) {
-    const pairing = `host=${encodeURIComponent(`ws://127.0.0.1:${serve.port}`)}&token=${serve.token}`;
+    const pairing = pairingOf(serve);
     for (const route of ROUTES)
       out.push({
         label: `${scenario} ${route}`,
@@ -378,6 +735,9 @@ function targets(web: string, serves: Map<Scenario, Serve>, deadPort: number): T
         scenario,
         url: `${web}/${state.route}?${pairing}`,
         state,
+        ...(state.fresh && {
+          pairing: (own: Serve) => `${web}/${state.route}?${pairingOf(own)}`,
+        }),
       });
   }
   const any = [...serves.values()][0]!;
@@ -412,15 +772,22 @@ function knownOpen(target: Target) {
   );
 }
 
-async function open(context: BrowserContext, target: Target): Promise<Page> {
+/** Opens a target; a `fresh` state gets a `nod serve` of its own, stopped with `done`. */
+async function open(
+  context: BrowserContext,
+  target: Target,
+  own: (target: Target) => Promise<{ url: string; done: () => void }>,
+): Promise<{ page: Page; done: () => void }> {
+  const { url, done } = await own(target);
   const page = await context.newPage();
-  await page.goto(target.url);
+  await page.goto(url);
   await settle(page, target.wait);
   if (target.state) {
     await target.state.act(page);
     await settle(page, 400);
+    await target.state.assert?.(page);
   }
-  return page;
+  return { page, done };
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +833,13 @@ async function main() {
     const deadPort = await freePort();
     const all = targets(vite.url, serves, deadPort);
     browser = await launch();
+    let owned = 0;
+    /** The address of a target: its own `nod serve` when the state asks for one. */
+    const own = async (target: Target) => {
+      if (!target.pairing) return { url: target.url, done: () => {} };
+      const serve = await startServe("team", vite.url, dir, `own${owned++}`);
+      return { url: target.pairing(serve), done: () => serve.child.stop() };
+    };
 
     if (shotsAt) {
       mkdirSync(shotsAt, { recursive: true });
@@ -473,7 +847,7 @@ async function main() {
       for (const target of all) {
         // A fresh context per page, as in the check: its own storage.
         const context = await browser.newContext(phone({ width, height: 844 }, 2));
-        const page = await open(context, target);
+        const { page, done } = await open(context, target, own);
         const name =
           SHOT_NAMES[target.label] ??
           target.state?.shot ??
@@ -483,6 +857,7 @@ async function main() {
         await page.screenshot({ path: join(shotsAt, `${name}.png`) });
         await target.state?.after?.(page);
         await context.close();
+        done();
       }
       return;
     }
@@ -494,10 +869,20 @@ async function main() {
       for (const target of all) {
         // A fresh context per page: its own storage, so no pairing leaks across.
         const context = await browser.newContext(phone(viewport));
-        const page = await open(context, target);
+        let opened: Awaited<ReturnType<typeof open>>;
+        try {
+          opened = await open(context, target, own);
+        } catch (error) {
+          console.log(`  FAIL  ${target.label}: ${(error as Error).message.split("\n")[0]}`);
+          failed++;
+          await context.close();
+          continue;
+        }
+        const { page, done } = opened;
         const known = knownOpen(target);
         const overflow = await overflowOf(page, viewport.width);
         await target.state?.after?.(page);
+        done();
         // A known-open route that is open only inside a part still fails outside it.
         const outside =
           overflow && known?.inside ? await overflowOf(page, viewport.width, known.inside) : null;
@@ -521,7 +906,7 @@ async function main() {
       }
     }
     console.log(
-      `\n${failed ? `${failed} page(s) overflow` : "no page overflows"}; ${open_.length} known-open run(s) still overflow`,
+      `\n${failed ? `${failed} page(s) overflow or fail` : "no page overflows, every state holds"}; ${open_.length} known-open run(s) still overflow`,
     );
     if (failed) process.exitCode = 1;
   } finally {

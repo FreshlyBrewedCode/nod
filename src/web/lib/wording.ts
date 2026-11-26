@@ -271,3 +271,41 @@ export function journeyDetail(e: JourneyEvent, now: number, utcOffsetMinutes: nu
   if (e.at === null) return "";
   return e.phase === "now" ? ago(e.at, now) : clockTime(e.at, utcOffsetMinutes);
 }
+
+/**
+ * The journey fold's summary on a phone: where the PR is now, "waiting on
+ * you, 6h". The "now" step's text in lower case, then its small text.
+ */
+export function journeySummary(
+  events: ReadonlyArray<JourneyEvent>,
+  now: number,
+  utcOffsetMinutes: number,
+): string {
+  const here = events.find((e) => e.phase === "now") ?? events.at(-1);
+  if (!here) return "";
+  const text = here.text.charAt(0).toLowerCase() + here.text.slice(1);
+  const detail = journeyDetail(here, now, utcOffsetMinutes);
+  return detail ? `${text}, ${detail}` : text;
+}
+
+const RISK_WORDS = ["no", "low", "medium", "high"] as const;
+
+/**
+ * The risk in words for a place that has no tooltip: "high risk", or null when
+ * the brief's own risk text already starts with the level ("High. Touches
+ * core/auth…"), so it is not said twice.
+ */
+export function riskWords(risk: PrView["risk"], briefRisk: string | null): string | null {
+  const word = RISK_WORDS[risk];
+  if (briefRisk && new RegExp(`^\\W*${word}\\b`, "i").test(briefRisk)) return null;
+  return `${word} risk`;
+}
+
+/**
+ * The phone page's action bar line, its bold part: "Needed from you: sign as
+ * owner of core/auth." Null when nothing is needed from me.
+ */
+export function neededFromYou(pr: Pick<PrView, "ask" | "requirement">): string | null {
+  if (!pr.ask) return null;
+  return `Needed from you: ${lowerFirst(askHeadline(pr))}.`;
+}
