@@ -20,15 +20,22 @@ Tried end to end on a public sandbox repository on github.com:
   detail panel, the batch dialog, FYI acks, onboarding, enrolling a teammate's key;
 - comment to green check in 12 to 20 seconds, then auto-merge within seconds.
 
+## Released
+
+- **The npm package.** `@frebreco/nod` is published: a stable release on `latest`, and a
+  pre-release on `next` for every merge to `main` that changes what nod does (a feature or a fix).
+- **The hosted web app.** `ui.nod.frebreco.de` serves the web app of the stable release, and
+  `ui.nod.frebreco.de/next` the one of `main`, deployed with each pre-release. Deep links in sticky
+  comments point at the stable one.
+
+[Quick start](/docs/quick-start) still shows the from-source way, which also has what is not
+released.
+
 ## Not released
 
-- **No npm package.** `@frebreco/nod` is not published. Run the CLI from a checkout.
-- **No hosted web app.** `ui.nod.frebreco.de` is not live. Run the web app from the checkout's
-  dev server.
-- Deep links in sticky comments point at `ui.nod.frebreco.de` and lead nowhere until it is.
-
-The release pipeline is prepared and switched off. [Quick start](/docs/quick-start) shows the
-from-source way.
+**Not released** on these pages means: on `main`, not in a stable release yet. Such a part is in
+`@frebreco/nod@next` and on `ui.nod.frebreco.de/next` once it is merged, and reaches `latest` and
+the root of `ui.nod.frebreco.de` with the next stable release.
 
 ## Not built
 

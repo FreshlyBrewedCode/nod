@@ -38,6 +38,7 @@ import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use
 import { useBackStop } from "@/hooks/use-back-stop";
 import { useIsPhone } from "@/hooks/use-is-phone";
 import { githubOf } from "@/lib/deep-link";
+import { forwardSetupUrl } from "@/lib/forward";
 import type { Status } from "@/lib/connection";
 import {
   itemKeys,
@@ -620,6 +621,7 @@ function DashboardInner({
             onSetup={() => go({ view: "setup" })}
             onLegend={askLegend}
             fake={welcome?.fake}
+            linksHere={forwardSetupUrl(window.location, welcome?.version ?? null)}
           />
         </TopBarShell>
         {notice === "quiet" && (

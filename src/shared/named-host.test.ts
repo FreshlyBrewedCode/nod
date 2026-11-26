@@ -34,6 +34,9 @@ test("refused: IPs, loopback, single labels, URLs, bad ports", () => {
     "*.example.test",
     "-bad.example.test",
     "[fd7a::1]:8445",
+    "0x7f.1",
+    "laptop.0x10",
+    "laptop.example.1",
     "",
   ])
     expect(() => parseNamedHost(value)).toThrow();

@@ -80,6 +80,8 @@ nod
     `signer.ts`, `Client.side` in `session.ts`). The device link is printed with a QR code
     (`qr.ts`, `uqr`). Client rule: `isAllowedHost` in `lib/connection.ts`. User page:
     `site/content/docs/phone.md`
+  - link forwarding (ADR 0005 §7): `lib/forward.ts` + `components/forward.tsx`, the host rule in
+    `src/shared/named-host.ts`; `check:phone` plays a named host by routing `https://nod.example.test`
   - the real source without touching `~/.config/nod`: start it from a script calling `start()`
     (`src/server/start.ts`) with `keyFile` and `tokenFile` in a temp folder
   - stale and posting-failure states can't be produced by `--fake`: in a browser check, route

@@ -145,7 +145,9 @@ export function ShortcutsHelp({
  * Me, and the avatar menu: who `nod serve` is signed in as, and "Setup and
  * checks" to reopen onboarding (r3 shows no other place for it). On a phone
  * the menu also holds what the top bar has no room for: "How this list works"
- * (the legend, where a desktop has the `?` key) and the fake-data note.
+ * (the legend, where a desktop has the `?` key) and the fake-data note. On
+ * the named host's page it offers "Open links from GitHub here", the way to
+ * the hosted UI's confirmation (ADR 0005 §7).
  */
 export function Me({
   login,
@@ -153,6 +155,7 @@ export function Me({
   onSetup,
   onLegend,
   fake = false,
+  linksHere = null,
 }: {
   login: string;
   people: ReadonlyArray<Person>;
@@ -161,6 +164,8 @@ export function Me({
   onLegend?: () => void;
   /** `nod serve --fake`: said in the menu on a phone, where the top bar has no room. */
   fake?: boolean;
+  /** The hosted UI's `#/forward?to=<this origin>` (`forwardSetupUrl`); null hides the item. */
+  linksHere?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const name = people.find((p) => p.login.toLowerCase() === login.toLowerCase())?.name;
@@ -202,6 +207,18 @@ export function Me({
             How this list works
             <span className="text-tx3 fs-code block">sizes, lanes, risk, the numbers</span>
           </button>
+        )}
+        {linksHere && (
+          <a
+            href={linksHere}
+            referrerPolicy="no-referrer"
+            className="text-tx2 hover:text-tx hover:bg-bg block w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
+          >
+            Open links from GitHub here
+            <span className="text-tx3 fs-code block">
+              so links in comments and notifications open here
+            </span>
+          </a>
         )}
         {fake && (
           <p className="text-tx3 fs-note m-0 hidden px-2.5 pt-1.5 pb-1 phone:block">

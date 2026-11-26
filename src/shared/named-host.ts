@@ -8,6 +8,11 @@
  * Only https and wss: the proxy terminates TLS, and plain `ws://` stays
  * loopback-only. The name is a DNS name, never an IP literal (a certificate
  * names a host) and never a loopback name (those are allowed anyway).
+ *
+ * Shared: the server checks `--allow-host` with it, and the web app checks
+ * the host the hosted page is asked to forward deep links to
+ * (`src/web/lib/forward.ts`). Pure, so the web bundle takes nothing else of
+ * the server's.
  */
 
 export interface NamedHost {
@@ -32,7 +37,9 @@ export function parseNamedHost(value: string): NamedHost {
   const labels = hostname.split(".");
   if (labels.length < 2 || !labels.every((label) => LABEL.test(label)))
     throw new Error(`${hostname} is not a DNS name with a domain`);
-  if (labels.every((label) => /^\d+$/.test(label)))
+  // A browser reads a name whose last label is a number (`0x7f.1`, `10.0.0.1`)
+  // as an IPv4 address (the WHATWG host parser), whatever the other labels are.
+  if (/^(?:\d+|0x[0-9a-f]*)$/.test(labels.at(-1)!))
     throw new Error("an IP address has no certificate: use the proxy's host name");
   if (LOOPBACK.has(hostname)) throw new Error("loopback is allowed anyway");
   const port = match[2] === undefined ? null : Number(match[2]);

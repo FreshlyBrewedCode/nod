@@ -10,7 +10,7 @@ import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
 import { githubHost } from "./kit/host.ts";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
-import { parseNamedHost, type NamedHost } from "./server/named-host";
+import { parseNamedHost, type NamedHost } from "./shared/named-host";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 

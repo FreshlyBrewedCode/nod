@@ -80,9 +80,9 @@ interface State {
   name: string;
   route: string;
   scenarios: ReadonlyArray<Scenario>;
-  act: (page: Page) => Promise<void>;
+  act: (page: Page, env: Env) => Promise<void>;
   /** What must hold after `act`: throws a message when it does not. */
-  assert?: (page: Page) => Promise<void>;
+  assert?: (page: Page, env: Env) => Promise<void>;
   /** Runs on a `nod serve` of its own (it signs, which the fake keeps). */
   fresh?: boolean;
   /** Puts back what the state changed in `nod serve` (the fake's signer is shared by every page). */
@@ -91,6 +91,16 @@ interface State {
   shot?: string;
   /** Shot in its whole height, not the screen's. */
   full?: boolean;
+  /** The address to open instead of `route` with the scenario's pairing (a page that is not paired). */
+  url?: (env: Env) => string;
+  /** Before the page opens: routes, init scripts. */
+  before?: (page: Page, env: Env) => Promise<void>;
+}
+
+/** What a state's `url` and `before` know: the dev server and the scenario's `nod serve`. */
+interface Env {
+  web: string;
+  serve: Serve;
 }
 
 /** Fails the state with `message` unless the condition holds. */
@@ -150,7 +160,537 @@ async function emulateKeyboard(page: Page) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// deep links on another device (ADR 0005 §7)
+
+/**
+ * A stand-in for the named host: `https://nod.example.test` is routed to the
+ * dev server, and its socket is relayed to `nod serve` on loopback (a relay
+ * sends no Origin, so the loopback token lets it in). The page itself sees an
+ * https origin that is not loopback, as on a phone; what it does not prove is
+ * a real TLS proxy (the live check through `tailscale serve` does).
+ */
+const NAMED = "https://nod.example.test";
+const NAMED_PAIRING = (serve: Serve) =>
+  `${NAMED}/#host=${encodeURIComponent("wss://nod.example.test")}&token=${serve.token}`;
+
+async function routeNamedHost(page: Page, env: Env) {
+  await page.route(/^https:\/\/nod\.example\.test\//, async (route) => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: `${env.web}${url.pathname}${url.search}` });
+    await route.fulfill({ response });
+  });
+  await page.routeWebSocket(/^wss:\/\/nod\.example\.test\//, (ws) => {
+    const url = new URL(ws.url());
+    // Vite's own socket: left open and silent.
+    if (url.pathname !== "/ws") return;
+    const upstream = new WebSocket(`ws://127.0.0.1:${env.serve.port}/ws${url.search}`);
+    const queue: string[] = [];
+    upstream.onopen = () => {
+      for (const message of queue.splice(0)) upstream.send(message);
+    };
+    upstream.onmessage = (event) => ws.send(String(event.data));
+    upstream.onclose = (event) =>
+      event.code === 1000 || (event.code >= 4000 && event.code < 5000)
+        ? ws.close({ code: event.code, reason: event.reason })
+        : ws.close();
+    ws.onMessage((message) =>
+      upstream.readyState === WebSocket.OPEN
+        ? upstream.send(String(message))
+        : queue.push(String(message)),
+    );
+    ws.onClose(() => upstream.close());
+  });
+}
+
+/**
+ * A stand-in for the hosted UI on GitHub Pages, which sends no framing
+ * headers: `https://ui.nod.frebreco.de` is routed to the dev server with its
+ * `X-Frame-Options` and CSP taken off, and its Vite socket kept silent. It
+ * is the hosted origin to the app (`pairsWithLoopback`), so it forwards.
+ */
+const HOSTED = "https://ui.nod.frebreco.de";
+
+async function routeHosted(page: Page, env: Env) {
+  await page.route(/^https:\/\/ui\.nod\.frebreco\.de\//, async (route) => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: `${env.web}${url.pathname}${url.search}` });
+    const headers = { ...response.headers() };
+    delete headers["x-frame-options"];
+    delete headers["content-security-policy"];
+    await route.fulfill({ response, headers });
+  });
+  await page.routeWebSocket(/^wss:\/\/ui\.nod\.frebreco\.de\//, () => {});
+}
+
+/** Another site that frames the hosted UI's confirmation for a host of its own. */
+const FRAMING = "https://evil.example.test/";
+const EVIL = "https://evil.example.test";
+
+async function routeFraming(page: Page, env: Env) {
+  await routeHosted(page, env);
+  const src = `${HOSTED}/#/forward?to=${encodeURIComponent(EVIL)}`;
+  await page.route(FRAMING, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><meta name="viewport" content="width=device-width"><body style="margin:0;background:#fff"><p style="font:14px sans-serif;margin:12px">A page of another site</p><iframe src="${src}" style="border:0;width:100%;height:700px"></iframe>`,
+    }),
+  );
+}
+
+const FORWARD_TO = (web: string, to = NAMED) => `${web}/#/forward?to=${encodeURIComponent(to)}`;
+/** The host a page first asks for in the swap checks: long, with a hyphen in a label. */
+const LAPTOP = "https://laptop.example-tailnet.ts.net:8445";
+/** Long enough to wrap twice at 360 px, with hyphens in its labels. */
+const LONG = "https://build-laptop.example-tailnet-long.ts.net:8445";
+const rememberButton = (page: Page) => page.getByRole("button", { name: "Remember this address" });
+const stored = (page: Page) =>
+  page.evaluate(
+    () =>
+      (JSON.parse(localStorage.getItem("nod.forward") ?? "null") as { to?: string } | null)?.to ??
+      null,
+  );
+const LINK = `#/pr/${REPO}/${PRS[0]}`;
+
+const remember = async (page: Page, web: string) => {
+  await page.goto(FORWARD_TO(web));
+  await page.getByRole("button", { name: "Remember this address" }).click();
+  await page.getByRole("heading", { name: /^Links from GitHub open your nod at/ }).waitFor();
+};
+
+const forwardStored = (page: Page) =>
+  page.evaluate(() => localStorage.getItem("nod.forward") !== null);
+
+const FORWARD_STATES: ReadonlyArray<State> = [
+  {
+    name: "forward, confirm",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web),
+    act: async () => {},
+    assert: async (page) => {
+      await must(
+        page.getByText("https://nod.example.test", { exact: true }).isVisible(),
+        "the host is not spelled out",
+      );
+      await must(
+        page
+          .getByRole("button", { name: "Don’t remember" })
+          .evaluate((el) => document.activeElement === el),
+        "“Don’t remember” is not the default",
+      );
+      await must(
+        forwardStored(page).then((stored) => !stored),
+        "something was remembered on arrival",
+      );
+    },
+    shot: "21a-forward-confirm",
+  },
+  {
+    // Finding 3: a long name breaks after its dots, never at a hyphen inside a label.
+    name: "forward, a long hyphenated host",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web, LONG),
+    act: async () => {},
+    assert: async (page) => {
+      const breaks = await page.evaluate((shown) => {
+        const box = [...document.querySelectorAll("main div")].find(
+          (el) => el.textContent === shown,
+        )!;
+        const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+        const chars: { ch: string; top: number }[] = [];
+        for (let node = walker.nextNode(); node; node = walker.nextNode())
+          for (let i = 0; i < node.textContent!.length; i++) {
+            const range = document.createRange();
+            range.setStart(node, i);
+            range.setEnd(node, i + 1);
+            chars.push({ ch: node.textContent![i]!, top: range.getBoundingClientRect().top });
+          }
+        const out: string[] = [];
+        for (let i = 1; i < chars.length; i++)
+          if (chars[i]!.top > chars[i - 1]!.top + 2) out.push(chars[i - 1]!.ch + chars[i]!.ch);
+        return out;
+      }, LONG);
+      await must(Promise.resolve(breaks.length > 0), "the long host does not wrap: not a test");
+      const wrong = breaks.filter((pair) => !/^[./]|:$/.test(pair) && pair[1] !== ":");
+      await must(Promise.resolve(wrong.length === 0), `the host breaks inside a label: ${wrong}`);
+    },
+    shot: "21j-forward-long-host",
+  },
+  {
+    // Finding 1: an opener sets the fragment of the open page to another host.
+    name: "forward, another host after Remember",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web, LAPTOP),
+    act: async (page, { web }) => {
+      await rememberButton(page).click();
+      await page.getByRole("heading", { name: /^Links from GitHub open your nod at/ }).waitFor();
+      await page.evaluate((url) => (window.location.href = url), FORWARD_TO(web, EVIL));
+      await page.getByRole("heading", { name: /^Open nod links in this browser/ }).waitFor();
+      await must(rememberButton(page).isDisabled(), "the new host's Remember is armed at once");
+    },
+    assert: async (page) => {
+      await must(
+        stored(page).then((to) => to === LAPTOP),
+        "the remembered host changed without a tap",
+      );
+      await must(
+        page.getByText("It replaces").isVisible(),
+        "the new host is not asked about as a replacement",
+      );
+      await must(
+        page
+          .getByRole("link", { name: "Back to your nod" })
+          .count()
+          .then((n) => n === 0),
+        "the finished page still shows, for a host that is not stored",
+      );
+    },
+  },
+  {
+    // Finding 1: the host swapped just before a tap at the button's spot.
+    name: "forward, another host just before the tap",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web, LAPTOP),
+    act: async (page, { web }) => {
+      const button = rememberButton(page);
+      await must(button.isDisabled(), "Remember is armed on arrival");
+      await page.waitForFunction(
+        () =>
+          !(
+            [...document.querySelectorAll("button")].find(
+              (b) => b.textContent === "Remember this address",
+            ) as HTMLButtonElement
+          ).disabled,
+      );
+      const box = (await button.boundingBox())!;
+      await page.evaluate((url) => (window.location.href = url), FORWARD_TO(web, EVIL));
+      await page.getByText(EVIL, { exact: true }).waitFor();
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    },
+    assert: async (page) => {
+      await must(
+        stored(page).then((to) => to === null),
+        "a tap right after the swap remembered a host",
+      );
+      await must(
+        page.getByText("https://evil.example.test", { exact: true }).isVisible(),
+        "the page does not name the host it now asks about",
+      );
+    },
+  },
+  {
+    // Finding 2: a page opened in the background does not arrive armed.
+    name: "forward, opened hidden",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web),
+    before: async (page) => {
+      await page.addInitScript(() => {
+        const w = window as unknown as { __visible: boolean };
+        w.__visible = false;
+        Object.defineProperty(document, "visibilityState", {
+          get: () => (w.__visible ? "visible" : "hidden"),
+          configurable: true,
+        });
+      });
+    },
+    act: async (page) => {
+      await page.waitForTimeout(1500);
+      await must(rememberButton(page).isDisabled(), "a hidden page armed Remember");
+      await page.evaluate(() => {
+        (window as unknown as { __visible: boolean }).__visible = true;
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await must(rememberButton(page).isDisabled(), "Remember armed as soon as the page showed");
+      await page.waitForTimeout(1200);
+    },
+    assert: async (page) => {
+      await must(rememberButton(page).isEnabled(), "Remember never arms once visible");
+    },
+  },
+  {
+    // How "Remember" looks before it is armed (kept hidden, so it stays so for the shot).
+    name: "forward, not armed yet",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web),
+    before: async (page) => {
+      await page.addInitScript(() =>
+        Object.defineProperty(document, "visibilityState", { get: () => "hidden" }),
+      );
+    },
+    act: async () => {},
+    assert: async (page) => {
+      await must(rememberButton(page).isDisabled(), "a hidden page armed Remember");
+      await must(
+        page.getByRole("button", { name: "Don’t remember" }).isEnabled(),
+        "“Don’t remember” waits too",
+      );
+    },
+    shot: "21k-forward-not-armed",
+  },
+  {
+    // Finding 2: inside another site's frame the app refuses.
+    name: "forward, framed by another site",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: () => FRAMING,
+    before: routeFraming,
+    act: async (page) => {
+      await page
+        .frameLocator("iframe")
+        .getByRole("heading", { name: "nod does not run inside another page" })
+        .waitFor();
+    },
+    assert: async (page) => {
+      const frame = page.frames().find((f) => f.url().startsWith(HOSTED))!;
+      await must(
+        frame
+          .getByRole("button", { name: "Remember this address" })
+          .count()
+          .then((n) => n === 0),
+        "the framed page offers to remember",
+      );
+      await must(
+        frame.evaluate(() => localStorage.getItem("nod.forward") === null),
+        "the framed page stored a host",
+      );
+    },
+    shot: "21i-framed",
+  },
+  {
+    // The stand-in is not vacuous: at the top, the routed hosted origin forwards.
+    name: "forward, the hosted origin at the top",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: () => `${HOSTED}/#/forward?to=${encodeURIComponent(LAPTOP)}`,
+    before: routeHosted,
+    act: async (page) => {
+      await rememberButton(page).waitFor();
+    },
+    assert: async (page) => {
+      await must(rememberButton(page).isEnabled(), "Remember does not arm on the hosted origin");
+    },
+  },
+  {
+    name: "forward, don't remember",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => FORWARD_TO(web),
+    act: async (page) => {
+      await page.keyboard.press("Enter");
+      await page.getByRole("heading", { name: "Open nod from your terminal" }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        forwardStored(page).then((stored) => !stored),
+        "Enter remembered the host",
+      );
+    },
+  },
+  {
+    name: "forward, a host it refuses",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => `${web}/#/forward?to=${encodeURIComponent("https://127.0.0.1:4518")}`,
+    act: async () => {},
+    assert: async (page) => {
+      await must(
+        page.getByRole("heading", { name: /names no address nod can open/ }).isVisible(),
+        "a loopback host is offered",
+      );
+      await must(
+        page
+          .getByRole("button", { name: "Remember this address" })
+          .count()
+          .then((n) => n === 0),
+        "a refused host can be remembered",
+      );
+    },
+    shot: "21b-forward-refused",
+  },
+  {
+    name: "forward, remembered",
+    route: "#/forward",
+    scenarios: ["team"],
+    url: ({ web }) => `${web}/#/`,
+    act: (page, { web }) => remember(page, web),
+    assert: async (page) => {
+      await must(forwardStored(page), "nothing was remembered");
+    },
+    shot: "21c-forward-remembered",
+  },
+  {
+    name: "link, open on the remembered host",
+    route: LINK,
+    scenarios: ["team"],
+    url: ({ web }) => `${web}/#/`,
+    act: async (page, { web }) => {
+      await remember(page, web);
+      await page.goto(`${web}/${LINK}`);
+      await page.getByRole("link", { name: /^Open on nod\.example\.test$/ }).waitFor();
+    },
+    assert: async (page) => {
+      const href = await page
+        .getByRole("link", { name: /^Open on nod\.example\.test$/ })
+        .getAttribute("href");
+      await must(Promise.resolve(href === `${NAMED}/${LINK}`), `the forward goes to ${href}`);
+    },
+    shot: "21d-link-forward-offer",
+  },
+  {
+    name: "link, forget the host",
+    route: LINK,
+    scenarios: ["team"],
+    url: ({ web }) => `${web}/#/`,
+    act: async (page, { web }) => {
+      await remember(page, web);
+      await page.goto(`${web}/${LINK}`);
+      await page.getByRole("button", { name: "Forget this address" }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("heading", { name: "Open it in nod on your machine" }).isVisible(),
+        "forgetting does not show the pairing steps",
+      );
+      await must(
+        forwardStored(page).then((stored) => !stored),
+        "the host is still remembered",
+      );
+    },
+  },
+  {
+    name: "link, forwarded to the named host",
+    route: LINK,
+    scenarios: ["team"],
+    // Paired on the named host first, as the phone is.
+    url: ({ serve }) => NAMED_PAIRING(serve),
+    before: routeNamedHost,
+    act: async (page, { web }) => {
+      await page.locator("[data-key^='pr:']").first().waitFor();
+      await remember(page, web);
+      await page.goto(`${web}/${LINK}`);
+      await page.getByRole("link", { name: /^Open on nod\.example\.test$/ }).click();
+      await page.waitForURL(`${NAMED}/**`);
+      await page.getByRole("button", { name: /^Review & sign/ }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        Promise.resolve(page.url() === `${NAMED}/${LINK}`),
+        `the forward landed on ${page.url()}`,
+      );
+      await must(
+        page.getByText(/^Opened from a link/).isVisible(),
+        "the named host does not show the link's landing",
+      );
+    },
+    shot: "21e-link-forwarded",
+  },
+  {
+    name: "named host, the avatar menu",
+    route: "#/",
+    scenarios: ["team"],
+    url: ({ serve }) => NAMED_PAIRING(serve),
+    before: routeNamedHost,
+    act: async (page) => {
+      await page.getByRole("button", { name: /: menu$/ }).click();
+    },
+    assert: async (page) => {
+      const href = await page
+        .getByRole("link", { name: /^Open links from GitHub here/ })
+        .getAttribute("href");
+      const expected = `https://ui.nod.frebreco.de/next/#/forward?to=${encodeURIComponent(NAMED)}`;
+      await must(Promise.resolve(href === expected), `the item goes to ${href}`);
+      await must(Promise.resolve(!href?.includes("token")), "the item carries the token");
+    },
+    shot: "21f-named-host-menu",
+  },
+  {
+    name: "named host, a link before pairing",
+    route: LINK,
+    scenarios: ["team"],
+    url: () => `${NAMED}/${LINK}`,
+    before: routeNamedHost,
+    act: async () => {},
+    assert: async (page) => {
+      await must(
+        page.getByText(/Scan the QR code it prints/).isVisible(),
+        "the named host does not say to scan the device link",
+      );
+      await must(
+        page.evaluate(() => localStorage.getItem("nod.pendingLink") !== null),
+        "the link is not remembered for the pairing",
+      );
+    },
+    shot: "21g-named-host-link-not-paired",
+  },
+  {
+    name: "home-screen app, not paired",
+    route: "#/",
+    scenarios: ["team"],
+    url: () => `${NAMED}/`,
+    before: async (page, env) => {
+      await routeNamedHost(page, env);
+      await page.addInitScript(() =>
+        Object.defineProperty(navigator, "standalone", { value: true, configurable: true }),
+      );
+    },
+    act: async () => {},
+    assert: async (page) => {
+      await must(page.getByLabel("Pair this app").isVisible(), "no field to paste the link");
+    },
+    shot: "21h-installed-app-not-paired",
+  },
+  {
+    name: "home-screen app, pasted link pairs",
+    route: "#/",
+    scenarios: ["team"],
+    url: () => `${NAMED}/`,
+    before: async (page, env) => {
+      await routeNamedHost(page, env);
+      await page.addInitScript(() =>
+        Object.defineProperty(navigator, "standalone", { value: true, configurable: true }),
+      );
+    },
+    act: async (page, { serve }) => {
+      await page.getByLabel("Pair this app").fill("https://evil.example/#host=x&token=y");
+      await page.getByRole("button", { name: "Pair" }).click();
+      await page.getByRole("alert").waitFor();
+      await page.getByLabel("Pair this app").fill(NAMED_PAIRING(serve));
+      await page.getByRole("button", { name: "Pair" }).click();
+      await page.locator("[data-key^='pr:']").first().waitFor();
+    },
+    assert: async (page) => {
+      await must(Promise.resolve(!page.url().includes("token")), "the token stays in the address");
+    },
+  },
+  {
+    name: "paired, a host remembered: the landing as before",
+    route: LINK,
+    scenarios: ["team"],
+    act: async (page, { web }) => {
+      await remember(page, web);
+      await page.goto(`${web}/${LINK}`);
+      await page.getByRole("button", { name: /^Review & sign/ }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("link", { name: /^Open on / })
+          .count()
+          .then((n) => n === 0),
+        "a paired page offers the forward",
+      );
+    },
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
+  ...FORWARD_STATES,
   {
     name: "two selected",
     route: "#/",
@@ -712,6 +1252,8 @@ interface Target {
   state?: State;
   /** The pairing, for a state on a `nod serve` of its own. */
   pairing?: (serve: Serve) => string;
+  /** What the state's hooks get. */
+  env?: Env;
 }
 
 const pairingOf = (serve: Serve) =>
@@ -733,8 +1275,9 @@ function targets(web: string, serves: Map<Scenario, Serve>, deadPort: number): T
         label: `${scenario} ${state.route} ${state.name}`,
         route: state.name,
         scenario,
-        url: `${web}/${state.route}?${pairing}`,
+        url: state.url ? state.url({ web, serve }) : `${web}/${state.route}?${pairing}`,
         state,
+        env: { web, serve },
         ...(state.fresh && {
           pairing: (own: Serve) => `${web}/${state.route}?${pairingOf(own)}`,
         }),
@@ -780,12 +1323,13 @@ async function open(
 ): Promise<{ page: Page; done: () => void }> {
   const { url, done } = await own(target);
   const page = await context.newPage();
+  if (target.state && target.env) await target.state.before?.(page, target.env);
   await page.goto(url);
   await settle(page, target.wait);
-  if (target.state) {
-    await target.state.act(page);
+  if (target.state && target.env) {
+    await target.state.act(page, target.env);
     await settle(page, 400);
-    await target.state.assert?.(page);
+    await target.state.assert?.(page, target.env);
   }
   return { page, done };
 }

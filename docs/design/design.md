@@ -461,6 +461,12 @@ class edited (epic #30).
   page or sheet; no tap highlight; `touch-action: manipulation` on controls (no double-tap delay).
 - **Checked by a browser**: `bun run check:phone` opens every route at 360 × 780 and 390 × 844 with a
   touch device and fails when a page scrolls sideways. It is not part of `bun run check`. Screenshots of the calm pages on a phone: `docs/design/m1/impl/` (390 × 844, scale 2).
+- **Links from GitHub** (ADR 0005 §7): the hosted page's confirmation names the host in large
+  monospace (`https://` in `--tx3`), and its prominent, focused button is "Don't remember"; the
+  landing's "Open on <host>" spells the host out, breaking only after a dot or before the port.
+  "Remember this address" stays dimmed for a second after the page shows (the same label, the
+  disabled state of every button). Inside another site's frame the app shows only "nod does not
+  run inside another page". Shots `21a`–`21k` in `docs/design/m1/impl/`.
 
 ### The list on a phone
 

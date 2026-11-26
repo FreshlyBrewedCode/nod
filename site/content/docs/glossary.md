@@ -25,8 +25,11 @@ order: 4
 | **finding** | One fact a classifier reports: a tag, a sentence, optionally a risk |
 | **FYI** | A pull request people should notice without anyone having to nod. [Nodding](/docs/nodding#fyi) |
 | **FYI ack** | "Got it" on an FYI: an unsigned 👀 reaction |
+| **home-screen app** | The dashboard added to a phone's home screen: it opens without the browser's bars. On an iPhone it keeps its own pairing. [On your phone](/docs/phone#on-the-home-screen) |
 | **host link** | The link `nod serve` prints. It pairs the web app with the server |
+| **hosted web app** | The dashboard published at `ui.nod.frebreco.de`, where deep links point: the stable release's at the root, `main`'s at `/next`. [Status](/docs/status#released) |
 | **kit** | `@frebreco/nod/kit`: the helpers the policy and the verifier import. [Architecture](/docs/architecture#the-kit) |
+| **link forwarding** | The hosted web app handing a deep link over to your named host, one tap per link, after you confirmed that host once in the same browser. Not released: on `ui.nod.frebreco.de/next` only, while links in comments open the root. [On your phone](/docs/phone#links-from-github) |
 | **lane** | A section of the list by attention: Needs you, Worth knowing, Background |
 | **named nod** | A nod by a person the policy names |
 | **named host** | The https name a TLS proxy such as `tailscale serve` gives `nod serve`, named with `--allow-host`, so another device reaches it. It has its own token and its own unlock. [On your phone](/docs/phone) |

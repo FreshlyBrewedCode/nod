@@ -75,9 +75,10 @@ export function isLoopbackHost(host: string): boolean {
  * share its origin), or a page on this machine (the dev server, a
  * preview). Any other page, above all the named host's on a phone, where
  * loopback is the phone itself, pairs only with its own host. No page (a
- * test, a script) is not a browser's and may.
+ * test, a script) is not a browser's and may. The same pages forward deep
+ * links to a named host (`lib/forward.ts`).
  */
-function pairsWithLoopback(page: PageOrigin | null): boolean {
+export function pairsWithLoopback(page: PageOrigin | null): boolean {
   if (!page) return true;
   const origin = URL.parse(`${page.protocol}//${page.host}`);
   return (
@@ -126,6 +127,18 @@ export function readHostLink(
   const rest = path ? `${path}${left ? `?${left}` : ""}` : left;
   if (!token || !isAllowedHost(host, page)) return { pairing: null, rest };
   return { pairing: { host: host.replace(/\/+$/, ""), token }, rest };
+}
+
+/**
+ * A host link pasted into the page (a home-screen app has no address bar):
+ * its fragment, when it is a link to this very page and pairs it, else null.
+ * A link for another origin is refused even when its pairing would be
+ * allowed: it was made for another page.
+ */
+export function pastedHostLink(text: string, page: PageOrigin): string | null {
+  const url = URL.parse(text.trim());
+  if (!url || url.origin !== `${page.protocol}//${page.host}`) return null;
+  return readHostLink(url.hash, page).pairing ? url.hash : null;
 }
 
 /** What `localStorage` offers; injectable for tests. */

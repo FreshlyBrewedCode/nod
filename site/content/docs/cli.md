@@ -16,8 +16,9 @@ nod <command>
   --version    show the version
 ```
 
-The package `@frebreco/nod` is not published yet. From a checkout of the nod repository, `nod`
-is `bun src/cli.ts`; see [Quick start](/docs/quick-start). The CLI needs Bun 1.4.1 or newer.
+The package `@frebreco/nod` is on npm: `bunx @frebreco/nod <command>` runs the stable release,
+`bunx @frebreco/nod@next <command>` the pre-release of `main`. From a checkout of the nod
+repository, `nod` is `bun src/cli.ts`; see [Quick start](/docs/quick-start). The CLI needs Bun 1.4.1 or newer.
 
 ## `nod serve`
 

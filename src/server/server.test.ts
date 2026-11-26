@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { CLOSE_BAD_TOKEN, CLOSE_SHUTDOWN, type ServerToClient } from "../shared/protocol";
 import { NodClient, RequestFailed } from "../web/lib/connection";
 import { ManualClock } from "./clock";
-import { parseNamedHost } from "./named-host";
+import { parseNamedHost } from "../shared/named-host";
 import { start, type StartOptions, type Started } from "./start";
 import { DEV_WEB_URL, NEXT_WEB_URL } from "./web-url";
 

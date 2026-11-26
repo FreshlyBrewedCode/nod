@@ -15,3 +15,21 @@ export const PHONE_QUERY = `(width < ${PHONE_BREAKPOINT}px)`;
 export function isPhoneWidth(width: number): boolean {
   return width < PHONE_BREAKPOINT;
 }
+
+/**
+ * Whether the page runs as a home-screen app (`display: standalone` in the
+ * manifest): no address bar, and on iOS a storage of its own, apart from
+ * Safari's, so it needs its own pairing. `navigator.standalone` is iOS
+ * Safari's flag; the media query is everyone else's.
+ */
+export function isStandalone(win: {
+  readonly matchMedia?: (query: string) => { readonly matches: boolean };
+  readonly navigator?: unknown;
+}): boolean {
+  if ((win.navigator as { standalone?: unknown } | undefined)?.standalone === true) return true;
+  try {
+    return win.matchMedia?.("(display-mode: standalone)").matches ?? false;
+  } catch {
+    return false;
+  }
+}
