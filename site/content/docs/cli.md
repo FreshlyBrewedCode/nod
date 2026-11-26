@@ -65,7 +65,7 @@ Writes the repository's setup, commits it on the branch `nod/setup` and opens th
 | `--dry-run` | Write the files here, change nothing else, and print the PR description |
 | `--no-pr` | Commit on `nod/setup`; do not push or open the PR |
 | `--force` | Replace an existing `.nod/`. With `--ruleset`: apply it before the verifier is on the default branch |
-| `--ruleset` | After the setup PR merged: require `nod` on the default branch and enable auto-merge. Needs admin rights |
+| `--ruleset` | After the setup PR merged: require `nod` on the default branch and enable auto-merge. Re-runs the verifier on open pull requests whose `nod` check is still neutral (not released). Needs admin rights |
 
 `nod init` refuses to open a setup PR without a signer: nothing could ever be nodded. The clone
 must have no uncommitted changes.

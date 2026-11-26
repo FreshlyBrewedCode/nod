@@ -20,9 +20,11 @@ Against that, nod places three things:
 1. **A signing key the agents don't have.** It is encrypted with a passphrase only you know, and
    a nod is a signature by that key. [Signing keys](/docs/keys)
 2. **A trust root the agents cannot change alone.** The list of keys, the policy and the
-   verifier live under `.nod/` in your repository, and every change there needs a peer nod.
-3. **A required check.** GitHub refuses to merge until the verifier's `nod` check is green, and
-   the ruleset has an empty bypass list.
+   verifier live under `.nod/` in your repository, and every change there needs a peer nod. A
+   GitHub approval is not enough there.
+3. **A required check.** Once [enforced](/docs/verifier#enforced-or-not), GitHub refuses to merge
+   until the verifier's `nod` check is green, and the ruleset has an empty bypass list. Before
+   that, nod shows what each pull request needs and blocks nothing.
 
 ## What nod guards against
 
@@ -42,6 +44,10 @@ Against that, nod places three things:
 - **A hidden change in a huge pull request.** The file list comes from `git`, not from the files
   API with its 3,000-file cap.
 - **A crashed verifier.** It fails closed: red, never green.
+- **A neutral check where the check is required.** The verifier concludes `neutral` only when
+  GitHub clearly says the base branch does not require `nod`; any doubt counts as enforced. When
+  enforcement is switched on, `nod init --ruleset` re-runs the verifier on pull requests whose
+  check is still neutral (not released).
 - **A link that approves.** Deep links only open views.
 
 ## What nod does not guard against
@@ -59,6 +65,21 @@ So in this mode nod is not a boundary against an agent that deliberately pushes 
 workflow. The fix is planned and not built: a GitHub App registration that you own, with no
 server behind it, whose key only the default branch's workflow can use. The ruleset then pins the
 check to that app. See [Status](/docs/status#not-built).
+
+### Approvals
+
+> **Not released.** In a stable release, only nods count.
+
+A GitHub [approval](/docs/policy#approvals) fills a slot like a nod. Approvals are made with a
+`gh` login, and agents run with yours: **an agent holding your login can approve a teammate's
+pull request as you.** That is what it can do on GitHub without nod, too, and it stays within
+what nod promises in this mode: it guards against mistakes and unattended merges, not against an
+agent that sets out to misuse your login. Approvals of your own pull requests are impossible on
+GitHub, so an agent cannot approve its own work as you.
+
+Where that is not good enough, ask for a nod only: `peer({ approvals: false })`. A nod needs your
+signing key, which agents don't have. Changes to `.nod/**` and `.github/workflows/**` always ask
+for a nod only.
 
 ### Owner and admin tokens
 
@@ -96,8 +117,8 @@ These close most of the gaps above without any change to nod.
 - Give agents a token **without the `workflow` scope**. With fine-grained tokens: without the
   Administration and Workflows permissions.
 - Give agents **no SSH key that can push**. Let them push over HTTPS with that token.
-- In the agents' instructions, forbid `gh pr merge --admin` and changes to
-  `.github/workflows/**`.
+- In the agents' instructions, forbid `gh pr merge --admin`, changes to `.github/workflows/**`,
+  and approving pull requests.
 - Keep the repository's default workflow token permission at read, and give no workflow that
   runs branch code `checks: write`.
 - Prefer **just this once** when you unlock, or lock from the chip when you are done.

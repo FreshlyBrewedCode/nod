@@ -35,9 +35,10 @@ nod is two things.
 1. An agent opens a pull request and arms auto-merge.
 2. A workflow in your repository, the [verifier](/docs/verifier), classifies the pull request with
    your [policy](/docs/policy) and works out the requirement: no nod, a self nod, a peer nod, or a
-   nod from a named person.
+   nod from a named person. A teammate's plain GitHub approval counts too (not released).
 3. The verifier sets the check `nod` on the pull request. A ruleset requires that check, so
-   nothing merges while it is red.
+   nothing merges while it is red. Until a repository turns that on, the check only shows what is
+   needed and blocks nothing (not released).
 4. `nod serve` on your machine reads the pull requests and the verifier's results, and the
    dashboard shows you the ones that wait for you.
 5. You look, select, and nod. nod posts one signed comment per pull request; the verifier checks

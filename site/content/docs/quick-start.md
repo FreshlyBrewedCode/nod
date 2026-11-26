@@ -10,12 +10,28 @@ order: 2
 > live at `ui.nod.frebreco.de`: `bunx @frebreco/nod serve` in place of `bun src/cli.ts serve` runs
 > the published CLI and opens the hosted web app, without the checkout.
 
+## The ladder
+
+Adopting nod is four steps, and each one is opt-in. Nobody who skips a step loses their normal
+GitHub workflow.
+
+| Step | Who opts in | What the repository sees | What you get |
+| --- | --- | --- | --- |
+| **Inbox** | you alone | nothing | the attention dashboard |
+| **Shared policy** | the repository, with the setup PR | `.nod/`, and a `nod` check that never blocks | one classification for everyone |
+| **Signing** | each person | nod comments from those who enrolled | nodding your own agents' pull requests |
+| **Enforced** | the repository, `nod init --ruleset` | a required `nod` check, zero required approvals | agents merge on their own |
+
+Not released: the check that never blocks, and approvals counting toward the policy. Not built:
+the inbox on its own. Without the shared policy, the dashboard lists pull requests as "not
+classified" today.
+
 ## What you need
 
 - [Bun](https://bun.sh) 1.4.1 or newer, `git`, and OpenSSH's `ssh-keygen`.
 - The GitHub CLI, logged in: `gh auth status`. nod uses that login and asks for no other.
-- For the last setup step, admin rights on the repository. On a private repository, rulesets need
-  GitHub Pro, Team or Enterprise.
+- For the last step, enforced, admin rights on the repository. On a private repository, rulesets
+  need GitHub Pro, Team or Enterprise.
 
 ## 1. Get nod and look around
 
@@ -82,12 +98,20 @@ explains every file and the limits. It adds:
 .github/workflows/nod.yml         runs the verifier
 ```
 
-## 4. Merge the setup PR, then require the check
+## 4. Merge the setup PR
 
 The verifier does not exist until the setup PR is merged, so that PR cannot be gated by it.
 Review it and merge it the way your repository merges today.
 
-Then a repository admin makes `nod` the gate of the default branch, from the clone:
+From then on every pull request gets a `nod` check that says what it needs. Until the next step
+it never blocks a merge (not released): a pull request that still needs someone shows a grey,
+neutral check, and the verifier posts no comment. A teammate's plain GitHub approval fills a slot
+just like a nod (not released), except for changes to nod's own setup.
+
+## 5. Require the check
+
+When the team is ready, a repository admin makes `nod` the gate of the default branch, from the
+clone:
 
 ```sh
 bun ~/code/nod/src/cli.ts init --ruleset
@@ -96,12 +120,13 @@ bun ~/code/nod/src/cli.ts init --ruleset
 ```
 created the ruleset "nod" on you/your-repo: main needs a PR with 0 approvals and a green nod check from GitHub Actions (app 15368); nobody can bypass it.
 auto-merge is enabled.
+re-ran the verifier on #12: their nod check was neutral, which would pass the new requirement.
 ```
 
 From now on every change to `.nod/` or `.github/workflows/` needs a peer nod. If you are the only
 human in the repository, read [One-human repositories](/docs/keys#one-human-repositories) first.
 
-## 5. The first nod
+## 6. The first nod
 
 1. Open a pull request, or push a commit to an open one. The verifier runs on pull request events
    and comments; a pull request that was open before the setup shows as "not classified" until it
@@ -111,6 +136,9 @@ human in the repository, read [One-human repositories](/docs/keys#one-human-repo
    [batch dialog](/docs/nodding#the-batch-dialog), enter your passphrase.
 4. nod posts the signed comment. Within about 15 seconds the `nod` check turns green, and
    auto-merge merges once your other required checks are green too.
+
+A teammate can also just approve the pull request on GitHub (not released): that fills the peer
+slot without a key.
 
 ## Without the web app
 
