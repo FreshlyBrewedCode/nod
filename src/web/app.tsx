@@ -2,8 +2,14 @@
  * The web app root: the connection to `nod serve`, the shared clock, the
  * route, and what to show for the connection's state:
  *
+ * - inside another page's frame: a bare page that refuses (`lib/guard.ts`),
+ *   before the connection or the fragment is looked at;
+ * - `#/forward?to=…` on the hosted UI (or a page on this machine): the
+ *   confirmation that remembers where this browser's nod is (ADR 0005 §7),
+ *   paired or not;
  * - not paired: a calm full page; for a deep link, its landing that says
- *   what to do and keeps the link across the pairing;
+ *   what to do and keeps the link across the pairing, or offers to open it
+ *   on the remembered named host;
  * - onboarding (`components/onboarding.tsx`) while the setup or the key is
  *   not ready, until "Go to the dashboard"; and again at `#/setup`;
  * - the dashboard once a snapshot is in (a deep link shows its landing there).
@@ -15,17 +21,24 @@ import { useState } from "react";
 
 import { ClockProvider } from "@/hooks/use-clock";
 import { ConnectionProvider, useConnection } from "@/hooks/use-connection";
+import { useForward } from "@/hooks/use-forward";
 import { useRoute } from "@/hooks/use-route";
 import { githubOf } from "@/lib/deep-link";
+import { offerFor } from "@/lib/forward";
+import { isFramed } from "@/lib/guard";
 import { progressOf } from "@/lib/onboarding";
+import { isStandalone } from "@/lib/phone";
 import { isLinkRoute } from "@/lib/route";
 import { STORAGE_KEYS, browserStorage, readJson, writeJson } from "@/lib/storage";
 import { Dashboard } from "./components/dashboard";
-import { ConnectionPage, FullPage } from "./components/full-page";
+import { ForwardConfirm } from "./components/forward";
+import { ConnectionPage, FramedPage, FullPage, type Unpaired } from "./components/full-page";
 import { UnpairedLanding } from "./components/link-landing";
 import { Onboarding } from "./components/onboarding";
 
 export function App() {
+  // Never inside another page: not paired, nothing remembered, no passphrase field.
+  if (isFramed(window)) return <FramedPage />;
   return (
     <ConnectionProvider>
       <ClockProvider>
@@ -50,11 +63,38 @@ function Gate() {
     readJson(browserStorage(), STORAGE_KEYS.keySkipped),
   );
 
-  if (status === "unpaired" && isLinkRoute(route)) return <UnpairedLanding route={route} />;
+  const forward = useForward();
+  const linkRoute = isLinkRoute(route) ? route : null;
+  const unpaired: Unpaired = {
+    offer: offerFor({
+      paired: status !== "unpaired",
+      page: window.location,
+      forward: forward.forward,
+      route: linkRoute,
+    }),
+    onForget: forward.forget,
+    // The named host's own page: it pairs only from the device link.
+    host: forward.here ? null : window.location.host,
+    standalone: isStandalone(window),
+  };
+
+  if (route.view === "forward" && forward.here)
+    return (
+      <ForwardConfirm
+        // Another host is another page: nothing tapped, not armed (ADR 0005 §7).
+        key={`to:${route.to}`}
+        given={route.to}
+        forward={forward}
+        paired={status !== "unpaired"}
+        onLeave={() => go({ view: "list" }, { replace: true })}
+      />
+    );
+  if (status === "unpaired" && linkRoute)
+    return <UnpairedLanding route={linkRoute} unpaired={unpaired} />;
   // A drop keeps the last view (the dashboard says so after a moment); a
   // refused pairing or another protocol is no drop and gets its page.
   if ((!snapshot && status !== "open") || status === "refused" || status === "outdated")
-    return <ConnectionPage status={status} reconnects={reconnects} />;
+    return <ConnectionPage status={status} reconnects={reconnects} unpaired={unpaired} />;
 
   const progress =
     welcome && setup && signer ? progressOf({ me: welcome.me, setup, signer }) : null;

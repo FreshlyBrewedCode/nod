@@ -5,6 +5,8 @@
  *   #/chrono                           the list, chronological
  *   #/board                            the board
  *   #/setup                            onboarding's checks, reopened from the avatar menu
+ *   #/forward?to=https://<name[:port]> asks the hosted page to remember where this
+ *                                      browser's nod is (`lib/forward.ts`, ADR 0005 §7)
  *   #/pr/<owner>/<repo>/<n>            a deep link to one PR: its landing
  *   #/batch/<owner>/<repo>/<n>,<n>,…   a deep link to a batch: the landing and the
  *                                      batch dialog's review step
@@ -34,6 +36,14 @@ export type Route =
   | { readonly view: "chrono" }
   | { readonly view: "board" }
   | { readonly view: "setup" }
+  | {
+      readonly view: "forward";
+      /**
+       * The `to` parameter as given, unchecked (`lib/forward.ts` checks it);
+       * null when it is missing or given more than once.
+       */
+      readonly to: string | null;
+    }
   | {
       readonly view: "pr";
       /** The GitHub host, lowercase: `github.com` for a link without one. */
@@ -74,7 +84,7 @@ export function fragmentOf(hash: string): { path: string; params: string } {
 }
 
 export function parseRoute(hash: string): Route {
-  const { path } = fragmentOf(hash);
+  const { path, params } = fragmentOf(hash);
   if (!path) return LIST;
   let parts: string[];
   try {
@@ -86,6 +96,10 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 1 && parts[0] === "chrono") return { view: "chrono" };
   if (parts.length === 1 && parts[0] === "board") return { view: "board" };
   if (parts.length === 1 && parts[0] === "setup") return { view: "setup" };
+  if (parts.length === 1 && parts[0] === "forward") {
+    const to = new URLSearchParams(params).getAll("to");
+    return { view: "forward", to: to.length === 1 ? to[0]! : null };
+  }
   const [kind, ...rest] = parts;
   let host: string | null = GITHUB_COM;
   if (rest.length === 4) host = hostName(rest.shift()!);
@@ -118,6 +132,8 @@ export function formatRoute(route: Route): string {
       return "#/board";
     case "setup":
       return "#/setup";
+    case "forward":
+      return route.to === null ? "#/forward" : `#/forward?to=${encodeURIComponent(route.to)}`;
     case "pr":
       return `#/pr/${repoPath(route.host, route.repo)}/${route.number}`;
     case "batch":

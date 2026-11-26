@@ -82,6 +82,24 @@ describe("parseRoute", () => {
   });
 });
 
+test("#/forward carries its one to=, unchecked; a missing or repeated one is null", () => {
+  expect(parseRoute("#/forward?to=https://nod.example.test:8445")).toEqual({
+    view: "forward",
+    to: "https://nod.example.test:8445",
+  });
+  expect(parseRoute("#/forward?to=https%3A%2F%2Fnod.example.test")).toEqual({
+    view: "forward",
+    to: "https://nod.example.test",
+  });
+  expect(parseRoute("#/forward?to=javascript:alert(1)")).toEqual({
+    view: "forward",
+    to: "javascript:alert(1)",
+  });
+  expect(parseRoute("#/forward")).toEqual({ view: "forward", to: null });
+  expect(parseRoute("#/forward?to=a&to=b")).toEqual({ view: "forward", to: null });
+  expect(viewOf({ view: "forward", to: null })).toBe("list");
+});
+
 describe("fragmentOf", () => {
   test("splits a route from its parameters", () => {
     expect(fragmentOf("#/pr/a/b/1?token=t")).toEqual({ path: "/pr/a/b/1", params: "token=t" });
@@ -99,6 +117,9 @@ describe("formatRoute", () => {
       { view: "chrono" },
       { view: "board" },
       { view: "setup" },
+      { view: "forward", to: "https://nod.example.test:8445" },
+      { view: "forward", to: "odd & ?#= value" },
+      { view: "forward", to: null },
       { view: "pr", host: "github.com", repo: "tallyho/fieldbook", number: 7 },
       { view: "batch", host: "github.com", repo: "tallyho/fieldbook", numbers: [7, 3] },
     ];

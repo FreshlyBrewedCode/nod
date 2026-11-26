@@ -5,10 +5,10 @@ section: Start
 order: 2
 ---
 
-> **Nothing is published yet.** There is no `@frebreco/nod` on npm and the hosted web app at
-> `ui.nod.frebreco.de` is not live. Until then you run both halves from a checkout, as below.
-> Once released, `bunx @frebreco/nod serve` replaces `bun src/cli.ts serve` and opens the hosted
-> web app, so you will not need the checkout.
+> **This page runs both halves from a checkout**, which also has what is
+> [not released](/docs/status#not-released). `@frebreco/nod` is on npm and the hosted web app is
+> live at `ui.nod.frebreco.de`: `bunx @frebreco/nod serve` in place of `bun src/cli.ts serve` runs
+> the published CLI and opens the hosted web app, without the checkout.
 
 ## What you need
 

@@ -10,7 +10,10 @@
  * - A link for another repo, or a PR the snapshot does not have: a calm
  *   explanation with the GitHub link.
  * - Not paired yet (`UnpairedLanding`): what nod is, what to do; the link is
- *   remembered across the pairing; never a sign button.
+ *   remembered across the pairing; never a sign button. A hosted page that
+ *   remembers this browser's named host offers "Open on <host>" instead
+ *   (`ForwardOffer`, ADR 0005 §7); the named host's own page says to scan
+ *   the device link.
  */
 
 import { Lock } from "lucide-react";
@@ -39,6 +42,8 @@ import { BriefText } from "./brief-text";
 import { cannotSignText } from "./unlock";
 import { useBatch } from "./batch-dialog";
 import { DiffIndicator } from "./diff-indicator";
+import { ForwardOffer, PasteLink } from "./forward";
+import type { Unpaired } from "./full-page";
 import { Footer, GHOST, PRIMARY } from "./onboarding";
 import { Logo, TopBarShell } from "./top-bar";
 
@@ -398,7 +403,7 @@ function Column({ children }: { children: ReactNode }) {
  * is, what to do, the GitHub link. The link is remembered, so the host link
  * `nod serve` prints lands here again; nothing can sign before that.
  */
-export function UnpairedLanding({ route }: { route: LinkRoute }) {
+export function UnpairedLanding({ route, unpaired }: { route: LinkRoute; unpaired: Unpaired }) {
   const key = formatRoute(route);
   useEffect(() => {
     const storage = browserStorage();
@@ -406,6 +411,21 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
   }, [key]);
   const numbers = linkNumbers(route);
   const first = numbers[0]!;
+  const github = (
+    <a
+      className={cn(GHOST, "phone:border-line2")}
+      href={
+        numbers.length === 1
+          ? githubPrUrl(webUrlOf(route.host), route.repo, first)
+          : githubPullsUrl(webUrlOf(route.host), route.repo)
+      }
+      target="_blank"
+      rel="noreferrer"
+    >
+      {numbers.length === 1 ? `#${first} on GitHub ↗` : "On GitHub ↗"}
+    </a>
+  );
+  const { offer, host } = unpaired;
   return (
     <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
@@ -417,55 +437,60 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
           className="border-line bg-panel rounded-2xl border px-9 py-8 phone:order-2 phone:px-5 phone:py-6"
           aria-live="polite"
         >
-          <h1 className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">
-            Open it in nod on your machine
-          </h1>
-          <p className="text-tx2 m-0 mb-[22px]">
-            nod is a local dashboard for agent-written pull requests: it runs on your machine, with
-            your GitHub login, and signs nods with a key only you can unlock.
-          </p>
-          <ol className="m-0 list-none p-0">
-            <li className="border-line grid grid-cols-[24px_1fr] gap-3 border-t py-3">
-              <span className="border-line2 text-tx3 mt-px grid size-5 place-items-center rounded-full border-[1.5px] text-[11px] font-bold">
-                1
-              </span>
-              <div>
-                In a terminal, in your clone of {repoLabel(route.host, route.repo)}:
-                <div className="bg-bg border-line text-tx my-2 flex items-center gap-2.5 overflow-x-auto rounded-lg border px-3.5 py-2.5 font-mono text-[12.5px] phone:text-[13px] phone:select-all">
-                  nod serve
-                </div>
-              </div>
-            </li>
-            <li className="border-line grid grid-cols-[24px_1fr] gap-3 border-t py-3">
-              <span className="border-line2 text-tx3 mt-px grid size-5 place-items-center rounded-full border-[1.5px] text-[11px] font-bold">
-                2
-              </span>
-              <div>
-                Open the link it prints.
-                <small className="text-tx3 mt-0.5 block text-[12.5px] leading-[1.5]">
-                  It pairs this browser once, and then you land on{" "}
-                  {numbers.length === 1 ? `#${first}` : "these pull requests"} again.
-                </small>
-              </div>
-            </li>
-          </ol>
-          <Footer
-            noteClass="max-w-[340px]"
-            note="Until then this page cannot sign anything: it has no connection to your machine."
-          >
-            <a
-              className={cn(GHOST, "phone:border-line2")}
-              href={
-                numbers.length === 1
-                  ? githubPrUrl(webUrlOf(route.host), route.repo, first)
-                  : githubPullsUrl(webUrlOf(route.host), route.repo)
-              }
-              target="_blank"
-              rel="noreferrer"
+          {offer.kind === "forward" ? (
+            <ForwardOffer
+              offer={offer}
+              what={numbers.length === 1 ? `#${first}` : "these pull requests"}
+              onForget={unpaired.onForget}
             >
-              {numbers.length === 1 ? `#${first} on GitHub ↗` : "On GitHub ↗"}
-            </a>
-          </Footer>
+              {github}
+            </ForwardOffer>
+          ) : (
+            <>
+              <h1 className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">
+                {host ? "Pair this device with nod serve" : "Open it in nod on your machine"}
+              </h1>
+              <p className="text-tx2 m-0 mb-[22px]">
+                nod is a local dashboard for agent-written pull requests: it runs on your machine,
+                with your GitHub login, and signs nods with a key only you can unlock.
+              </p>
+              <ol className="m-0 list-none p-0">
+                <li className="border-line grid grid-cols-[24px_1fr] gap-3 border-t py-3">
+                  <span className="border-line2 text-tx3 mt-px grid size-5 place-items-center rounded-full border-[1.5px] text-[11px] font-bold">
+                    1
+                  </span>
+                  <div className="min-w-0">
+                    {host ? "On your machine" : "In a terminal"}, in your clone of{" "}
+                    {repoLabel(route.host, route.repo)}:
+                    <div className="bg-bg border-line text-tx my-2 flex items-center gap-2.5 overflow-x-auto rounded-lg border px-3.5 py-2.5 font-mono text-[12.5px] phone:text-[13px] phone:select-all">
+                      {host ? `nod serve --allow-host ${host}` : "nod serve"}
+                    </div>
+                  </div>
+                </li>
+                <li className="border-line grid grid-cols-[24px_1fr] gap-3 border-t py-3">
+                  <span className="border-line2 text-tx3 mt-px grid size-5 place-items-center rounded-full border-[1.5px] text-[11px] font-bold">
+                    2
+                  </span>
+                  <div>
+                    {host
+                      ? "Scan the QR code it prints with this device’s camera."
+                      : "Open the link it prints."}
+                    <small className="text-tx3 mt-0.5 block text-[12.5px] leading-[1.5]">
+                      It pairs this browser once, and then you land on{" "}
+                      {numbers.length === 1 ? `#${first}` : "these pull requests"} again.
+                    </small>
+                  </div>
+                </li>
+              </ol>
+              {unpaired.standalone && <PasteLink />}
+              <Footer
+                noteClass="max-w-[340px]"
+                note="Until then this page cannot sign anything: it has no connection to your machine."
+              >
+                {github}
+              </Footer>
+            </>
+          )}
         </main>
       </div>
     </div>

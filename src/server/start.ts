@@ -7,7 +7,7 @@
 import { systemClock, type Clock } from "./clock";
 import { FakeSource, scenarioHasKey, type FakeScenario } from "./fake-source";
 import { githubSource } from "./github-source";
-import type { NamedHost } from "./named-host";
+import type { NamedHost } from "../shared/named-host";
 import { serve, type Serving } from "./server";
 import { Session } from "./session";
 import { FakeSigner, type Signer } from "./signer";

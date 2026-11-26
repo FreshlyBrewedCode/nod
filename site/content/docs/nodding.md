@@ -139,4 +139,6 @@ A link opens the pull request, or the batch dialog's review step for those pull 
 **A link never approves by itself**: you still review, unlock and sign. The page does nothing
 until it is paired with your `nod serve`; a link opened before pairing is remembered and shown
 after. A link for another repository than the one you serve says so. On GitHub Enterprise the
-link names the host first, see [GitHub Enterprise](/docs/enterprise#deep-links).
+link names the host first, see [GitHub Enterprise](/docs/enterprise#deep-links). On a phone,
+the hosted web app can hand a link over to your nod on the named host, one tap per link
+(not released): [Links from GitHub](/docs/phone#links-from-github).

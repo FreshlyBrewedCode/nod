@@ -103,6 +103,8 @@ These close most of the gaps above without any change to nod.
 - Prefer **just this once** when you unlock, or lock from the chip when you are done.
 - Keep the host link to yourself. While signing is unlocked, a page with that link can sign.
 - Scan the device link from the terminal; do not send it through a chat.
+- Remember an address on the hosted web app only right after you tapped **Open links from GitHub
+  here** in your own nod, and check that it is your machine's.
 
 ## The local server
 
@@ -139,7 +141,17 @@ reach it.
   only on loopback, as before. There is no plain-http access from another device.
 - The remote token is stored on the phone and does not expire. `--new-remote-token` unpairs the
   phone and leaves your machine paired.
-- The dashboard on the named host cannot be framed by another page.
+- The dashboard on the named host cannot be framed by another page. The hosted web app's host
+  sends no header that forbids framing, so the web app itself refuses to run inside another page.
+- **Links from GitHub** (not released). The hosted web app forwards a deep link to the named
+  host only after you confirmed that host, in that browser, on a page that shows it in full, and
+  then one tap per link. Anyone can make a link that asks it to remember another address, and a
+  page there could ask for your passphrase: the page says so, its default is not to remember, and
+  it takes only an https host name (no IP address, no loopback, no path). Its remember button
+  takes a tap only after the page has been visible for a second, and a page that names another
+  address starts over, so a tap aimed at the page before lands on nothing. After a tap it shows
+  the address it stored. The address is shown on every forward; forget it there if it is not yours. A forward carries no token, and a browser
+  paired with your machine never forwards. [Links from GitHub](/docs/phone#links-from-github)
 - `tailscale serve` adds headers naming the tailnet user. nod does not check them yet: any
   program on your machine could send them, and tagged devices have none.
 

@@ -5,9 +5,10 @@ section: Start
 order: 1
 ---
 
-> **nod is a prototype.** It exists to prove a concept, not to be relied on. Nothing is released
-> yet: no npm package, no hosted web app. You run it from a checkout. Read
-> [Security and limits](/docs/security) before you let it gate a repository you care about.
+> **nod is a prototype.** It exists to prove a concept, not to be relied on. Its early releases
+> (`@frebreco/nod` on npm, the hosted web app at `ui.nod.frebreco.de`) will change; see
+> [Status](/docs/status). Read [Security and limits](/docs/security) before you let it gate a
+> repository you care about.
 
 Coding agents write most of the code now, and each one opens pull requests. A team of two or
 three ends up with far more pull requests than anyone can read. Review has changed: it is less

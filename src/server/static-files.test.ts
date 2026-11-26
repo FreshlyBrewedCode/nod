@@ -40,3 +40,27 @@ test("files are served, anything else is the app's index", async () => {
     expect(page.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
   }
 });
+
+test("the home-screen files are served with their types (the built app's own)", async () => {
+  const built = new URL("../web/public/", import.meta.url).pathname;
+  const types: Record<string, string> = {
+    "/manifest.webmanifest": "application/manifest+json",
+    "/apple-touch-icon.png": "image/png",
+    "/icon-192.png": "image/png",
+    "/icon-512.png": "image/png",
+    "/icon-maskable-512.png": "image/png",
+    "/icon.svg": "image/svg+xml",
+  };
+  for (const [path, type] of Object.entries(types)) {
+    const response = await serveStatic(built, path);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toStartWith(type);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  }
+  const manifest = await (await serveStatic(built, "/manifest.webmanifest")).json();
+  expect(manifest).toMatchObject({ name: "nod", display: "standalone", start_url: "./" });
+  for (const icon of manifest.icons as { src: string }[])
+    expect((await serveStatic(built, `/${icon.src}`)).headers.get("content-type")).not.toBe(
+      "text/html",
+    );
+});
