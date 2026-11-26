@@ -6,9 +6,8 @@ order: 4
 ---
 
 > **Not released.** `--allow-host` is on `main` and not in a published package yet. Run it from a
-> checkout (`bun src/cli.ts serve …`), after `bun run build`. The phone layout, reopening the
-> connection when the phone wakes, and opening a deep link from a GitHub notification on the
-> phone are not built yet.
+> checkout (`bun src/cli.ts serve …`), after `bun run build`. The phone layout and opening a deep
+> link from a GitHub notification on the phone are not built yet.
 
 `nod serve` stays on your machine and keeps the signing key there. A phone reaches it over your
 [tailnet](https://tailscale.com/kb/1136/tailnet), with `tailscale serve` in front: Tailscale
@@ -60,6 +59,13 @@ The named host is a side of its own:
   while your machine is unlocked.
 - **The dashboard of this very `nod serve`**: the same version, always. It pairs only with the
   named host, never with the phone's own `127.0.0.1`.
+
+## A locked phone
+
+When the phone wakes the tab, or its network comes back, the page checks the connection, and
+reconnects on its own within a few seconds if it is dead; the dashboard stays as it was
+meanwhile. A signing that was cut off says that it may have gone through: look for the nod on
+the PRs before you sign again.
 
 ## A lost phone
 

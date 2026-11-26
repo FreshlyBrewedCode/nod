@@ -7,6 +7,8 @@
  * - onboarding (`components/onboarding.tsx`) while the setup or the key is
  *   not ready, until "Go to the dashboard"; and again at `#/setup`;
  * - the dashboard once a snapshot is in (a deep link shows its landing there).
+ *   A socket that drops keeps it: the last view stays, with a hint
+ *   (`lib/reconnect.ts`), not the page for "not running".
  */
 
 import { useState } from "react";
@@ -49,7 +51,9 @@ function Gate() {
   );
 
   if (status === "unpaired" && isLinkRoute(route)) return <UnpairedLanding route={route} />;
-  if (!snapshot && status !== "open")
+  // A drop keeps the last view (the dashboard says so after a moment); a
+  // refused pairing or another protocol is no drop and gets its page.
+  if ((!snapshot && status !== "open") || status === "refused" || status === "outdated")
     return <ConnectionPage status={status} reconnects={reconnects} />;
 
   const progress =

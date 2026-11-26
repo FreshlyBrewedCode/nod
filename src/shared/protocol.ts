@@ -547,6 +547,13 @@ export interface Requests {
    * by anyone is their ack. Errors: `not-found`.
    */
   "ack-fyi": { body: { readonly pr: number }; result: Record<never, never> };
+  /**
+   * Answer at once and do nothing else: the web app's wake check, to tell a
+   * live socket from a half-open one. Any reply proves the socket lives, so
+   * a server that predates `ping` answers `bad-request`, which works too:
+   * no protocol bump.
+   */
+  ping: { body: Record<never, never>; result: Record<never, never> };
   /** Read GitHub now instead of waiting for the next poll. A new snapshot follows. */
   refresh: { body: Record<never, never>; result: Record<never, never> };
   /**

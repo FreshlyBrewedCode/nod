@@ -337,6 +337,7 @@ export class Session {
         await source.ackFyi(pr);
         return {};
       },
+      ping: async () => ({}),
       refresh: async () => {
         await source.refresh();
         return {};
@@ -426,6 +427,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   lock: true,
   sign: true,
   "ack-fyi": true,
+  ping: true,
   refresh: true,
   "list-repos": true,
   "pick-repo": true,
@@ -492,6 +494,7 @@ export function parseRequest(data: string): ClientToServer {
       return { t: "create-key", id, passphrase, ...(path !== undefined && { path }) };
     }
     case "lock":
+    case "ping":
     case "refresh":
     case "list-repos":
     case "check-setup":

@@ -384,6 +384,9 @@ describe("the web client against the fake", () => {
       expect(client.state.welcome?.me?.login).toBe("mara-l");
       expect(client.state.signer?.state).toBe("locked");
 
+      // the wake check's ping: answered at once, changes nothing
+      await expect(client.request("ping", {})).resolves.toEqual({});
+
       const wrong = await client
         .request("unlock", { passphrase: "wrong" })
         .catch((e: unknown) => e);

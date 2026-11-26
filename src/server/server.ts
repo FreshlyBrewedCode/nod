@@ -73,6 +73,15 @@ export interface ServeOptions {
   readonly version: string | null;
 }
 
+/**
+ * How long a socket may be silent before the server closes it, in seconds.
+ * Bun pings a client shortly before the limit and counts its pong (a
+ * browser answers on its own), so a live tab never hits it, while a phone
+ * that vanished (a lost network, a suspended tab) is dropped and its
+ * session goes with it. Both sides share the one server, so both get it.
+ */
+export const WS_IDLE_SECONDS = 60;
+
 interface SocketData {
   readonly authorized: boolean;
   readonly side: Side;
@@ -168,6 +177,8 @@ export function serve(options: ServeOptions): Serving {
     },
     websocket: {
       maxPayloadLength: 1024 * 1024,
+      idleTimeout: WS_IDLE_SECONDS,
+      sendPings: true,
       open(ws) {
         if (!ws.data.authorized) return ws.close(CLOSE_BAD_TOKEN, "bad token");
         sockets.add(ws);
