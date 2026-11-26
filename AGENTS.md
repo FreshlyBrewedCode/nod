@@ -89,6 +89,9 @@ nod
     `SigningMethod` seam for ssh-agent signers later; `nod key create|show|test`. Security code: keep
     it small; every SSHSIG test verifies with the real `ssh-keygen`; tests use temp dirs and
     cheap scrypt parameters (`scrypt` option), never the real config dir
+  - phone: one breakpoint (below 640 px), the `phone:` variant in `styles.css`, `lib/phone.ts` and
+    `useIsPhone()`; rules are added on top, desktop classes stay (`docs/design/design.md`, "Phone").
+    `bun run check:phone` (needs a browser, not in `check`) fails on horizontal overflow at 360 px
   - browser checks: `env -u LD_LIBRARY_PATH playwright-cli open --config=<json>` with a config
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)

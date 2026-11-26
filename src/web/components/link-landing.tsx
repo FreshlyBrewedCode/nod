@@ -39,7 +39,7 @@ import { BriefText } from "./brief-text";
 import { cannotSignText } from "./unlock";
 import { useBatch } from "./batch-dialog";
 import { DiffIndicator } from "./diff-indicator";
-import { GHOST, PRIMARY } from "./onboarding";
+import { Footer, GHOST, PRIMARY } from "./onboarding";
 import { Logo, TopBarShell } from "./top-bar";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -48,7 +48,7 @@ function Banner({ route, children }: { route: LinkRoute; children?: ReactNode })
   const numbers = linkNumbers(route);
   const repo = repoLabel(route.host, route.repo);
   return (
-    <div className="border-[#74a9ff44] bg-know-bg col-span-full rounded-xl border px-5 py-4">
+    <div className="border-[#74a9ff44] bg-know-bg col-span-full rounded-xl border px-5 py-4 phone:order-1 phone:px-4">
       <b className="text-know font-semibold">Opened from a link</b> ·{" "}
       {numbers.length === 1
         ? `#${numbers[0]} in ${repo}`
@@ -62,12 +62,14 @@ function Banner({ route, children }: { route: LinkRoute; children?: ReactNode })
 }
 
 const LINK = "underline underline-offset-2 hover:text-tx2";
+/** A link that is a row's action: a touch-sized target on a phone. */
+const LINK_ACTION = cn(LINK, "phone:inline-flex phone:min-h-11 phone:items-center");
 
 function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
       className={cn(
-        "border-line bg-panel mb-2.5 grid grid-cols-[20px_1fr] gap-3.5 rounded-xl border px-5 py-[18px]",
+        "border-line bg-panel mb-2.5 grid grid-cols-[20px_1fr] gap-3.5 rounded-xl border px-5 py-[18px] phone:px-4",
         className,
       )}
     >
@@ -88,7 +90,7 @@ function Tick({
   onChange: () => void;
 }) {
   return (
-    <label className="relative mt-[3px] grid size-4 place-items-center">
+    <label className="relative mt-[3px] grid size-4 place-items-center phone:after:absolute phone:after:-inset-3.5 phone:after:content-['']">
       <input
         type="checkbox"
         checked={checked}
@@ -130,10 +132,10 @@ function PrCard({
       />
       <div className="min-w-0">
         <h3 className={cn("m-0 mb-1 text-[15px] font-bold", !needsMe && "text-tx2")}>{pr.title}</h3>
-        <div className="text-tx3 mt-[3px] flex items-center gap-[7px] text-[12.5px]">
+        <div className="text-tx3 mt-[3px] flex items-center gap-[7px] text-[12.5px] phone:flex-wrap phone:gap-y-1.5">
           <span className="font-mono text-[12px]">#{pr.number}</span>
           {tag && <Tag tag={tag} />}
-          <RiskBars risk={pr.risk} />
+          <RiskBars risk={pr.risk} label />
           <DiffIndicator inline added={pr.diff.added} removed={pr.diff.removed} />
           <span className="flex-1" />
           {needsMe ? (
@@ -156,12 +158,12 @@ function PrCard({
             {mixed ? ", so it is not selected." : "."}
           </div>
         )}
-        <div className="text-tx3 mt-2.5 flex items-center gap-[7px] text-[12.5px]">
-          <button type="button" className={LINK} onClick={onOpen}>
+        <div className="text-tx3 mt-2.5 flex items-center gap-[7px] text-[12.5px] phone:gap-4">
+          <button type="button" className={LINK_ACTION} onClick={onOpen}>
             Open
           </button>
-          <span>·</span>
-          <a className={LINK} href={`${pr.url}/files`} target="_blank" rel="noreferrer">
+          <span className="phone:hidden">·</span>
+          <a className={LINK_ACTION} href={`${pr.url}/files`} target="_blank" rel="noreferrer">
             Diff on GitHub ↗
           </a>
         </div>
@@ -230,11 +232,18 @@ export function LinkLanding({
   ).length;
   const toList = (
     <p className="text-tx3 mx-1 my-4 text-[12.5px] leading-[1.55]">
-      <button type="button" className={LINK} onClick={onList}>
+      <button type="button" className={cn(LINK, "phone:block phone:min-h-11")} onClick={onList}>
         Go to the full list
       </button>
-      {otherNeeds > 0 &&
-        ` · ${otherNeeds === 1 ? "1 more pull request waits" : `${otherNeeds} more pull requests wait`} for you there.`}
+      {otherNeeds > 0 && (
+        <>
+          <span className="phone:hidden"> · </span>
+          {otherNeeds === 1
+            ? "1 more pull request waits"
+            : `${otherNeeds} more pull requests wait`}{" "}
+          for you there.
+        </>
+      )}
     </p>
   );
 
@@ -243,7 +252,7 @@ export function LinkLanding({
     return (
       <Column>
         <Banner route={route} />
-        <main className="col-span-full max-w-[660px]">
+        <main className="col-span-full max-w-[660px] phone:order-2">
           <NoteCard title={`This link is for ${landing.repo}`}>
             nod serve here reads {landing.here} only, the repository of the folder it runs in. To
             look at {numbers.map((n) => `#${n}`).join(", ")} in nod, run{" "}
@@ -279,7 +288,7 @@ export function LinkLanding({
   return (
     <Column>
       <Banner route={route} />
-      <main className="min-w-0">
+      <main className="min-w-0 phone:order-3">
         {targets.map((t) => (
           <PrCard
             key={t.pr.number}
@@ -323,7 +332,7 @@ export function LinkLanding({
         {toList}
       </main>
       <aside
-        className="border-need-line bg-panel sticky top-[76px] self-start rounded-[14px] border p-5"
+        className="border-need-line bg-panel sticky top-[76px] self-start rounded-[14px] border p-5 phone:static phone:order-2 phone:p-4"
         aria-label="Requested"
       >
         <h6 className="text-tx3 m-0 mb-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase">
@@ -378,7 +387,7 @@ export function LinkLanding({
 
 function Column({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto grid w-full max-w-[1000px] grid-cols-[minmax(0,1fr)_300px] gap-x-10 gap-y-10 px-6 pt-7 pb-[100px]">
+    <div className="mx-auto grid w-full max-w-[1000px] grid-cols-[minmax(0,1fr)_300px] gap-x-10 gap-y-10 px-6 pt-7 pb-[100px] phone:flex phone:flex-col phone:gap-4 phone:px-4 phone:pt-4 phone:pb-[calc(2rem+env(safe-area-inset-bottom))]">
       {children}
     </div>
   );
@@ -398,13 +407,16 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
   const numbers = linkNumbers(route);
   const first = numbers[0]!;
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
         <Logo />
       </TopBarShell>
-      <div className="mx-auto grid w-full max-w-[760px] gap-6 px-6 pt-7 pb-[100px]">
+      <div className="mx-auto grid w-full max-w-[760px] gap-6 px-6 pt-7 pb-[100px] phone:gap-4 phone:px-4 phone:pt-4 phone:pb-8">
         <Banner route={route} />
-        <main className="border-line bg-panel rounded-2xl border px-9 py-8" aria-live="polite">
+        <main
+          className="border-line bg-panel rounded-2xl border px-9 py-8 phone:order-2 phone:px-5 phone:py-6"
+          aria-live="polite"
+        >
           <h1 className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">
             Open it in nod on your machine
           </h1>
@@ -419,7 +431,7 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
               </span>
               <div>
                 In a terminal, in your clone of {repoLabel(route.host, route.repo)}:
-                <div className="bg-bg border-line text-tx my-2 flex items-center gap-2.5 rounded-lg border px-3.5 py-2.5 font-mono text-[12.5px]">
+                <div className="bg-bg border-line text-tx my-2 flex items-center gap-2.5 overflow-x-auto rounded-lg border px-3.5 py-2.5 font-mono text-[12.5px] phone:text-[13px] phone:select-all">
                   nod serve
                 </div>
               </div>
@@ -437,13 +449,12 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
               </div>
             </li>
           </ol>
-          <div className="mt-[26px] flex items-center gap-2.5">
-            <span className="text-tx3 max-w-[340px] text-[12.5px] leading-[1.55]">
-              Until then this page cannot sign anything: it has no connection to your machine.
-            </span>
-            <span className="flex-1" />
+          <Footer
+            noteClass="max-w-[340px]"
+            note="Until then this page cannot sign anything: it has no connection to your machine."
+          >
             <a
-              className={GHOST}
+              className={cn(GHOST, "phone:border-line2")}
               href={
                 numbers.length === 1
                   ? githubPrUrl(webUrlOf(route.host), route.repo, first)
@@ -454,7 +465,7 @@ export function UnpairedLanding({ route }: { route: LinkRoute }) {
             >
               {numbers.length === 1 ? `#${first} on GitHub ↗` : "On GitHub ↗"}
             </a>
-          </div>
+          </Footer>
         </main>
       </div>
     </div>

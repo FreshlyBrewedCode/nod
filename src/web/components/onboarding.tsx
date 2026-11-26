@@ -56,7 +56,7 @@ import { PassphraseField, failureOf, takePassphrase } from "./unlock";
 // r3's pieces: buttons, the check row, the card
 
 const BTN =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-semibold disabled:opacity-50 disabled:cursor-default";
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-semibold disabled:opacity-50 disabled:cursor-default phone:h-auto phone:min-h-11 phone:py-2 phone:text-center phone:whitespace-normal";
 export const PRIMARY = cn(BTN, "bg-need border-need text-on-need h-[42px] px-5 text-[14px]");
 export const GHOST = cn(
   BTN,
@@ -69,7 +69,7 @@ export function Words({ text }: { text: string }) {
     <>
       {text.split(/(`[^`]+`)/).map((part, i) =>
         part.startsWith("`") && part.endsWith("`") && part.length > 2 ? (
-          <code key={i} className="font-mono text-[12px]">
+          <code key={i} className="font-mono fs-code">
             {part.slice(1, -1)}
           </code>
         ) : (
@@ -81,7 +81,7 @@ export function Words({ text }: { text: string }) {
 }
 
 const Mono = ({ children }: { children: ReactNode }) => (
-  <span className="font-mono text-[12px]">{children}</span>
+  <span className="font-mono fs-code">{children}</span>
 );
 
 type Mark = "ok" | "no" | "wait" | "bad";
@@ -123,16 +123,22 @@ function Check({
   note?: ReactNode;
 }) {
   return (
-    <li className="border-line grid grid-cols-[24px_1fr_auto] items-start gap-3 border-t py-3">
+    <li className="border-line grid grid-cols-[24px_1fr_auto] items-start gap-3 border-t py-3 phone:grid-cols-[24px_1fr]">
       <CheckIcon mark={mark} />
-      <div className="min-w-0">
+      <div className="min-w-0 phone:[overflow-wrap:anywhere]">
         <span className="sr-only">{MARK_LABEL[mark]}: </span>
         {title}
         {children && (
-          <small className="text-tx3 mt-0.5 block text-[12.5px] leading-[1.5]">{children}</small>
+          <small className="text-tx3 mt-0.5 block fs-note leading-[1.5]">{children}</small>
         )}
       </div>
-      {note ? <span className="text-tx3 text-[12.5px] leading-[1.55]">{note}</span> : <span />}
+      {note ? (
+        <span className="text-tx3 fs-note leading-[1.55] phone:col-start-2 phone:-mt-1.5">
+          {note}
+        </span>
+      ) : (
+        <span className="phone:hidden" />
+      )}
     </li>
   );
 }
@@ -141,12 +147,26 @@ function Checks({ children }: { children: ReactNode }) {
   return <ul className="m-0 list-none p-0">{children}</ul>;
 }
 
-function Footer({ note, children }: { note?: ReactNode; children: ReactNode }) {
+/**
+ * The note on the left, the buttons on the right. On a phone they stack, the
+ * buttons first and the main one on top (the DOM order has it last), full width.
+ */
+export function Footer({
+  note,
+  noteClass = "max-w-[300px]",
+  children,
+}: {
+  note?: ReactNode;
+  noteClass?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="mt-[26px] flex items-center gap-2.5">
-      <span className="text-tx3 max-w-[300px] text-[12.5px] leading-[1.55]">{note}</span>
-      <span className="flex-1" />
-      {children}
+    <div className="mt-[26px] flex items-center gap-2.5 phone:mt-5 phone:flex-col-reverse phone:items-stretch phone:gap-4">
+      <span className={cn("text-tx3 fs-note leading-[1.55]", noteClass, "phone:max-w-none")}>
+        {note}
+      </span>
+      <span className="flex-1 phone:hidden" />
+      <div className="contents phone:flex phone:flex-col-reverse phone:gap-1.5">{children}</div>
     </div>
   );
 }
@@ -238,20 +258,27 @@ export function Onboarding(props: OnboardingProps) {
   const next = () => setStep(nextStep(progress, step));
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
         <Logo />
         <span className="flex-1" />
         {canLeave && (
-          <button type="button" onClick={onDone} className="text-tx3 hover:text-tx2 text-[12.5px]">
+          <button
+            type="button"
+            onClick={onDone}
+            className="text-tx3 hover:text-tx2 fs-note phone:min-h-11"
+          >
             {progress.needed ? "Look around first" : "Back to the dashboard"}
           </button>
         )}
-        <span className="text-tx3 text-[12.5px]">Setup · step {step} of 4</span>
+        <span className="text-tx3 fs-note phone:hidden">Setup · step {step} of 4</span>
       </TopBarShell>
-      <div className="mx-auto my-12 grid w-full max-w-[940px] grid-cols-[230px_1fr] gap-11 px-6">
+      <div className="mx-auto my-12 grid w-full max-w-[940px] grid-cols-[230px_1fr] gap-11 px-6 phone:my-4 phone:grid-cols-1 phone:gap-4 phone:px-4">
         <Stepper progress={progress} step={step} onStep={go} />
-        <main className="border-line bg-panel rounded-2xl border px-9 py-8" aria-live="polite">
+        <main
+          className="border-line bg-panel rounded-2xl border px-9 py-8 phone:px-5 phone:py-6"
+          aria-live="polite"
+        >
           {step === 1 ? (
             <GitHubStep progress={progress} {...props} onNext={next} />
           ) : step === 2 ? (
@@ -283,46 +310,56 @@ function Stepper({
   onStep: (step: StepNumber) => void;
 }) {
   return (
-    <ol className="m-0 mt-1.5 list-none p-0" aria-label="Setup steps">
-      {STEP_NAMES.map((name, i) => {
-        const n = (i + 1) as StepNumber | 5;
-        const on = n === step;
-        const done = n !== 5 && !on && progress.done[n];
-        const canGo = n !== 5 && !on && reachable(progress, n);
-        const inner = (
-          <>
-            <i
-              className={cn(
-                "grid size-[22px] flex-none place-items-center rounded-full border-[1.5px] text-[11px] font-bold not-italic",
-                on
-                  ? "border-need text-need"
-                  : done
-                    ? "bg-ok border-ok text-[#06140d]"
-                    : "border-line2",
+    <div className="contents phone:flex phone:items-center phone:justify-between">
+      <ol
+        className="m-0 mt-1.5 list-none p-0 phone:mt-0 phone:flex phone:items-center"
+        aria-label="Setup steps"
+      >
+        {STEP_NAMES.map((name, i) => {
+          const n = (i + 1) as StepNumber | 5;
+          const on = n === step;
+          const done = n !== 5 && !on && progress.done[n];
+          const canGo = n !== 5 && !on && reachable(progress, n);
+          const inner = (
+            <>
+              <i
+                className={cn(
+                  "grid size-[22px] flex-none place-items-center rounded-full border-[1.5px] text-[11px] font-bold not-italic phone:size-7 phone:text-xs",
+                  on
+                    ? "border-need text-need"
+                    : done
+                      ? "bg-ok border-ok text-[#06140d]"
+                      : "border-line2",
+                )}
+              >
+                {done ? "✓" : n}
+              </i>
+              <span className="phone:sr-only">{name}</span>
+            </>
+          );
+          const cls = cn(
+            "flex items-center gap-3 py-[9px] text-left phone:min-h-11 phone:min-w-11 phone:justify-center",
+            on ? "text-tx font-semibold" : done ? "text-tx2" : "text-tx3",
+          );
+          return (
+            <li key={name} aria-current={on ? "step" : undefined}>
+              {canGo ? (
+                <button
+                  type="button"
+                  className={cn(cls, "hover:text-tx")}
+                  onClick={() => onStep(n)}
+                >
+                  {inner}
+                </button>
+              ) : (
+                <span className={cls}>{inner}</span>
               )}
-            >
-              {done ? "✓" : n}
-            </i>
-            {name}
-          </>
-        );
-        const cls = cn(
-          "flex items-center gap-3 py-[9px] text-left",
-          on ? "text-tx font-semibold" : done ? "text-tx2" : "text-tx3",
-        );
-        return (
-          <li key={name} aria-current={on ? "step" : undefined}>
-            {canGo ? (
-              <button type="button" className={cn(cls, "hover:text-tx")} onClick={() => onStep(n)}>
-                {inner}
-              </button>
-            ) : (
-              <span className={cls}>{inner}</span>
-            )}
-          </li>
-        );
-      })}
-    </ol>
+            </li>
+          );
+        })}
+      </ol>
+      <span className="text-tx3 fs-note hidden phone:block">Step {step} of 4</span>
+    </div>
   );
 }
 
@@ -415,7 +452,7 @@ function GitHubStep({
       </Checks>
       {me && (
         <fieldset className="m-0 mt-5 border-0 p-0">
-          <legend className="text-tx3 mb-2 p-0 text-[12.5px]">Repository</legend>
+          <legend className="text-tx3 mb-2 p-0 fs-note">Repository</legend>
           {!repos && !list.failure && <p className="text-tx3 m-0 text-[13px]">Reading…</p>}
           {sorted.map((r) => {
             const on = r.repo === selected;
@@ -455,9 +492,9 @@ function GitHubStep({
                     on ? "border-need border-[5px]" : "border-line2 border-[1.5px]",
                   )}
                 />
-                <span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">
                   {on ? <b>{r.repo}</b> : r.repo}
-                  <span className="text-tx3 block text-[12.5px] leading-[1.55]">{sub}</span>
+                  <span className="text-tx3 block fs-note leading-[1.55]">{sub}</span>
                 </span>
               </label>
             );
@@ -691,7 +728,7 @@ function KeyStep(
 }
 
 const FIELD =
-  "bg-bg text-tx h-[38px] w-full rounded-lg border px-3 text-[15px] tracking-[2px] outline-none";
+  "bg-bg text-tx h-[38px] w-full rounded-lg border px-3 text-[15px] tracking-[2px] outline-none phone:h-11";
 
 function CreateKey({
   progress,
@@ -750,7 +787,7 @@ function CreateKey({
     which: "first" | "second",
   ) => (
     <div>
-      <label htmlFor={id} className="text-tx3 mb-[5px] block text-[12.5px]">
+      <label htmlFor={id} className="text-tx3 mb-[5px] block fs-note">
         {label}
       </label>
       <input
@@ -779,14 +816,14 @@ function CreateKey({
       </Heading>
       <div className="border-need bg-need-bg rounded-[10px] border px-4 py-3.5">
         <b>Create a new key</b>
-        <div className="text-tx3 text-[12.5px] leading-[1.55]">
+        <div className="text-tx3 fs-note leading-[1.55]">
           ed25519, kept encrypted in nod’s folder on this machine, used for nothing else
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2.5">
+        <div className="mt-3 grid grid-cols-2 gap-2.5 phone:grid-cols-1">
           {field("key-passphrase", "Passphrase", first, "first")}
           {field("key-repeat", "Repeat", second, "second")}
         </div>
-        <p id="key-rule" className="text-tx3 m-0 mt-2.5 text-[12.5px] leading-[1.55]">
+        <p id="key-rule" className="text-tx3 m-0 mt-2.5 fs-note leading-[1.55]">
           <span className={cn(filled.long && "text-ok")}>
             {filled.long ? "✓ " : ""}At least {MIN_PASSPHRASE_LENGTH} characters
           </span>
@@ -794,7 +831,7 @@ function CreateKey({
           recovered: if you forget it, you make a new key.
         </p>
         {problem && (
-          <p role="alert" className="text-bad m-0 mt-2 text-[12.5px]">
+          <p role="alert" className="text-bad m-0 mt-2 fs-note">
             {problem.message}
           </p>
         )}
@@ -988,11 +1025,14 @@ function Enrol({
         {pendingPr && !viaSetup ? (
           <button
             type="button"
-            className={GHOST}
+            className={cn(GHOST, "phone:flex-col phone:gap-0")}
             onClick={() => void copyAsk(pendingPr)}
             title="Copies a nod link to the PR, to send them"
           >
             {copied ? "Link copied" : ask ? `Ask ${ask}` : "Copy a link to ask a teammate"}
+            <small className="hidden text-[13px] font-normal phone:block">
+              copies a nod link to the PR, to send them
+            </small>
           </button>
         ) : pendingPr ? (
           <a href={pendingPr.url} target="_blank" rel="noreferrer" className={GHOST}>
@@ -1129,7 +1169,7 @@ function TestStep({
       </Checks>
       {!result && !unlocked && (
         <div className="border-line2 bg-bg mt-4 rounded-xl border p-[18px]">
-          <label htmlFor="test-passphrase" className="text-tx3 mb-2 block text-[12.5px]">
+          <label htmlFor="test-passphrase" className="text-tx3 mb-2 block fs-note">
             Passphrase for your signing key
           </label>
           <PassphraseField

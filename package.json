@@ -23,6 +23,7 @@
     "lint": "oxlint src templates",
     "format": "oxfmt src bin scripts templates vite.config.ts package.json .releaserc.json",
     "format:check": "oxfmt --check src bin scripts templates vite.config.ts package.json .releaserc.json",
+    "check:phone": "bun scripts/check-phone.ts",
     "check": "bun run format:check && bun run lint && bun run typecheck && bun run test"
   },
   "dependencies": {
@@ -50,6 +51,7 @@
     "lucide-react": "^1.48.0",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
+    "playwright-core": "^1.65.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-resizable-panels": "^4.13.3",

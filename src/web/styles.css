@@ -5,6 +5,39 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The one phone breakpoint (lib/phone.ts has the same number; a test keeps them
+   equal): `phone:px-4` applies below 640 px and only there. Desktop classes stay
+   as they are, phone rules are added on top. */
+@custom-variant phone (@media (width < 640px));
+
+/* Safe-area insets (notch, home indicator, landscape sides): zero on a desktop
+   and in a browser tab, so these change nothing there. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Small text that grows to 13 px on a phone (body text is at least 13 px
+   there). Named fs-, not text-, so tailwind-merge does not take it for a colour. */
+@utility fs-note {
+  font-size: 12.5px;
+  @media (width < 640px) {
+    font-size: 13px;
+  }
+}
+@utility fs-code {
+  font-size: 12px;
+  @media (width < 640px) {
+    font-size: 13px;
+  }
+}
+
 /* Self-hosted rather than linked: `nod serve` serves the built client from
    inside the binary, so a font CDN would make the embedded UI need the network.
    The platform stack stays behind each face, so a failed load degrades to what
@@ -126,6 +159,20 @@
   #root {
     height: 100%;
   }
+  /* The dynamic viewport: on a phone `100%` can be taller than what is visible
+     while the browser's address bar is out. Equal to 100% on a desktop. */
+  @supports (height: 100dvh) {
+    html,
+    body,
+    #root {
+      height: 100dvh;
+    }
+  }
+  html {
+    /* no bounce or pull-to-refresh behind a full-screen page or sheet */
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
 
   body {
     @apply bg-bg text-tx font-sans;
@@ -138,6 +185,24 @@
 
   button {
     cursor: pointer;
+  }
+  /* no double-tap-zoom delay on controls */
+  button,
+  a,
+  summary,
+  label,
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+}
+
+/* iOS zooms into any field below 16 px when it takes focus. Unlayered, so it
+   beats the utility classes on the fields. */
+@media (width < 640px) {
+  input:not([type="checkbox"], [type="radio"]),
+  textarea,
+  select {
+    font-size: 16px;
   }
 }
 

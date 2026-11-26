@@ -43,11 +43,11 @@ const ROWS = [
 export function Legend({ onDismiss }: { onDismiss: () => void }) {
   return (
     <section
-      className="border-line2 bg-panel mb-[30px] rounded-xl border px-[22px] py-5"
+      className="border-line2 bg-panel mb-[30px] rounded-xl border px-[22px] py-5 phone:px-4"
       aria-label="How to read this"
     >
       <h3 className="m-0 mb-1 text-[15px] font-bold">How to read this</h3>
-      <p className="text-tx3 m-0 text-[12.5px] leading-[1.55]">
+      <p className="text-tx3 m-0 fs-note leading-[1.55]">
         The more attention a change deserves, the more room it gets. Three things decide: its risk,
         whether it needs you, and whether it is your own work or a teammate’s.
       </p>
@@ -55,28 +55,30 @@ export function Legend({ onDismiss }: { onDismiss: () => void }) {
         {ROWS.map(([kind, name, extra, when]) => (
           <div
             key={kind}
-            className="border-line text-tx2 grid grid-cols-[150px_1fr_1fr] items-center gap-4 border-t py-[9px] text-[13px]"
+            className="border-line text-tx2 grid grid-cols-[150px_1fr_1fr] items-center gap-4 border-t py-[9px] text-[13px] phone:grid-cols-[88px_1fr] phone:gap-x-3 phone:gap-y-0.5 phone:py-3"
           >
-            <Sketch kind={kind} />
+            <div className="phone:row-span-2">
+              <Sketch kind={kind} />
+            </div>
             <span>
               <b className="text-tx font-semibold">{name}</b>
               {extra}
             </span>
-            <span>{when}</span>
+            <span className="phone:col-start-2">{when}</span>
           </div>
         ))}
       </div>
-      <div className="mt-3.5 flex items-center gap-2.5">
-        <span className="text-tx3 text-[12.5px] leading-[1.55]">
+      <div className="mt-3.5 flex items-center gap-2.5 phone:flex-col phone:items-stretch phone:gap-3">
+        <span className="text-tx3 fs-note leading-[1.55]">
           Lanes: <b className="text-need">Needs you</b> waits for your signature ·{" "}
           <b className="text-know">Worth knowing</b> wants no input · Background takes care of
           itself.
         </span>
-        <span className="flex-1" />
+        <span className="flex-1 phone:hidden" />
         <button
           type="button"
           onClick={onDismiss}
-          className="border-line2 bg-panel2 text-tx h-8 rounded-lg border px-3.5 text-[13px] font-semibold whitespace-nowrap"
+          className="border-line2 bg-panel2 text-tx h-8 rounded-lg border px-3.5 text-[13px] font-semibold whitespace-nowrap phone:h-11"
         >
           Got it
         </button>
