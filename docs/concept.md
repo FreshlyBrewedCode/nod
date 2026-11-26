@@ -150,3 +150,56 @@ The policy engine and everything that runs on the GitHub side live **in the user
 2. A ruleset requires that check, pinned to the GitHub Actions source, and blocks merging until it is green. Auto-merge then merges.
 3. The patch-id stays stable through a clean rebase and changes when content changes.
 4. One batch signature verifies across 3 PRs.
+
+## Opening up (brainstorm 2026-11-26)
+
+> Decisions from the second brainstorm, agreed by the owner. They amend the parts above where they say so; each epic writes its ADR. Order of the work: A, C, D, B.
+
+### Why
+Adopting nod in a repo asked for too much at once: the dashboard showed nothing useful until the repo had `.nod/`, the workflow and an enrolled key, and once the check was required, everyone in the repo had to use nod. nod should be useful to one person on day one, with nothing in the repo, and every further step should be opt-in. People who never install nod keep their normal GitHub workflow.
+
+### A. The opt-in ladder
+| Step | Who opts in | What the repo sees | What you get |
+|---|---|---|---|
+| **0. Inbox** | you alone | nothing (👀 acks are reactions, as before) | the attention dashboard |
+| **1. Shared policy** | the repo, setup PR | `.nod/`, a check that never blocks | one classification for everyone; the verifier becomes the source |
+| **2. Signing** | each person | nod comments from those who enrolled | attest your own agent PRs |
+| **3. Enforced** | the repo, `nod init --ruleset` | a required `nod` check, 0 required approvals | agents merge on their own |
+
+1. **Step 0 classifies locally.** With no verifier summary on a PR, `nod serve` runs the kit's built-in classifiers (paths, diff size, dependencies, the brief's declarations) on what GraphQL returns. Display only, no repo code runs. A verifier summary always wins. This amends "map never classifies".
+2. **"Needs me" without a policy:** a review requested from me or my team, or my own PR stuck (changes requested, CI red, conflict). Mentions do not count.
+3. **Approving at step 0:** the batch dialog sends native GitHub approvals (`gh pr review --approve` semantics through the API), no passphrase. My own PRs get no approve action there; that is what signing adds.
+4. **GitHub approvals count toward the policy by default.** A peer or named slot is filled by a matching approval; a self slot by any approval or nod. A rule can require nods only, e.g. `peer({ approvals: false })` (the kit's `.nod/**` protection should). The trade-off goes into the ADR in plain words: an agent holding my token can approve a teammate's PR as me, which is no worse than GitHub without nod and within the Actions-mode promise (ADR 0003).
+5. **Without enforcement the check concludes `neutral`** when the requirement is not met, so nobody sees a red ✗ on a check that blocks nothing; the sticky comment stays off until enforced. Enforced mode keeps `success`/`failure` only. Amends ADR 0001 rule 9.
+6. **Onboarding stops gating.** Once `gh` is logged in and a repo is picked, the dashboard shows. Setup, key and enforcement become offers (a card, the avatar menu, settings), not steps you must pass. A teammate joining a set-up repo needs no key unless they want to sign.
+7. Glossary names for the steps: **inbox**, **shared policy**, **signing**, **enforced**.
+
+### C. Many repositories
+1. **One server, many repos, one inbox.** Rows carry a repo chip once there is more than one; repo is a filter, and the board can group by it.
+2. **nod keeps its own clones:** blobless (`--filter=blob:none`) under `$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`; `--dir` stays as an override.
+3. **The repo list** lives in `$XDG_CONFIG_HOME/nod/config.json`, managed from settings and `nod repo add|remove|list`; adding suggests repos where I have open PRs or review requests.
+4. **Each repo has its own ladder step.** One key for me, enrolled per repo (each `allowed_signers` is its own trust root); onboarding's setup and key offers are per repo.
+5. **Hosts side by side** (github.com and GHE): one token per host, still only sent to its own host.
+6. **One GraphQL query per host** per poll, a block per repo.
+7. **Protocol bump:** `Welcome` carries `repos[]` with setup and enrolment per repo; each PR carries its repo.
+8. **Settings page** (`#/settings`, from the avatar menu) arrives here with its Repositories section.
+
+### D. The app: installable, a service, updates, a badge
+1. **The installable app is the one `nod serve` serves on loopback** (`http://127.0.0.1:<port>/`; loopback is a secure context). The UI then always matches the server, a downgrade included. The hosted UI stays for deep links and forwards them to the local app the way it already forwards to the phone's host (`src/web/lib/forward.ts`, ADR 0005 §7). Pairing keeps its token; the server checks the Host header (DNS rebinding).
+2. A **service worker** caches the shell, so the installed app opens without the server and says "nod serve isn't running" with the command to start it.
+3. **`nod service install|uninstall|status`:** a systemd user unit on Linux, a LaunchAgent on macOS; Windows later. Settings shows the service status and can **set the service up itself** when nod runs from a plain `nod serve`.
+4. **Updates:** the server checks GitHub Releases of `FreshlyBrewedCode/nod` every ~10 minutes (conditional requests) and on "Check now". An update shows as an obvious indicator at the top level of the UI; it leads to settings, which shows the release notes (limited markdown) and an **Update** button. **Installing always takes a click**: it is code that will hold the signing key. The server runs the install for the package manager it was installed with; the service restarts it; without the service, settings shows the command.
+5. **Channel:** stable or next, chosen in settings, which means the same update flow to that dist-tag. The UI follows the server.
+6. **Badge:** `navigator.setAppBadge(n)`, n = my tier 1 rows; the tab title `(n) nod` as fallback. No push without a backend, so it updates only while the app runs (minimized counts). Notifications for new tier 1 rows are a follow-up.
+7. **Settings sections:** Repositories, Inbox, Signing, App (install, badge), Server (status, version, channel, updates and release notes, service), Other device.
+8. Machine-changing actions (update, service setup) are offered only on this machine's side, never on the other device's (`Side` in `signer.ts`).
+
+### B. Your own inbox (personal layer)
+1. **Two layers.** The repo layer (`.nod/policy.ts`, run by the verifier) decides risk and the requirement, shared and gating. The personal layer (yours, run by your `nod serve`) decides how much of *your* attention a PR gets and what you should know about it. It never changes the repo's risk or requirement; the panel keeps them apart ("repo: high risk" vs "you: watching auth").
+2. **Configuration:** `$XDG_CONFIG_HOME/nod/inbox/` written by `nod inbox init`: `inbox.ts` (`defineInbox({ classifiers, analyzers, repos })`), `analyzers/`, and a `package.json` pinning `@frebreco/nod/kit` for editor types. No file: the built-in defaults run. With a file: exactly what it lists (`...defaults()` to keep them). Reload on save; errors show as a quiet banner. `nod inbox test <pr>` prints the result for one PR.
+3. **Attention classifiers** use the kit's `Classifier` signature and output a fixed vocabulary: `attention: +1 | −1 | mute`, `tag`, `fyi`, `detail`. Built-ins: `overlapsMyWork()`, `watch(paths, { attention })`, `mute({ authors, paths })`, `briefMismatch()`.
+4. **Analyzers** return **insights**: a title and typed blocks, never HTML or SVG. Blocks: `breakdown` (stacked bar by default, donut optional), `stats`, `series`, `files`, `text` (limited markdown). The web app draws them with the r3 tokens in an Insights section of the panel, after the brief and "Needed from you", labelled default / yours; running and failed states stay inside their section. Each analyzer declares `when: "poll" | "open"`; results are cached by analyzer and patch-id.
+5. **Analyzer context:** what a repo classifier gets (`pr`, `files`, `readBaseFile`), plus `diff` and `readHeadFile` (display only), read-only `git(args)` in the clone, `me`, `myWork` (my open PRs and their files), and `repoSummary`.
+6. **Default analyzers:** `diffComposition()` (code, tests, docs, comments, config, generated; comments by per-language line rules, no parser dependency), `hotspots({ days: 30 })`, and the insight of `overlapsMyWork()`; `familiarity()` ships off. **No LLM analyzer in the first version**; the API stays open for one (`llmSummary` later, calling a CLI the user has).
+7. **Isolation:** personal code runs in a subprocess, JSON lines over stdio, with a timeout per analyzer. It never gets the signing key or the socket token. It is not a sandbox against the user's own code, and the docs say so.
+8. Diff composition on the row's diff bar is decided later, after a screenshot; the panel comes first. Repo-side analyzers are later.
