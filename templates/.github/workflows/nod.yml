@@ -1,6 +1,6 @@
 # The nod verifier. It runs .nod/verify.ts from the DEFAULT branch on every PR
-# event and every PR comment, and sets the required check `nod` on the PR head.
-# It never checks out, installs or runs code from the PR.
+# event, every PR comment and every review, and sets the check `nod` on the PR
+# head. It never checks out, installs or runs code from the PR.
 #
 # Hygiene (docs/findings/01 in the nod repo):
 # - nothing at workflow level; the job asks for the minimum
@@ -21,6 +21,12 @@ on:
     types: [opened, synchronize, reopened, edited] # edited: a base change needs a new verdict
   issue_comment:
     types: [created, edited, deleted] # nods arrive as comments
+  # GitHub approvals count toward the policy (ADR 0006 in the nod repo). There is
+  # no _target variant: this event runs this file as the PR has it, so the job
+  # skips PRs from forks (their token is read-only), and an approval there is
+  # counted on the PR's next event. .nod/verify.ts still comes from the default branch.
+  pull_request_review:
+    types: [submitted, dismissed]
 
 permissions: {}
 
@@ -30,7 +36,10 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    if: >-
+      github.event_name == 'pull_request_target' || github.event.issue.pull_request ||
+      (github.event_name == 'pull_request_review' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

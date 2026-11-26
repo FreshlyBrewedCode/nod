@@ -73,7 +73,7 @@ export function setupPrBody(ctx: SetupPrContext): string {
     `| \`.nod/allowed_signers\` | Who can nod: public SSH keys, principal = GitHub login. Enrolled here: ${who}. |`,
     `| \`.nod/package.json\`, \`.nod/bun.lock\` | Pin the helper kit (\`${kitSpec.replace(/`/g, "'")}\`). Dependabot can bump it. |`,
     "| `.nod/.gitignore` | Keeps `.nod/node_modules` out of git. |",
-    "| `.github/workflows/nod.yml` | Runs `.nod/verify.ts` on every PR event and PR comment. It checks out the default branch only, never code from the PR, and its job is deliberately not named `nod`. |",
+    "| `.github/workflows/nod.yml` | Runs `.nod/verify.ts` on every PR event, PR comment and review. It checks out the default branch only, never code from the PR, and its job is deliberately not named `nod`. |",
     "",
     ...(kitNote ? [kitNote, ""] : []),
     ...(actionsNote ? [actionsNote, ""] : []),

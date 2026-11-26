@@ -1,11 +1,11 @@
 /**
  * The nod verifier: the one thing that decides whether a PR may merge.
  *
- * `.github/workflows/nod.yml` runs this file on every PR event and every PR
- * comment, always from the default branch: the policy, the trust root and
- * this code are the default branch's, never the PR's. Nothing from the PR is
- * checked out, installed or run; its commits are fetched as git objects and
- * only diffed.
+ * `.github/workflows/nod.yml` runs this file on every PR event, every PR
+ * comment and every review, always from the default branch: the policy, the
+ * trust root and this code are the default branch's, never the PR's. Nothing
+ * from the PR is checked out, installed or run; its commits are fetched as
+ * git objects and only diffed.
  *
  * Top to bottom, one run:
  *  1. read the event: which PR

@@ -48,6 +48,9 @@ describe("rendering the setup", () => {
     expect(yml).toContain("ref: ${{ github.event.repository.default_branch }}");
     expect(yml).toContain("types: [opened, synchronize, reopened, edited]");
     expect(yml).toContain("types: [created, edited, deleted]");
+    // approvals re-run it, from this repo's own branches only
+    expect(yml).toContain("pull_request_review:\n    types: [submitted, dismissed]");
+    expect(yml).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(yml).toContain("bun install --frozen-lockfile --ignore-scripts");
     expect(yml).not.toMatch(/^ {2}nod:/m); // the job is not named nod
     // third-party actions pinned by a full SHA
