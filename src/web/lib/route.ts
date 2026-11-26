@@ -138,3 +138,13 @@ export function linkNumbers(route: LinkRoute): ReadonlyArray<number> {
 export function viewOf(route: Route): View {
   return route.view === "chrono" || route.view === "board" ? route.view : "list";
 }
+
+/**
+ * The view a screen shows for a route: a phone has no board, so a route to it
+ * (`#/board`, an old bookmark) shows the list. The route itself stays valid
+ * for a desktop; this is the one place that decides.
+ */
+export function viewFor(route: Route, phone: boolean): View {
+  const view = viewOf(route);
+  return phone && view === "board" ? "list" : view;
+}

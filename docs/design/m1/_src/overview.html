@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>overview</title>
+<style>
+body{margin:0;background:#07080a;color:#e7e9ee;font:15px/1.4 -apple-system,"Segoe UI",Inter,sans-serif}
+h1{font-size:20px;font-weight:650;margin:0;padding:22px 26px 0}h1 span{font-weight:400;color:#a3abba;margin-left:10px;font-size:15px}
+.r{display:flex;gap:24px;padding:16px 26px 26px}figure{margin:0}
+img{display:block;width:390px;height:844px;border:1px solid #2e3542;border-radius:10px}figcaption{color:#a3abba;font-size:14px;padding-top:8px}
+</style>
+<h1 id="t"></h1><div class="r" id="r"></div>
+<script>
+const d = location.hash.slice(1) || 'a';
+const N = { a: ['A · Stacked rows', 'checkbox always there, the ask as a word on the row, switch on top'], b: ['B · Cards', 'the sign button on the card, Select mode, bottom navigation'], c: ['C · Quiet list', 'no controls on rows: swipe to act, hold to select, switch at the thumb'] }[d];
+document.getElementById('t').innerHTML = `${N[0]}<span>${N[1]}</span>`;
+document.getElementById('r').innerHTML = [['list', '1 · List by attention'], ['select', '2 · Two selected'], ['detail', '3 · Detail'], ['unlock', '4 · Unlock, keyboard up'], ['signed', '5 · Signed']]
+  .map(([s, l]) => `<figure><img src="../screenshots/${d}-${s}.png"><figcaption>${l}</figcaption></figure>`).join('');
+</script>

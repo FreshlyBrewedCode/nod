@@ -10,12 +10,17 @@
  * and 390×844, and fails with the route and the offending element when the
  * page scrolls sideways (`scrollWidth > innerWidth`).
  *
+ * `STATES` are the routes' states that need a tap first (two rows selected, a
+ * cluster open, the menus): checked the same way and, with `--shots`, written
+ * under the name the design docs use.
+ *
  * `KNOWN_OPEN` lists routes that are expected to fail today, with the reason:
  * they are run and printed, and do not fail the check. A route on the list
  * that passes is reported too, so the list shrinks as the pages are done.
  *
  * `bun scripts/check-phone.ts --shots <dir>` writes a 390×844 screenshot
- * (device scale factor 2) of every route instead, for the design docs.
+ * (device scale factor 2) of every route and state instead, for the design
+ * docs; the list is shot in its full height.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -57,26 +62,117 @@ const KNOWN_OPEN: ReadonlyArray<{
   reason: string;
   /**
    * Only what is inside this selector is open: anything that overflows outside
-   * it still fails (the deep-link landing is checked, its top bar is not yet).
+   * it still fails.
    */
   inside?: string;
 }> = [
   {
-    routes: ["#/", "#/chrono", "#/board"],
-    scenarios: ["team", "clear", "first-run"],
-    reason: "the dashboard has no phone layout yet (#30, the list and the panel)",
+    routes: ["details open"],
+    scenarios: ["team"],
+    reason: "the detail panel has no phone layout yet (#30, the detail page)",
+  },
+];
+
+/** A state of a route that needs a tap first. */
+interface State {
+  /** The route's label in the printout, and the key of `KNOWN_OPEN`. */
+  name: string;
+  route: string;
+  scenarios: ReadonlyArray<Scenario>;
+  act: (page: Page) => Promise<void>;
+  /** Puts back what the state changed in `nod serve` (the fake's signer is shared by every page). */
+  after?: (page: Page) => Promise<void>;
+  /** The file name under `--shots` (`docs/design/m1/impl/`), without `.png`. */
+  shot?: string;
+  /** Shot in its whole height, not the screen's. */
+  full?: boolean;
+}
+
+const STATES: ReadonlyArray<State> = [
+  {
+    name: "two selected",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      const boxes = page.getByRole("checkbox");
+      await boxes.nth(0).check();
+      await boxes.nth(1).check();
+    },
+    shot: "06-selection-bar",
   },
   {
-    routes: [
-      `#/pr/${REPO}/${PRS[0]}`,
-      `#/pr/${REPO}/9999`,
-      `#/pr/other/repo/1`,
-      `#/batch/${REPO}/${PRS.join(",")}`,
-      `#/batch/${REPO}/9998,9999`,
-    ],
-    scenarios: ["team", "clear", "first-run"],
-    reason: "the top bar above the landing has no phone layout yet (#30)",
-    inside: "header",
+    name: "cluster open",
+    route: "#/chrono",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.locator("[data-key^='cluster:']").first().click();
+    },
+    shot: "05-chrono-cluster-open",
+    full: true,
+  },
+  {
+    name: "cluster open (by attention)",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.locator("[data-key^='cluster:']").first().click();
+    },
+    shot: "01b-list-cluster-open",
+    full: true,
+  },
+  {
+    name: "avatar menu",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /: menu$/ }).click();
+    },
+    shot: "07-avatar-menu",
+  },
+  {
+    name: "lock chip popover",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /Locked/ }).click();
+    },
+    shot: "11g-lock-chip-popover",
+  },
+  {
+    name: "unlocked",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /Locked/ }).click();
+      // The fake signer takes any passphrase but "wrong".
+      await page.locator("#chip-passphrase").fill("correct horse battery");
+      await page.keyboard.press("Enter");
+      await page.getByRole("button", { name: /Signing unlocked/ }).waitFor();
+    },
+    after: async (page) => {
+      await page.getByRole("button", { name: /Signing unlocked/ }).click();
+      await page.getByRole("button", { name: /Locked/ }).waitFor();
+    },
+    shot: "07b-top-bar-unlocked",
+  },
+  {
+    name: "legend from the menu",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /: menu$/ }).click();
+      await page.getByRole("button", { name: /How this list works/ }).click();
+    },
+    shot: "08-how-this-list-works",
+  },
+  {
+    name: "details open",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.locator("[data-key^='pr:']").first().click();
+    },
+    shot: "02-details-over-the-list",
   },
 ];
 
@@ -260,6 +356,8 @@ interface Target {
   /** The address to open, and how long the page needs to settle. */
   url: string;
   wait?: number;
+  /** A tap or two before it is checked or shot. */
+  state?: State;
 }
 
 function targets(web: string, serves: Map<Scenario, Serve>, deadPort: number): Target[] {
@@ -272,6 +370,14 @@ function targets(web: string, serves: Map<Scenario, Serve>, deadPort: number): T
         route,
         scenario,
         url: `${web}/${route}?${pairing}`,
+      });
+    for (const state of STATES.filter((st) => st.scenarios.includes(scenario)))
+      out.push({
+        label: `${scenario} ${state.route} ${state.name}`,
+        route: state.name,
+        scenario,
+        url: `${web}/${state.route}?${pairing}`,
+        state,
       });
   }
   const any = [...serves.values()][0]!;
@@ -310,15 +416,41 @@ async function open(context: BrowserContext, target: Target): Promise<Page> {
   const page = await context.newPage();
   await page.goto(target.url);
   await settle(page, target.wait);
+  if (target.state) {
+    await target.state.act(page);
+    await settle(page, 400);
+  }
   return page;
 }
 
 // ---------------------------------------------------------------------------
 
+const argAfter = (flag: string) =>
+  process.argv.includes(flag) ? process.argv[process.argv.indexOf(flag) + 1] : null;
+
+/** The docs' names for the list shots (`docs/design/m1/impl/`), by target label. */
+const SHOT_NAMES: Record<string, string> = {
+  "team #/": "01-list-by-attention",
+  "team #/chrono": "04-chrono-time-buckets",
+  "first-run #/": "17-first-run-dashboard",
+  "clear #/": "18-nothing-needs-you",
+};
+
+/** Grows the screen to the whole list (the list scrolls inside the page, so `fullPage` is not enough). */
+async function growToList(page: Page, width: number) {
+  const height = await page.evaluate(() => {
+    const list = document.getElementById("list-scroll");
+    const top = list?.getBoundingClientRect().top ?? 0;
+    return list ? Math.ceil(top + list.scrollHeight) : 0;
+  });
+  if (height > 0) {
+    await page.setViewportSize({ width, height });
+    await settle(page, 300);
+  }
+}
+
 async function main() {
-  const shotsAt = process.argv.includes("--shots")
-    ? process.argv[process.argv.indexOf("--shots") + 1]
-    : null;
+  const shotsAt = argAfter("--shots");
   const dir = mkdtempSync(join(tmpdir(), "nod-check-phone-"));
   const children: Child[] = [];
   let browser: Browser | null = null;
@@ -337,12 +469,20 @@ async function main() {
 
     if (shotsAt) {
       mkdirSync(shotsAt, { recursive: true });
-      const context = await browser.newContext(phone({ width: 390, height: 844 }, 2));
+      const width = Number(argAfter("--width") ?? 390);
       for (const target of all) {
+        // A fresh context per page, as in the check: its own storage.
+        const context = await browser.newContext(phone({ width, height: 844 }, 2));
         const page = await open(context, target);
-        const name = target.label.replace(/[^\w]+/g, "-").replace(/^-|-$/g, "");
-        await page.screenshot({ path: join(shotsAt, `${name}.png`), fullPage: true });
-        await page.close();
+        const name =
+          SHOT_NAMES[target.label] ??
+          target.state?.shot ??
+          target.label.replace(/[^\w]+/g, "-").replace(/^-|-$/g, "");
+        // The list scrolls inside the page: a full shot makes the screen as tall as the list.
+        if (target.state?.full || SHOT_NAMES[target.label]) await growToList(page, width);
+        await page.screenshot({ path: join(shotsAt, `${name}.png`) });
+        await target.state?.after?.(page);
+        await context.close();
       }
       return;
     }
@@ -357,6 +497,7 @@ async function main() {
         const page = await open(context, target);
         const known = knownOpen(target);
         const overflow = await overflowOf(page, viewport.width);
+        await target.state?.after?.(page);
         // A known-open route that is open only inside a part still fails outside it.
         const outside =
           overflow && known?.inside ? await overflowOf(page, viewport.width, known.inside) : null;

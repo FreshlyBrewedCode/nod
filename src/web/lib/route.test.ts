@@ -8,6 +8,7 @@ import {
   isLinkRoute,
   linkNumbers,
   parseRoute,
+  viewFor,
   viewOf,
   type Route,
 } from "./route";
@@ -166,5 +167,24 @@ describe("formatRoute", () => {
     expect(viewOf({ view: "chrono" })).toBe("chrono");
     expect(isLinkRoute({ view: "setup" })).toBe(false);
     expect(linkNumbers({ view: "pr", host: "github.com", repo: "a/b", number: 5 })).toEqual([5]);
+  });
+});
+
+describe("viewFor", () => {
+  test("a phone shows the list for the board, a desktop the board", () => {
+    expect(viewFor({ view: "board" }, true)).toBe("list");
+    expect(viewFor({ view: "board" }, false)).toBe("board");
+  });
+
+  test("every other route shows what it shows anywhere", () => {
+    for (const phone of [true, false]) {
+      expect(viewFor({ view: "list" }, phone)).toBe("list");
+      expect(viewFor({ view: "chrono" }, phone)).toBe("chrono");
+      expect(viewFor({ view: "setup" }, phone)).toBe("list");
+    }
+  });
+
+  test("the route itself stays valid: it parses and formats as before", () => {
+    expect(formatRoute(parseRoute("#/board"))).toBe("#/board");
   });
 });

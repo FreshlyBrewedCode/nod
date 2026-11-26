@@ -92,6 +92,8 @@ nod
   - phone: one breakpoint (below 640 px), the `phone:` variant in `styles.css`, `lib/phone.ts` and
     `useIsPhone()`; rules are added on top, desktop classes stay (`docs/design/design.md`, "Phone").
     `bun run check:phone` (needs a browser, not in `check`) fails on horizontal overflow at 360 px
+  - the list on a phone: `pr-row.tsx` lays the same DOM out again with `phone:` rules (the content
+    wrapper is `phone:contents`); there is no board (`viewFor`); `check:phone` also taps `STATES`
   - browser checks: `env -u LD_LIBRARY_PATH playwright-cli open --config=<json>` with a config
     whose `launchOptions.executablePath` is the nix-store Chromium
   - browser automation through `nix develop` (playwright libs)

@@ -342,7 +342,13 @@ function Stepper({
             on ? "text-tx font-semibold" : done ? "text-tx2" : "text-tx3",
           );
           return (
-            <li key={name} aria-current={on ? "step" : undefined}>
+            // "Done" is the end of the list on a desktop, where it has a name; on a phone
+            // there are no names, so a fifth circle would contradict "Step 3 of 4".
+            <li
+              key={name}
+              aria-current={on ? "step" : undefined}
+              className={cn(n === 5 && "phone:hidden")}
+            >
               {canGo ? (
                 <button
                   type="button"

@@ -159,8 +159,9 @@ export function failureOf(error: unknown): Failure {
   };
 }
 
+/** A phone's chip is a 32 px pill with a 44 px target (the `after` box). */
 const CHIP =
-  "border-line2 text-tx2 flex h-[30px] items-center gap-2 rounded-lg border px-2.5 text-[13px]";
+  "border-line2 text-tx2 relative flex h-[30px] whitespace-nowrap items-center gap-2 rounded-lg border px-2.5 text-[13px] phone:h-8 phone:gap-1.5 phone:rounded-full phone:px-3 phone:after:absolute phone:after:-inset-x-1 phone:after:-inset-y-1.5 phone:after:content-['']";
 
 /**
  * The lock chip. Unlocked: a countdown, and a click locks. Locked: a click
@@ -186,9 +187,9 @@ export function LockChip({ signer, actions }: { signer: SignerState | null; acti
         aria-label={`Signing unlocked, ${countdown(signer.until, now)} left. Lock now`}
       >
         <LockOpen className="size-3.5" />
-        <span>Unlocked</span>
+        <span className="phone:hidden">Unlocked</span>
         <b className="font-mono font-medium tabular-nums">{countdown(signer.until, now)}</b>
-        <span className="text-tx2 border-line2 border-l pl-2">Lock</span>
+        <span className="text-tx2 border-line2 border-l pl-2 phone:hidden">Lock</span>
       </button>
     );
 
@@ -200,6 +201,9 @@ export function LockChip({ signer, actions }: { signer: SignerState | null; acti
         : ready.state === "not-enrolled"
           ? "Key not enrolled"
           : "Locked";
+  // A phone's top bar has no room for these: a shorter word, the full one for the reader.
+  const short =
+    ready.state === "pending" ? "Pending" : ready.state === "not-enrolled" ? "Not enrolled" : label;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -207,9 +211,12 @@ export function LockChip({ signer, actions }: { signer: SignerState | null; acti
         title={ready.state === "locked" ? "Signing is locked. Click to unlock." : undefined}
       >
         <Lock className="size-3.5" />
-        <span>{label}</span>
+        <span className="phone:hidden">{label}</span>
+        <span className="hidden phone:inline" aria-label={label}>
+          {short}
+        </span>
       </PopoverTrigger>
-      <PopoverContent className="w-[400px] p-4">
+      <PopoverContent className="w-[400px] p-4 phone:w-[calc(100vw-16px)]">
         {ready.state === "locked" ? (
           <UnlockForm actions={actions} onDone={() => setOpen(false)} />
         ) : (
@@ -259,15 +266,15 @@ function UnlockForm({ actions, onDone }: { actions: Actions; onDone: () => void 
         disabled={busy}
         onFilled={setFilled}
       />
-      <div className="mt-3 flex items-center gap-2.5">
-        <span className="text-tx3 text-xs whitespace-nowrap">
+      <div className="mt-3 flex items-center gap-2.5 phone:flex-col-reverse phone:items-stretch">
+        <span className="text-tx3 text-xs whitespace-nowrap phone:text-center phone:text-[13px]">
           The key never leaves this machine.
         </span>
-        <span className="flex-1" />
+        <span className="flex-1 phone:hidden" />
         <button
           type="submit"
           disabled={!filled || busy}
-          className="bg-need border-need text-on-need h-8 rounded-lg border px-3.5 text-[13px] font-semibold whitespace-nowrap disabled:opacity-50"
+          className="bg-need border-need text-on-need h-8 rounded-lg border px-3.5 text-[13px] font-semibold whitespace-nowrap disabled:opacity-50 phone:h-11 phone:text-[15px]"
         >
           {busy ? "Unlocking…" : `Unlock for ${DEFAULT_UNLOCK_MINUTES} min`}
         </button>

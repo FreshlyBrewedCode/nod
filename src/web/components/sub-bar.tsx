@@ -1,4 +1,7 @@
-/** Under the top bar (r3): "By attention | Chronological" and the Details toggle. */
+/**
+ * Under the top bar (r3): "By attention | Chronological" and the Details toggle. On a
+ * phone the switch is the full width and a tap on a row opens the details, so no toggle.
+ */
 
 import { cn } from "@/lib/utils";
 import { Segmented } from "./top-bar";
@@ -21,8 +24,9 @@ export function SubBar({
   onTogglePanel: () => void;
 }) {
   return (
-    <div className="text-tx3 mx-auto flex max-w-[1000px] items-center gap-3.5 px-6 pt-[22px] text-[13px]">
+    <div className="text-tx3 mx-auto flex max-w-[1000px] items-center gap-3.5 px-6 pt-[22px] text-[13px] phone:px-3 phone:pt-2.5">
       <Segmented
+        fill
         label="Order"
         value={view}
         options={[
@@ -31,14 +35,14 @@ export function SubBar({
         ]}
         onChange={onView}
       />
-      <span className="flex-1" />
+      <span className="flex-1 phone:hidden" />
       <button
         type="button"
         aria-pressed={panelOpen}
         title={panelOpen ? "Close details (esc)" : "Open details (↵)"}
         onClick={onTogglePanel}
         className={cn(
-          "border-line2 inline-flex h-7 items-center gap-[7px] rounded-lg border px-2.5",
+          "border-line2 inline-flex h-7 items-center gap-[7px] rounded-lg border px-2.5 phone:hidden",
           panelOpen ? "text-tx bg-panel2" : "text-tx2 hover:text-tx",
         )}
       >
