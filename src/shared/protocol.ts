@@ -514,7 +514,8 @@ export interface Requests {
    * Decrypt the signing key into the server's memory. `minutes` (default 15,
    * clamped to [1, 60]) is the window before it locks on its own; `once`
    * locks again right after the next `sign` ("this batch only").
-   * Errors: `no-key`, `bad-passphrase`. The passphrase is never logged.
+   * Errors: `no-key`, `bad-passphrase`, `unlock-pending` (this side's last
+   * unlock is still being checked). The passphrase is never logged.
    */
   unlock: {
     body: { readonly passphrase: string; readonly minutes?: number; readonly once?: boolean };
@@ -612,6 +613,8 @@ export type ErrorCode =
   | "already-set-up"
   | "locked"
   | "bad-passphrase"
+  /** An unlock from the same side is still being checked; one at a time per side. */
+  | "unlock-pending"
   | "weak-passphrase"
   /** The key file is damaged, of a newer version, or changed while nod serve ran. */
   | "bad-key-file"

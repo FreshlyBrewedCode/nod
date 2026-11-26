@@ -19,6 +19,7 @@ order: 4
 | **cluster** | Folded pull requests shown as one row, "7 low-risk changes", that expands in place |
 | **dashboard** | The web app, paired with `nod serve`. [Dashboard](/docs/dashboard) |
 | **deep link** | A link that opens a pull request or a batch in the dashboard. It never approves by itself. [Nodding](/docs/nodding#deep-links) |
+| **device link** | The second link `nod serve --allow-host` prints, also as a QR code. It pairs another device through the named host. [On your phone](/docs/phone) |
 | **detail panel** | The side panel (list) or drawer (board) showing one pull request |
 | **enrolment** | Getting a public key into `.nod/allowed_signers`, through a pull request. [Signing keys](/docs/keys#enrolment) |
 | **finding** | One fact a classifier reports: a tag, a sentence, optionally a risk |
@@ -28,6 +29,7 @@ order: 4
 | **kit** | `@frebreco/nod/kit`: the helpers the policy and the verifier import. [Architecture](/docs/architecture#the-kit) |
 | **lane** | A section of the list by attention: Needs you, Worth knowing, Background |
 | **named nod** | A nod by a person the policy names |
+| **named host** | The https name a TLS proxy such as `tailscale serve` gives `nod serve`, named with `--allow-host`, so another device reaches it. It has its own token and its own unlock. [On your phone](/docs/phone) |
 | **nod** | A signed statement by a human approving a pull request, posted as a comment. Also the name of the tool and of the check |
 | **`nod serve`** | The local server on your machine. [CLI](/docs/cli#nod-serve) |
 | **patch-id** | A hash of a pull request's diff against its base. It survives a clean rebase. [Nodding](/docs/nodding#when-a-nod-counts) |
@@ -35,6 +37,7 @@ order: 4
 | **peer nod** | A nod by a signer other than the pull request's author |
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |
+| **remote token** | The pairing token of the named host, kept apart from the host link's. [On your phone](/docs/phone#a-lost-phone) |
 | **requirement** | What a pull request needs before it may merge: none, a self nod, a peer nod, a named nod. [Policy](/docs/policy#requirements) |
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
@@ -46,6 +49,7 @@ order: 4
 | **sticky comment** | The verifier's one comment on a pull request, updated in place. [Verifier](/docs/verifier#the-sticky-comment) |
 | **stuck** | A check is failing, or the pull request has waited on a person for 12 hours or more |
 | **summary** | The machine-readable result in the check run's output, read by `nod serve`. [Verifier](/docs/verifier#the-summary) |
+| **tailnet** | Your private Tailscale network: the devices logged in to it. [On your phone](/docs/phone) |
 | **trust root** | `.nod/allowed_signers` on the default branch |
-| **unlock** | Decrypting the signing key into the memory of `nod serve`, for 15 minutes or one signature |
+| **unlock** | Decrypting the signing key into the memory of `nod serve`, for 15 minutes or one signature. With a named host, your machine and the other device each unlock on their own |
 | **verifier** | `.nod/verify.ts`, run by the workflow on every pull request event. It sets the check. [Verifier](/docs/verifier) |

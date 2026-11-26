@@ -73,6 +73,13 @@ nod
     redirects included); `nod init` runs every `gh` with `GH_HOST` and `--hostname`. Tests: the
     fake GitHub plays a host (`new FakeGitHub(githubHost("acme.ghe.com"))`) and answers only its
     URL shapes (`misdirected`). Fictional hosts only: `acme.ghe.com`, `git.example.test`
+  - another device (ADR 0005, finding 04): `--allow-host <name[:port]>` (`named-host.ts`) adds one
+    named host behind a TLS proxy (`tailscale serve`); the server serves the built web app there
+    (`static-files.ts`, `dist/web` or the package's `web/`), and that side has its own token
+    (`serve-token-remote`, `<--token-file>-remote`) and its own unlock window (`Side` in
+    `signer.ts`, `Client.side` in `session.ts`). The device link is printed with a QR code
+    (`qr.ts`, `uqr`). Client rule: `isAllowedHost` in `lib/connection.ts`. User page:
+    `site/content/docs/phone.md`
   - the real source without touching `~/.config/nod`: start it from a script calling `start()`
     (`src/server/start.ts`) with `keyFile` and `tokenFile` in a temp folder
   - stale and posting-failure states can't be produced by `--fake`: in a browser check, route

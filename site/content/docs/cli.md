@@ -31,16 +31,20 @@ of the repository.
 | `--repo <owner/name>` | The repository. Default: the clone's `origin` |
 | `--host <host>` | Its GitHub host: `github.com`, `<name>.ghe.com` or a GitHub Enterprise Server. Default: the host of the clone's `origin`. Needed when `origin` names an ssh alias |
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
-| `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL` |
+| `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
 | `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh` or `join` |
 | `--frozen` | With `--fake`: nothing changes on its own |
-| `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token` |
-| `--new-token` | Replace the token: every paired browser pairs again |
+| `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
+| `--new-token` | Replace both tokens: every paired browser pairs again |
+| `--new-remote-token` | Replace only the remote token: the other device pairs again, this machine's browser stays paired |
+| `--allow-host <name[:port]>` | Not released. Also answer to this https name, the [named host](/docs/phone) a TLS proxy such as `tailscale serve` gives the port, and serve the dashboard there for another device. Prints the device link and its QR code |
+| `--web-dir <path>` | With `--allow-host`: the built dashboard to serve. Default: the one this nod ships; in a checkout `dist/web`, from `bun run build` |
 | `--open` | Open the link in a browser |
 | `--no-open` | Do not. The default |
 
-`--dir`, `--host` and `--poll` read GitHub and cannot be combined with `--fake`.
+`--dir`, `--host` and `--poll` read GitHub and cannot be combined with `--fake`. `--allow-host`
+works with and without it. There is no config file: give `--allow-host` every time.
 
 `NOD_DEBUG=1` logs each poll's queries and their GraphQL cost.
 
@@ -91,6 +95,7 @@ The signing key from a terminal. The passphrase is read without echo and never p
 | --- | --- |
 | `$XDG_CONFIG_HOME/nod/signing-key.json` | The encrypted signing key. `~/.config/nod/` when the variable is unset |
 | `$XDG_CONFIG_HOME/nod/serve-token` | The pairing token of `nod serve` |
+| `$XDG_CONFIG_HOME/nod/serve-token-remote` | The remote token, the named host's (`--allow-host`) |
 | `NOD_WEB_URL` | The web app to pair with, as `--web-url` |
 | `NOD_DEBUG=1` | Log each poll |
 | `gh auth token` | Where the GitHub token comes from. `gh` keeps its login under `$XDG_CONFIG_HOME/gh`, so a changed `XDG_CONFIG_HOME` also needs `GH_CONFIG_DIR` |

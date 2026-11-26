@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CLOSE_BAD_TOKEN, CLOSE_SHUTDOWN, type ServerToClient } from "../shared/protocol";
 import { NodClient, RequestFailed } from "../web/lib/connection";
 import { ManualClock } from "./clock";
-import { start, type Started } from "./start";
+import { parseNamedHost } from "./named-host";
+import { start, type StartOptions, type Started } from "./start";
 import { DEV_WEB_URL, NEXT_WEB_URL } from "./web-url";
 
 const running: Started[] = [];
@@ -16,9 +17,13 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-function startFake(clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20))) {
-  const dir = mkdtempSync(join(tmpdir(), "nod-serve-"));
-  dirs.push(dir);
+function startFake(
+  clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20)),
+  extra: Pick<StartOptions, "namedHost" | "newToken" | "newRemoteToken"> = {},
+  tokenDir?: string,
+) {
+  const dir = tokenDir ?? mkdtempSync(join(tmpdir(), "nod-serve-"));
+  if (!tokenDir) dirs.push(dir);
   // Port 0: the OS picks a free one, so tests never collide with a running nod serve.
   const started = start({
     port: 0,
@@ -27,6 +32,7 @@ function startFake(clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20))) {
     version: null,
     fake: { scenario: "team", live: false },
     clock,
+    ...extra,
   });
   running.push(started);
   const http = `http://127.0.0.1:${started.serving.port}`;
@@ -34,6 +40,7 @@ function startFake(clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20))) {
     started,
     http,
     clock,
+    dir,
     ws: (token: string | null) =>
       `${started.wsUrl}/ws${token === null ? "" : `?token=${encodeURIComponent(token)}`}`,
   };
@@ -58,6 +65,22 @@ function probe(url: string, headers: Record<string, string> = {}, ms = 300) {
       };
     },
   );
+}
+
+/** One raw HTTP/1.1 request, for a Host that `fetch` would not send. */
+async function rawGet(port: number, host: string): Promise<{ status: number; text: string }> {
+  const { connect } = await import("node:net");
+  return new Promise((resolve, reject) => {
+    let data = "";
+    const socket = connect(port, "127.0.0.1", () =>
+      socket.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`),
+    );
+    socket.on("data", (chunk) => (data += chunk.toString()));
+    socket.on("error", reject);
+    socket.on("close", () =>
+      resolve({ status: Number(/^HTTP\/1\.1 (\d+)/.exec(data)?.[1] ?? 0), text: data }),
+    );
+  });
 }
 
 const until = async (check: () => boolean, ms = 2000) => {
@@ -110,6 +133,16 @@ describe("http", () => {
     expect(res.status).toBe(421);
     expect((await fetch(`${http}/nope`)).status).toBe(404);
   });
+
+  test("a malformed Host gets a bare refusal, never an error page with paths", async () => {
+    const { started } = startFake();
+    for (const host of ["nod.example.test%zz", "[x", "127.0.0.1:47811,x", "127.0.0.1%zz"]) {
+      const { status, text } = await rawGet(started.serving.port, host);
+      expect([400, 421]).toContain(status);
+      expect(text.length).toBeLessThan(400);
+      expect(text).not.toContain("/src/");
+    }
+  });
 });
 
 describe("the socket", () => {
@@ -153,6 +186,192 @@ describe("the socket", () => {
     running.splice(running.indexOf(started), 1);
     await started.stop();
     expect((await pending).code).toBe(CLOSE_SHUTDOWN);
+  });
+});
+
+describe("--allow-host: one named host behind a TLS proxy (ADR 0005)", () => {
+  const NAME = "laptop.example-tailnet.ts.net";
+  const host = parseNamedHost(`${NAME}:8445`);
+  const webRoot = mkdtempSync(join(tmpdir(), "nod-web-"));
+  writeFileSync(join(webRoot, "index.html"), "<!doctype html><title>nod</title>");
+  afterAll(() => rmSync(webRoot, { recursive: true, force: true }));
+  const named = { namedHost: { host, webRoot } };
+  const onName = { Host: `${NAME}:8445` };
+
+  test("without it, nothing changes: the name is refused, no page, no remote token", async () => {
+    const { http, started, dir } = startFake(undefined, {});
+    expect((await fetch(`${http}/`, { headers: onName })).status).toBe(421);
+    expect((await fetch(`${http}/`)).status).toBe(404);
+    expect([started.remoteToken, started.deviceLink]).toEqual([null, null]);
+    expect(existsSync(join(dir, "serve-token-remote"))).toBe(false);
+  });
+
+  test("the named host gets the web app; loopback still does not; other names stay refused", async () => {
+    const { http, started, dir } = startFake(undefined, named);
+    // Its own token, kept next to the loopback one.
+    expect(started.remoteToken).not.toBe(started.token);
+    const file = join(dir, "serve-token-remote");
+    expect(readFileSync(file, "utf8").trim()).toBe(started.remoteToken!);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(started.deviceLink).toBe(
+      `https://${NAME}:8445/#host=wss%3A%2F%2F${NAME}%3A8445&token=${started.remoteToken}`,
+    );
+    expect(started.link).toContain(`token=${started.token}`);
+
+    const page = await fetch(`${http}/pr/tallyho/fieldbook/7`, { headers: onName });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("<title>nod</title>");
+    expect(page.headers.get("x-frame-options")).toBe("DENY");
+    expect(page.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
+    expect((await fetch(`${http}/`)).status).toBe(404);
+    for (const name of [
+      `other.example-tailnet.ts.net:8445`,
+      `${NAME}.evil.example`,
+      `evil.${NAME}`,
+      "evil.example",
+    ])
+      expect((await fetch(`${http}/`, { headers: { Host: name } })).status).toBe(421);
+  });
+
+  test("each side's allow-list: exactly the named origin there, loopback's unchanged", async () => {
+    const { http } = startFake(undefined, named);
+    const health = (headers: Record<string, string>) =>
+      fetch(`${http}/health`, { headers }).then((r) =>
+        r.headers.get("access-control-allow-origin"),
+      );
+    expect(await health({ ...onName, Origin: host.origin })).toBe(host.origin);
+    expect(await health({ ...onName, Origin: "https://ui.nod.frebreco.de" })).toBeNull();
+    expect(await health({ Origin: host.origin })).toBeNull();
+    expect(await health({ Origin: "https://ui.nod.frebreco.de" })).toBe(
+      "https://ui.nod.frebreco.de",
+    );
+  });
+
+  test("the socket: each side opens only with its own token and its own origin", async () => {
+    const { started, ws } = startFake(undefined, named);
+    const remote = started.remoteToken!;
+    const ok = await probe(ws(remote), { ...onName, Origin: host.origin });
+    expect(ok.messages.map((m) => m.t)).toEqual(["welcome", "snapshot"]);
+    // The loopback token does not open the named host, nor the remote token loopback.
+    for (const [token, headers] of [
+      [started.token, { ...onName, Origin: host.origin }],
+      [remote, { Origin: DEV_WEB_URL }],
+      [remote, {}],
+      ["wrong", { ...onName, Origin: host.origin }],
+    ] as const) {
+      const result = await probe(ws(token), headers);
+      expect(result.code).toBe(CLOSE_BAD_TOKEN);
+      expect(result.messages).toEqual([]);
+    }
+    // Neither side lets in the other side's origin, nor any other.
+    for (const [token, headers] of [
+      [started.token, { Origin: host.origin }],
+      [remote, { ...onName, Origin: "https://ui.nod.frebreco.de" }],
+      [remote, { ...onName, Origin: DEV_WEB_URL }],
+      [remote, { ...onName, Origin: `http://${NAME}:8445` }],
+      [remote, { ...onName, Origin: `https://${NAME}` }],
+      [remote, { ...onName, Origin: "https://evil.example" }],
+    ] as const)
+      expect((await probe(ws(token), headers)).opened).toBe(false);
+  });
+
+  test("a proxied request is never loopback: forwarded headers with a loopback Host get 421", async () => {
+    // tailscale serve forwards the client's own Host and always sets
+    // X-Forwarded-For/-Host/-Proto (finding 04), so a tailnet client asking
+    // for Host 127.0.0.1 must not land on the loopback side.
+    for (const extra of [{}, named]) {
+      const { started, http, ws } = startFake(undefined, extra);
+      for (const forwarded of <Record<string, string>[]>[
+        { "X-Forwarded-For": "100.64.0.7" },
+        { "X-Forwarded-Host": "127.0.0.1:4518" },
+        { "X-Forwarded-Proto": "https" },
+        { Forwarded: "for=100.64.0.7" },
+      ]) {
+        for (const loopback of ["127.0.0.1:4518", "localhost", "[::1]:4518"])
+          expect(
+            (await fetch(`${http}/health`, { headers: { ...forwarded, Host: loopback } })).status,
+          ).toBe(421);
+        const result = await probe(ws(started.token), forwarded);
+        expect(result.opened).toBe(false);
+        expect(result.messages).toEqual([]);
+      }
+    }
+    // The proxy's own requests, on the named host, still get in.
+    const { started, ws } = startFake(undefined, named);
+    const proxied = await probe(ws(started.remoteToken!), {
+      ...onName,
+      Origin: host.origin,
+      "X-Forwarded-For": "100.64.0.7",
+      "X-Forwarded-Host": `${NAME}:8445`,
+      "X-Forwarded-Proto": "https",
+    });
+    expect(proxied.messages.map((m) => m.t)).toEqual(["welcome", "snapshot"]);
+  });
+
+  test("an unlock on the desk does not let the phone sign, and back", async () => {
+    const { started, ws } = startFake(undefined, named);
+    class PhoneSocket extends WebSocket {
+      constructor(url: string | URL) {
+        super(url, { headers: { ...onName, Origin: host.origin } } as unknown as string[]);
+      }
+    }
+    const desk = new NodClient(ws(started.token));
+    const phone = new NodClient(ws(started.remoteToken!), { WebSocket: PhoneSocket });
+    try {
+      await until(() => [desk, phone].every((c) => c.state.snapshot !== null));
+      const entries = [
+        { pr: 482, head_sha: desk.state.snapshot!.prs.find((p) => p.number === 482)!.headSha },
+      ];
+      await desk.request("unlock", { passphrase: "pass" });
+      await until(() => desk.state.signer?.state === "unlocked");
+      expect(phone.state.signer?.state).toBe("locked");
+      const refused = await phone
+        .request("sign", { entries, verdict: "approve" })
+        .catch((e: unknown) => e);
+      expect((refused as RequestFailed).code).toBe("locked");
+
+      await desk.request("lock", {});
+      await phone.request("unlock", { passphrase: "pass" });
+      await until(() => phone.state.signer?.state === "unlocked");
+      expect(desk.state.signer?.state).toBe("locked");
+      const result = await phone.request("sign", { entries, verdict: "approve" });
+      expect(result.posted.map((p) => p.pr)).toEqual([482]);
+    } finally {
+      desk.close();
+      phone.close();
+    }
+  });
+
+  test("renewing: --new-remote-token unpairs only the other device, --new-token both", async () => {
+    const first = startFake(undefined, named);
+    const { dir } = first;
+    const before = [first.started.token, first.started.remoteToken];
+    await first.started.stop();
+    running.splice(running.indexOf(first.started), 1);
+    const kept = startFake(undefined, named, dir);
+    expect([kept.started.token, kept.started.remoteToken]).toEqual(before);
+    await kept.started.stop();
+    running.splice(running.indexOf(kept.started), 1);
+
+    const remote = startFake(undefined, { ...named, newRemoteToken: true }, dir);
+    expect(remote.started.token).toBe(before[0]!);
+    expect(remote.started.remoteToken).not.toBe(before[1]!);
+    await remote.started.stop();
+    running.splice(running.indexOf(remote.started), 1);
+
+    const both = startFake(undefined, { ...named, newToken: true }, dir);
+    expect(both.started.token).not.toBe(before[0]!);
+    expect(both.started.remoteToken).not.toBe(remote.started.remoteToken!);
+    await both.started.stop();
+    running.splice(running.indexOf(both.started), 1);
+
+    // Without --allow-host it still renews the file, so a lost phone is cut off before the next run.
+    const file = join(dir, "serve-token-remote");
+    const old = readFileSync(file, "utf8");
+    const plain = startFake(undefined, { newRemoteToken: true }, dir);
+    expect(plain.started.remoteToken).toBeNull();
+    expect(readFileSync(file, "utf8")).not.toBe(old);
+    expect(plain.started.token).toBe(both.started.token);
   });
 });
 

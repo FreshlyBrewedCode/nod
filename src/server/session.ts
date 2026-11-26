@@ -21,11 +21,16 @@ import { ghLoginCommand } from "../kit/host.ts";
 import { PROTOCOL_VERSION } from "../shared/protocol";
 import type { Clock } from "./clock";
 import { commentBody, humanLine, payloadLine } from "./payload";
-import { SignerError, type Signer, type SignerKey } from "./signer";
+import { SignerError, type Side, type Signer, type SignerKey } from "./signer";
 import { SourceError, type NodPayload, type Source } from "./source";
 
-/** One open tab. `send` takes the serialised message. */
+/**
+ * One open tab. `send` takes the serialised message. `side` is where it is
+ * connected from (`server.ts` decides it from the Host and the token): its
+ * unlock window, and the lock state it is shown (ADR 0005).
+ */
 export interface Client {
+  readonly side: Side;
   send(data: string): void;
 }
 
@@ -53,7 +58,10 @@ export class RequestFailure extends Error {
 export const MAX_BATCH = 100;
 
 type Handlers = {
-  [K in RequestType]: (message: Extract<ClientToServer, { t: K }>) => Promise<RequestResult<K>>;
+  [K in RequestType]: (
+    message: Extract<ClientToServer, { t: K }>,
+    client: Client,
+  ) => Promise<RequestResult<K>>;
 };
 
 export class Session {
@@ -80,7 +88,7 @@ export class Session {
   /** A tab connected: welcome, then the snapshot; from then on every push. */
   async attach(client: Client): Promise<void> {
     this.joining.add(client);
-    const welcome = await this.welcome();
+    const welcome = await this.welcome(client.side);
     if (!this.joining.delete(client)) return; // closed meanwhile
     client.send(JSON.stringify(welcome));
     this.clients.add(client);
@@ -115,8 +123,11 @@ export class Session {
       } as ServerToClient);
     }
     try {
-      const handler = this.handlers[message.t] as (m: ClientToServer) => Promise<unknown>;
-      const result = await handler(message);
+      const handler = this.handlers[message.t] as (
+        m: ClientToServer,
+        c: Client,
+      ) => Promise<unknown>;
+      const result = await handler(message, client);
       this.reply(client, {
         t: "reply",
         id: message.id,
@@ -161,8 +172,20 @@ export class Session {
     this.broadcast({ t: "setup", setup: await this.options.source.setup() });
   }
 
+  /** Every tab hears its own side's lock state. */
   private pushSigner() {
-    this.broadcast({ t: "signer", signer: this.signerState() });
+    const states = new Map<Side, string>();
+    for (const client of this.clients) {
+      let data = states.get(client.side);
+      if (data === undefined) {
+        data = JSON.stringify({
+          t: "signer",
+          signer: this.signerState(client.side),
+        } satisfies ServerToClient);
+        states.set(client.side, data);
+      }
+      client.send(data);
+    }
   }
 
   private async me(): Promise<Account | null> {
@@ -170,7 +193,7 @@ export class Session {
     return this.account;
   }
 
-  private async welcome(): Promise<Welcome> {
+  private async welcome(side: Side): Promise<Welcome> {
     const { source, version, fake } = this.options;
     return {
       t: "welcome",
@@ -181,13 +204,13 @@ export class Session {
       repo: source.repo(),
       github: source.github(),
       setup: await source.setup(),
-      signer: this.signerState(),
+      signer: this.signerState(side),
     };
   }
 
-  /** The signer's state, with the enrolment the repo decides. */
-  signerState(): SignerState {
-    const status = this.options.signer.status();
+  /** The signer's state on `side`, with the enrolment the repo decides. */
+  signerState(side: Side): SignerState {
+    const status = this.options.signer.status(side);
     if (status.state === "no-key") return status;
     return { ...status, key: this.keyInfo(status.key) };
   }
@@ -216,30 +239,31 @@ export class Session {
       }
       return me;
     };
-    const needKey = () => {
-      const status = signer.status();
+    const needKey = (side: Side = "loopback") => {
+      const status = signer.status(side);
       if (status.state === "no-key")
         throw new RequestFailure("no-key", "There is no signing key yet.");
       return status;
     };
 
     return {
-      unlock: async ({ passphrase, minutes, once }) => {
+      unlock: async ({ passphrase, minutes, once }, { side }) => {
         await signer.unlock(passphrase, {
+          side,
           ...(minutes !== undefined && { minutes }),
           ...(once !== undefined && { once }),
         });
-        const status = signer.status();
+        const status = signer.status(side);
         return { until: status.state === "unlocked" ? status.until : clock.now() };
       },
-      lock: async () => {
-        signer.lock();
+      lock: async (_, { side }) => {
+        signer.lock(side);
         return {};
       },
-      sign: async ({ entries, verdict, note }) => {
+      sign: async ({ entries, verdict, note }, { side }) => {
         const repo = needRepo();
         const me = await needMe();
-        const status = needKey();
+        const status = needKey(side);
         const enrolment = source.enrolment(status.key.publicKey);
         if (enrolment.state === "pending")
           throw new RequestFailure(
@@ -297,7 +321,7 @@ export class Session {
           signed_at: new Date(clock.now()).toISOString(),
         };
         const line = payloadLine(payload);
-        const signature = await signer.sign(line);
+        const signature = await signer.sign(line, side);
         const body = commentBody(line, signature, humanLine(payload, note));
         const results = await source.postNod({ payload, line, signature, body });
         return {
@@ -344,14 +368,14 @@ export class Session {
         const status = needKey();
         return { pr: await source.openEnrolPr(status.key.publicKey) };
       },
-      "test-signature": async () => {
-        const status = needKey();
+      "test-signature": async (_, { side }) => {
+        const status = needKey(side);
         if (status.state !== "unlocked")
           throw new RequestFailure("locked", "Unlock the key first.");
         const me = await this.me();
         // Deliberately not a nod payload: it can never count on a PR.
         const line = `nod test signature · ${me?.login ?? "unknown"} · ${new Date(clock.now()).toISOString()}`;
-        const signature = await signer.sign(line);
+        const signature = await signer.sign(line, side);
         return {
           payload: line,
           signature,

@@ -4,7 +4,7 @@ import type { PrView, Reply, ServerToClient, Snapshot } from "../shared/protocol
 import { ManualClock } from "./clock";
 import { FakeSource, scenarioHasKey, type FakeScenario } from "./fake-source";
 import { Session, parseRequest } from "./session";
-import { FakeSigner, fakeSignature } from "./signer";
+import { FakeSigner, fakeSignature, type Side } from "./signer";
 
 const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const SECOND = 1000;
@@ -14,9 +14,10 @@ function setup(scenario: FakeScenario = "team") {
   const source = new FakeSource({ clock, scenario, mergeDelayMs: 4 * SECOND });
   const signer = new FakeSigner(clock, { hasKey: scenarioHasKey(scenario) });
   const session = new Session({ source, signer, clock, version: null, fake: true });
-  const tab = () => {
+  const tab = (side: Side = "loopback") => {
     const messages: ServerToClient[] = [];
     const client = {
+      side,
       send: (data: string) => void messages.push(JSON.parse(data) as ServerToClient),
     };
     let id = 0;
@@ -86,6 +87,44 @@ describe("connecting", () => {
     await a.ask("lock");
     expect(b.last("signer")?.signer.state).toBe("unlocked");
     expect(a.last("signer")?.signer.state).toBe("locked");
+  });
+});
+
+describe("a side each (ADR 0005)", () => {
+  test("an unlock on loopback neither unlocks nor signs for the named host, and back", async () => {
+    const { session, tab } = setup();
+    const desk = tab("loopback");
+    const desk2 = tab("loopback");
+    const phone = tab("named-host");
+    for (const t of [desk, desk2, phone]) await session.attach(t.client);
+    const entries = [{ pr: 482, head_sha: desk.pr(482).headSha }];
+
+    ok(await desk.ask("unlock", { passphrase: "pass" }));
+    // Tabs of one side share its window; the other side is told it is locked.
+    expect(desk2.last("signer")?.signer.state).toBe("unlocked");
+    expect(phone.last("signer")?.signer.state).toBe("locked");
+    expect(err(await phone.ask("sign", { entries, verdict: "approve" }))).toBe("locked");
+    expect(err(await phone.ask("test-signature"))).toBe("locked");
+
+    // The phone's own unlock, and its lock, leave the desk alone.
+    ok(await phone.ask("unlock", { passphrase: "pass", once: true }));
+    expect(phone.last("signer")?.signer).toMatchObject({ state: "unlocked", once: true });
+    expect(desk.last("signer")?.signer).toMatchObject({ state: "unlocked", once: false });
+    ok(await phone.ask("lock"));
+    expect(phone.last("signer")?.signer.state).toBe("locked");
+    expect(desk.last("signer")?.signer.state).toBe("unlocked");
+
+    // And the other way round: a window opened on the phone does not sign for the desk.
+    ok(await desk.ask("lock"));
+    ok(await phone.ask("unlock", { passphrase: "pass" }));
+    expect(desk.last("signer")?.signer.state).toBe("locked");
+    expect(err(await desk.ask("sign", { entries, verdict: "approve" }))).toBe("locked");
+    ok(await phone.ask("sign", { entries, verdict: "approve" }));
+
+    // A tab that connects later is welcomed with its own side's state.
+    const late = tab("loopback");
+    await session.attach(late.client);
+    expect(late.last("welcome")?.signer.state).toBe("locked");
   });
 });
 

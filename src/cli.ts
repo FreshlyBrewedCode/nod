@@ -3,12 +3,14 @@
  * `nod key` (the signing key, src/server/signer/key-cli.ts) and `nod init`
  * (opens the repo-owned setup PR, src/init/).
  */
+import { resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
 
 import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
 import { githubHost } from "./kit/host.ts";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
+import { parseNamedHost, type NamedHost } from "./server/named-host";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 
@@ -33,8 +35,15 @@ export interface ServeFlags {
   readonly poll: number | null;
   readonly webUrl: string | null;
   readonly tokenFile: string | null;
+  /** Renew both tokens. */
   readonly newToken: boolean;
+  /** Renew only the remote token, the named host's. */
+  readonly newRemoteToken: boolean;
   readonly open: boolean;
+  /** `--allow-host`: the TLS proxy's name in front of the port (another device, ADR 0005). */
+  readonly allowHost: NamedHost | null;
+  /** `--web-dir`: the built web app served on that name. */
+  readonly webDir: string | null;
 }
 
 export type Command =
@@ -70,8 +79,18 @@ serve options:
   --scenario <name>   with --fake: ${SCENARIOS.join(", ")} (default team)
   --frozen            with --fake: nothing changes on its own
   --token-file <path> where the pairing token is kept
-                      (default $XDG_CONFIG_HOME/nod/serve-token)
-  --new-token         replace the token: every paired browser pairs again
+                      (default $XDG_CONFIG_HOME/nod/serve-token); the
+                      remote token is next to it, as <path>-remote
+  --new-token         replace both tokens: every paired browser pairs again
+  --new-remote-token  replace only the remote token: the other device pairs
+                      again, this machine's browser stays paired
+  --allow-host <name[:port]>
+                      also answer to this https name, the one a TLS proxy
+                      such as tailscale serve gives the port, and serve the
+                      web app there for another device; prints its link
+                      and a QR code
+  --web-dir <path>    with --allow-host: the built web app (default: the
+                      one this nod ships, in a checkout dist/web)
   --open              open the host link in a browser
   --no-open           do not (the default)
 
@@ -115,7 +134,10 @@ function parseServe(args: string[]): Command {
         "web-url": { type: "string" },
         "token-file": { type: "string" },
         "new-token": { type: "boolean", default: false },
+        "new-remote-token": { type: "boolean", default: false },
         open: { type: "boolean", default: false },
+        "allow-host": { type: "string" },
+        "web-dir": { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     }));
@@ -145,6 +167,16 @@ function parseServe(args: string[]): Command {
       return { kind: "error", message: `--host: ${(error as Error).message}` };
     }
   }
+  let allowHost: NamedHost | null = null;
+  if (values["allow-host"] !== undefined) {
+    try {
+      allowHost = parseNamedHost(values["allow-host"]);
+    } catch (error) {
+      return { kind: "error", message: `--allow-host: ${(error as Error).message}` };
+    }
+  }
+  if (values["web-dir"] !== undefined && !allowHost)
+    return { kind: "error", message: "--web-dir needs --allow-host" };
   const webUrl = values["web-url"] ?? null;
   if (webUrl !== null && !/^https?:\/\/[^/]+/.test(webUrl))
     return { kind: "error", message: "--web-url is an http(s) URL" };
@@ -162,7 +194,10 @@ function parseServe(args: string[]): Command {
       webUrl,
       tokenFile: values["token-file"] ?? null,
       newToken: values["new-token"],
+      newRemoteToken: values["new-remote-token"],
       open: values.open,
+      allowHost,
+      webDir: values["web-dir"] ?? null,
     },
   };
 }
@@ -171,7 +206,17 @@ async function runServe(flags: ServeFlags): Promise<number> {
   const { start } = await import("./server/start");
   const { defaultWebUrl } = await import("./server/web-url");
   const { defaultTokenFile } = await import("./server/token");
+  const { defaultWebRoot, isWebRoot } = await import("./server/static-files");
   const webUrl = flags.webUrl ?? process.env.NOD_WEB_URL ?? defaultWebUrl(VERSION);
+  const webRoot = flags.allowHost ? resolve(flags.webDir ?? defaultWebRoot()) : null;
+  if (webRoot && !isWebRoot(webRoot)) {
+    console.error(
+      flags.webDir
+        ? `nod serve: there is no built web app in ${webRoot} (no index.html).`
+        : `nod serve: the web app for --allow-host is not built: run \`bun run build\` in this checkout (it writes ${webRoot}), or pass --web-dir.`,
+    );
+    return 1;
+  }
   let started;
   try {
     started = start({
@@ -179,12 +224,14 @@ async function runServe(flags: ServeFlags): Promise<number> {
       webUrl,
       tokenFile: flags.tokenFile ?? defaultTokenFile(),
       newToken: flags.newToken,
+      newRemoteToken: flags.newRemoteToken,
       version: VERSION,
       fake: flags.fake ? { scenario: flags.scenario, live: !flags.frozen } : null,
       repo: flags.repo,
       host: flags.host,
       ...(flags.dir !== null && { dir: flags.dir }),
       ...(flags.poll !== null && { pollMs: flags.poll * 1000 }),
+      namedHost: flags.allowHost && webRoot ? { host: flags.allowHost, webRoot } : null,
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -206,7 +253,27 @@ async function runServe(flags: ServeFlags): Promise<number> {
     `nod serve on ${started.wsUrl} · ${what} · ${started.source.repo() ?? "no repo yet"}`,
   );
   console.log(`\n  open the dashboard:\n  ${started.link}\n`);
-  console.log("  keep this link to yourself: while signing is unlocked, it can sign.\n");
+  if (started.deviceLink) {
+    const { qrLines } = await import("./server/qr");
+    console.log(
+      `  on another device, through ${flags.allowHost!.origin}:\n  ${started.deviceLink}\n`,
+    );
+    console.log(
+      qrLines(started.deviceLink)
+        .map((line) => `  ${line}`)
+        .join("\n"),
+    );
+    console.log(
+      "\n  scan the code with that device's camera; do not send the link through a chat.\n",
+    );
+  }
+  if (flags.newRemoteToken && !started.deviceLink)
+    console.log("  the remote token was replaced: the other device pairs again.\n");
+  console.log(
+    started.deviceLink
+      ? "  keep these links to yourself: while signing is unlocked on its side, each can sign.\n"
+      : "  keep this link to yourself: while signing is unlocked, it can sign.\n",
+  );
   if (flags.open) openBrowser(started.link);
 
   const stop = () => {

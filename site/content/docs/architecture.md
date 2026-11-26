@@ -32,7 +32,8 @@ order: 3
 **The web app** is a single-page app (React). It talks only to `nod serve`, over one WebSocket on
 loopback, guarded by a pairing token and an origin check. It never talks to GitHub. It is meant
 to be hosted as static files at `ui.nod.frebreco.de`, and does nothing until paired with a local
-server; today it runs from the Vite dev server of a checkout.
+server; today it runs from the Vite dev server of a checkout. On another device it is the copy
+`nod serve` serves itself on the [named host](/docs/phone), over `wss` to that same address.
 
 ## The protocol
 

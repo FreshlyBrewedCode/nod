@@ -43,6 +43,10 @@ from-source way.
 - **Several repositories.** One repository per `nod serve`.
 - **Adopting an existing SSH key.** nod makes its own.
 - **A light scheme** for the web app.
+- **nod on a phone, all the way.** A phone reaches `nod serve` through a named host
+  ([On your phone](/docs/phone)), but the dashboard has no phone layout yet, does not reconnect
+  on purpose when the phone wakes, and a deep link from a GitHub notification does not open on
+  the phone.
 
 ## Limits by design
 

@@ -1,7 +1,9 @@
 /**
  * `nod serve`'s HTTP side: one WebSocket at `/ws` for the user's own
  * browser (any number of its tabs), `/health`, and nothing else. Loopback
- * only. The protocol itself is in `session.ts`.
+ * only, unless `--allow-host` names the TLS proxy in front of it (ADR 0005):
+ * then that name is a second side, with its own token, its own origin and
+ * the built web app. The protocol itself is in `session.ts`.
  *
  * Who gets in (canvas ADR 0001, the host-link part):
  * - **The token.** A WebSocket is not subject to CORS, so any page could open
@@ -16,6 +18,21 @@
  *   (a script, a test) and still needs the token.
  * - **The host name.** Only `127.0.0.1`, `localhost` and `[::1]`, so a DNS
  *   rebinding page (whose requests name its own host) gets nothing either.
+ *   `--allow-host` adds exactly one name: the TLS proxy's in front of this
+ *   port (`tailscale serve`, finding 04). That host gets the built web app
+ *   too (`webRoot`), so the page and the socket share its origin.
+ * - **The side.** The Host header picks the side, and the side picks the
+ *   rest: the named host lets in only its own origin with the remote token,
+ *   loopback only the web app's and the dev server's origins with the
+ *   loopback token (and, on either side, a client with no `Origin` at all,
+ *   with that side's token). Neither token opens the other side, and each
+ *   side has its own unlock window (`Client.side`).
+ * - **A proxied request is never loopback.** `tailscale serve` forwards the
+ *   client's own Host, so a tailnet client could ask for `127.0.0.1`. It
+ *   also sets `X-Forwarded-For`, `-Host` and `-Proto` on every request and
+ *   drops what the client sent under those names, so a request carrying any
+ *   of them (or `Forwarded`) came through a proxy: it gets the named host
+ *   or 421 (ADR 0005).
  * - **Private network access.** A page on a public origin (the hosted UI)
  *   reaching loopback makes Chrome send a preflight with
  *   `Access-Control-Request-Private-Network: true`; it is answered for
@@ -27,20 +44,38 @@ import type { Server, ServerWebSocket } from "bun";
 
 import { CLOSE_BAD_TOKEN, CLOSE_SHUTDOWN, PROTOCOL_VERSION, WS_PATH } from "../shared/protocol";
 import type { Client, Session } from "./session";
+import type { Side } from "./signer";
+import { serveStatic } from "./static-files";
 import { tokensEqual } from "./token";
+
+/** The one named host besides loopback (`--allow-host`), as the server checks it. */
+export interface NamedSide {
+  /** Lowercase, no port: what the Host header must name. */
+  readonly hostname: string;
+  /** `https://<name[:port]>`: the only origin let in on this side. */
+  readonly origin: string;
+  /** The remote token: this side's, never loopback's. */
+  readonly token: string;
+  /** The built web app, served on this name only. */
+  readonly webRoot: string;
+}
 
 export interface ServeOptions {
   readonly port: number;
   /** Loopback; `127.0.0.1` unless a test says otherwise. */
   readonly hostname?: string;
+  /** The loopback token. */
   readonly token: string;
+  /** The origins let in on loopback. */
   readonly allowedOrigins: ReadonlyArray<string>;
+  readonly namedHost?: NamedSide | null;
   readonly session: Session;
   readonly version: string | null;
 }
 
 interface SocketData {
   readonly authorized: boolean;
+  readonly side: Side;
   client: Client | null;
 }
 
@@ -51,6 +86,8 @@ export interface Serving {
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+/** What a proxy in front of this port adds; `tailscale serve` sets the first three always. */
+const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded"];
 
 /** `127.0.0.1:4518` → `127.0.0.1`; `[::1]:4518` → `[::1]`. */
 function hostName(host: string | null): string | null {
@@ -60,22 +97,40 @@ function hostName(host: string | null): string | null {
 }
 
 export function serve(options: ServeOptions): Serving {
-  const allowed = new Set(options.allowedOrigins);
+  const named = options.namedHost ?? null;
+  const sides = {
+    loopback: { allowed: new Set(options.allowedOrigins), token: options.token },
+    "named-host": named && { allowed: new Set([named.origin]), token: named.token },
+  };
   const sockets = new Set<ServerWebSocket<SocketData>>();
-
-  const cors = (origin: string | null): Record<string, string> =>
-    origin && allowed.has(origin)
-      ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" }
-      : { Vary: "Origin" };
 
   const server = Bun.serve<SocketData>({
     port: options.port,
     hostname: options.hostname ?? "127.0.0.1",
+    // No development error page: it would show paths and source lines.
+    development: false,
+    error: () => new Response("nod serve: internal error", { status: 500 }),
     fetch(req, server) {
-      const url = new URL(req.url);
       const origin = req.headers.get("origin");
       const name = hostName(req.headers.get("host"));
-      if (!name || !LOOPBACK_HOSTS.has(name)) return new Response("wrong host", { status: 421 });
+      const proxied = PROXY_HEADERS.some((header) => req.headers.has(header));
+      const side: Side | null = !name
+        ? null
+        : LOOPBACK_HOSTS.has(name) && !proxied
+          ? "loopback"
+          : named && name === named.hostname
+            ? "named-host"
+            : null;
+      const rules = side && sides[side];
+      if (!side || !rules) return new Response("wrong host", { status: 421 });
+      // The Host is one of ours, so the URL parses; checked first all the same.
+      const url = URL.parse(req.url);
+      if (!url) return new Response("bad request", { status: 400 });
+      const allowed = rules.allowed;
+      const cors = (origin: string | null): Record<string, string> =>
+        origin && allowed.has(origin)
+          ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" }
+          : { Vary: "Origin" };
 
       if (req.method === "OPTIONS") {
         if (!origin || !allowed.has(origin)) return new Response(null, { status: 403 });
@@ -100,11 +155,14 @@ export function serve(options: ServeOptions): Serving {
       if (url.pathname === WS_PATH) {
         if (origin !== null && !allowed.has(origin))
           return new Response("origin not allowed", { status: 403 });
-        const authorized = tokensEqual(url.searchParams.get("token"), options.token);
-        return server.upgrade(req, { data: { authorized, client: null } })
+        const authorized = tokensEqual(url.searchParams.get("token"), rules.token);
+        return server.upgrade(req, { data: { authorized, side, client: null } })
           ? undefined
           : new Response("expected a WebSocket upgrade", { status: 426 });
       }
+
+      if (side === "named-host" && named && (req.method === "GET" || req.method === "HEAD"))
+        return serveStatic(named.webRoot, url.pathname);
 
       return new Response("nod serve: open the link printed in your terminal", { status: 404 });
     },
@@ -113,7 +171,7 @@ export function serve(options: ServeOptions): Serving {
       open(ws) {
         if (!ws.data.authorized) return ws.close(CLOSE_BAD_TOKEN, "bad token");
         sockets.add(ws);
-        const client: Client = { send: (data) => void ws.send(data) };
+        const client: Client = { side: ws.data.side, send: (data) => void ws.send(data) };
         ws.data.client = client;
         void options.session.attach(client);
       },

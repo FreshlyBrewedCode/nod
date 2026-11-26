@@ -78,9 +78,9 @@ export function useNodConnection(): Connection {
   useEffect(() => {
     const repair = () => {
       const before = window.location.hash;
-      const next = readHostLink(before).pairing
+      const next = readHostLink(before, window.location).pairing
         ? takePairing(window.location, window.history, window.localStorage)
-        : loadPairing(window.localStorage);
+        : loadPairing(window.localStorage, window.location);
       // The host link left the address bar (and maybe led on to a remembered
       // deep link): `replaceState` fires no event, so the route hears of it here.
       if (window.location.hash !== before) window.dispatchEvent(new HashChangeEvent("hashchange"));

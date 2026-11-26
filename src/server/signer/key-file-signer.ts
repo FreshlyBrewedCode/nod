@@ -39,7 +39,11 @@ const SELF = "nod-self-check";
 export class KeyFileSigner extends UnlockWindow {
   private readonly options: KeyFileSignerOptions;
   private method: SigningMethod | null = null;
-  /** Unlocks run one at a time: each costs scrypt's memory. */
+  /**
+   * Unlocks run one at a time: each costs scrypt's memory. A wrong
+   * passphrase's delay comes after its turn, so it holds up only its own
+   * side (`UnlockWindow.unlock` lets each side have one unlock at a time).
+   */
   private queue: Promise<unknown> = Promise.resolve();
 
   /** Throws `bad-key-file` when the key file is damaged. */
@@ -75,10 +79,19 @@ export class KeyFileSigner extends UnlockWindow {
     }
   }
 
-  protected open(passphrase: string): Promise<void> {
+  protected async open(passphrase: string): Promise<void> {
     const opened = this.queue.then(() => this.openNow(passphrase));
     this.queue = opened.catch(() => {});
-    return opened;
+    try {
+      await opened;
+    } catch (error) {
+      if (error instanceof SignerError && error.code === "bad-passphrase") {
+        // Slows guessing through the socket a little; offline guessing is scrypt's job.
+        const ms = this.options.wrongPassphraseDelayMs ?? 1000;
+        if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
+      }
+      throw error;
+    }
   }
 
   private async openNow(passphrase: string): Promise<void> {
@@ -91,25 +104,15 @@ export class KeyFileSigner extends UnlockWindow {
         "bad-key-file",
         "The key file changed since nod serve started. Restart nod serve.",
       );
-    let seed: Buffer;
+    // No key was made with a longer one (`length` counts UTF-16 units,
+    // at most twice the characters); do not spend scrypt on it.
+    if (passphrase.length > MAX_PASSPHRASE_LENGTH * 2)
+      throw new SignerError("bad-passphrase", "That passphrase does not unlock the key.");
+    const seed = await decryptSeed(record, passphrase);
     try {
-      // No key was made with a longer one (`length` counts UTF-16 units,
-      // at most twice the characters); do not spend scrypt on it.
-      if (passphrase.length > MAX_PASSPHRASE_LENGTH * 2)
-        throw new SignerError("bad-passphrase", "That passphrase does not unlock the key.");
-      seed = await decryptSeed(record, passphrase);
-    } catch (error) {
-      if (error instanceof SignerError && error.code === "bad-passphrase") {
-        // Slows guessing through the socket a little; offline guessing is scrypt's job.
-        const ms = this.options.wrongPassphraseDelayMs ?? 1000;
-        if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
-      }
-      throw error;
-    }
-    try {
-      const method = ed25519Method(seed);
-      this.method?.dispose();
-      this.method = method;
+      // Another side's window may hold the key already, and may be signing
+      // with it right now: keep that one, the passphrase was what to check.
+      this.method ??= ed25519Method(seed);
     } finally {
       seed.fill(0);
     }

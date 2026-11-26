@@ -48,7 +48,10 @@ async function setup(scenario: FakeScenario, withKey: boolean) {
   const signer = new KeyFileSigner({ clock, file, scrypt: CHEAP, wrongPassphraseDelayMs: 0 });
   const session = new Session({ source, signer, clock, version: null, fake: false });
   const messages: ServerToClient[] = [];
-  const client = { send: (data: string) => void messages.push(JSON.parse(data)) };
+  const client = {
+    side: "loopback" as const,
+    send: (data: string) => void messages.push(JSON.parse(data)),
+  };
   await session.attach(client);
   let id = 0;
   const ask = async (t: string, body: Record<string, unknown> = {}): Promise<Reply> => {

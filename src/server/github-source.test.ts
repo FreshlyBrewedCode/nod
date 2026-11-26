@@ -351,7 +351,10 @@ describe("signing through the session", () => {
     const signer = new FakeSigner(t.clock);
     const s = new Session({ source: t.source, signer, clock: t.clock, version: null, fake: false });
     const messages: ServerToClient[] = [];
-    const client = { send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient) };
+    const client = {
+      side: "loopback" as const,
+      send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient),
+    };
     let id = 0;
     const ask = async (type: string, body: Record<string, unknown> = {}) => {
       const rid = `r${++id}`;
@@ -754,7 +757,10 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       const signer = new FakeSigner(clock);
       const s = new Session({ source, signer, clock, version: null, fake: false });
       const messages: ServerToClient[] = [];
-      const client = { send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient) };
+      const client = {
+        side: "loopback" as const,
+        send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient),
+      };
       await s.handle(client, JSON.stringify({ t: "unlock", id: "u", passphrase: "anything" }));
       await s.handle(
         client,
