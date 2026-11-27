@@ -46,6 +46,7 @@ export const SCENARIOS = [
   "join",
   "inbox",
   "shared",
+  "repos",
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -951,19 +952,19 @@ const openApprove = async (page: Page) => {
 async function routeApprove(page: Page, mode: "stale" | "failed") {
   await page.routeWebSocket(/\/ws\?/, (ws) => {
     const server = ws.connectToServer();
-    const held = new Map<string, number[]>();
+    const held = new Map<string, { repo: string; pr: number }[]>();
     ws.onMessage((raw) => {
       const message = JSON.parse(String(raw)) as {
         t: string;
         id: string;
-        entries?: { pr: number; head_sha: string }[];
+        entries?: { repo: string; pr: number; head_sha: string }[];
       };
       if (message.t === "approve" && message.entries?.length) {
         if (mode === "stale") message.entries[0]!.head_sha = "0".repeat(40);
         else if (message.entries.length > 1) {
           held.set(
             message.id,
-            message.entries.slice(1).map((e) => e.pr),
+            message.entries.slice(1).map((e) => ({ repo: e.repo, pr: e.pr })),
           );
           message.entries = message.entries.slice(0, 1);
         }
@@ -975,13 +976,14 @@ async function routeApprove(page: Page, mode: "stale" | "failed") {
         t: string;
         id?: string;
         ok?: boolean;
-        result?: { posted: unknown[]; failed: { pr: number; message: string }[] };
+        result?: { posted: unknown[]; failed: { repo: string; pr: number; message: string }[] };
       };
       const refused = message.id ? held.get(message.id) : undefined;
       if (message.t === "reply" && message.ok && refused && message.result)
-        message.result.failed = refused.map((pr) => ({
+        message.result.failed = refused.map(({ repo, pr }) => ({
+          repo,
           pr,
-          message: `Approving #${pr} failed: GitHub 502 on POST /repos/${REPO}/pulls/${pr}/reviews: Server Error`,
+          message: `Approving #${pr} failed: GitHub 502 on POST /repos/${repo}/pulls/${pr}/reviews: Server Error`,
         }));
       ws.send(JSON.stringify(message));
     });
@@ -1066,7 +1068,7 @@ const APPROVE_STATES: ReadonlyArray<State> = [
     act: async (page) => {
       await lookAround(page);
       await page.locator("[data-key^='cluster:']").first().click();
-      await page.locator("[data-key='pr:519']").click();
+      await page.locator(`[data-key='pr:${REPO}#519']`).click();
       await page.getByLabel(/^Details of #519/).waitFor();
     },
     assert: async (page) => {
@@ -1079,8 +1081,84 @@ const APPROVE_STATES: ReadonlyArray<State> = [
   },
 ];
 
+/** The repo on the fictional GHE.com host in `--scenario repos` (`src/server/fake-repos.ts`). */
+const LEDGER = "acme.ghe.com/finance/ledger";
+
+/** Many repos (ADR 0007): chips on rows, a batch across two repos, a GHE.com PR's page. */
+const REPOS_STATES: ReadonlyArray<State> = [
+  {
+    name: "a repo chip on every row",
+    route: "#/",
+    scenarios: ["repos"],
+    act: async () => {},
+    assert: async (page) => {
+      await must(
+        page
+          .locator(`[data-key='pr:${LEDGER}#57']`)
+          .getByText("ledger", { exact: true })
+          .isVisible(),
+        "a ledger row has no repo chip",
+      );
+      await must(page.getByText(/^Next step · optional/).isVisible(), "the offer card is missing");
+      await must(
+        page.getByText("· tallyho/field-app", { exact: false }).first().isVisible(),
+        "the offer card does not name its repo",
+      );
+    },
+    shot: "28a-repos-list",
+    full: true,
+  },
+  {
+    name: "a batch across two repos",
+    route: "#/",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.getByRole("checkbox", { name: "Select #482 for signing" }).check();
+      await page.getByRole("checkbox", { name: "Select #57 for signing" }).check();
+      await page.getByRole("button", { name: /Review & sign 2/ }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/in two repositories, one signature each/).isVisible(),
+        "the sheet does not say one signature per repository",
+      );
+    },
+    shot: "28b-batch-two-repos",
+  },
+  {
+    name: "a GHE.com PR's page",
+    route: "#/",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.locator(`[data-key='pr:${LEDGER}#57']`).click();
+      await page.getByLabel(/^Details of #57/).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("link", { name: "GitHub on acme.ghe.com" }).isVisible(),
+        "the page does not link to the PR on acme.ghe.com",
+      );
+    },
+    shot: "28c-ghe-pr",
+  },
+  {
+    name: "the setup page of one repo of three",
+    route: `#/setup/${LEDGER}/enforced`,
+    scenarios: ["repos"],
+    act: async () => {},
+    assert: async (page) => {
+      await must(
+        page.getByRole("navigation", { name: "Repositories" }).isVisible(),
+        "the setup page does not list the repos",
+      );
+    },
+    shot: "28e-setup-repo",
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
   ...FORWARD_STATES,
+  ...REPOS_STATES,
   ...OFFER_STATES,
   ...INBOX_STATES,
   ...APPROVE_STATES,
