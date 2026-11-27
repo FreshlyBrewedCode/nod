@@ -367,6 +367,9 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
     expect(result.failed).toEqual([]);
     expect([t.pr(512).needsMe, t.pr(512).ask, t.pr(515).needsMe]).toEqual([false, null, false]);
     expect(t.pr(512).review).toMatchObject({ approvedBy: ["mara-l"], fromMe: false });
+    // #515 asked my team: my review answers it, nothing waits on a teammate any more.
+    expect(t.pr(515).review?.teams).toEqual([]);
+    expect(t.pr(515).waitingOn).toEqual([{ kind: "merge" }]);
     expect(t.pr(512).journey.some((e) => e.text === "You approved")).toBe(true);
     // No key was asked for: there is none.
     expect(t.last("welcome")?.signer.state).toBe("no-key");

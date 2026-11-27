@@ -375,6 +375,9 @@ describe("the inbox step: a repo without nod's setup", () => {
     ]);
     expect(t.pr(30)).toMatchObject({ needsMe: false, ask: null });
     expect(t.pr(30).review).toMatchObject({ approvedBy: [ALICE], approvedAtHead: [ALICE] });
+    // Asked through my team: my review answers the team's request, it is ready to merge.
+    expect(t.pr(30).review?.teams).toEqual([]);
+    expect(t.pr(30).waitingOn).toEqual([{ kind: "merge" }]);
     // The poll after it agrees: GitHub's search no longer finds the request.
     t.gh.requested = [];
     await t.advance(5 * SECOND);

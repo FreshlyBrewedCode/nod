@@ -401,29 +401,40 @@ export class GitHubSource implements Source {
 
   /**
    * My approvals, shown at once; the next poll confirms them. GitHub answers
-   * the review request from me (a team's waits for the poll).
+   * the review request from me; asked through a team, my review answers the
+   * team's request (which of my teams it was, the poll tells: until then
+   * every team request is taken off).
    */
   private showApprovals(entries: ReadonlyArray<{ pr: number; headSha: string }>) {
     const me = this.viewer?.login;
     if (!me) return;
     const at = new Date(this.clock.now()).toISOString();
-    const approve = (raw: RawPr, headSha: string): RawPr => ({
-      ...raw,
-      reviewRequests: {
-        nodes: (raw.reviewRequests?.nodes ?? []).filter((n) => {
-          const r = n?.requestedReviewer;
-          return !(r && "login" in r && sameLogin(r.login, me));
-        }),
-      },
-      latestOpinionatedReviews: {
-        nodes: [
-          ...(raw.latestOpinionatedReviews?.nodes ?? []).filter(
-            (n) => !sameLogin(n?.author?.login ?? null, me),
-          ),
-          { state: "APPROVED", submittedAt: at, author: { login: me }, commit: { oid: headSha } },
-        ],
-      },
-    });
+    const approve = (raw: RawPr, headSha: string): RawPr => {
+      const nodes = raw.reviewRequests?.nodes ?? [];
+      const direct = nodes.some((n) => {
+        const r = n?.requestedReviewer;
+        return !!r && "login" in r && sameLogin(r.login, me);
+      });
+      const viaTeam = !direct && this.requestedOfMe.has(raw.number);
+      return {
+        ...raw,
+        reviewRequests: {
+          nodes: nodes.filter((n) => {
+            const r = n?.requestedReviewer;
+            if (r && "login" in r) return !sameLogin(r.login, me);
+            return !(viaTeam && r && "combinedSlug" in r);
+          }),
+        },
+        latestOpinionatedReviews: {
+          nodes: [
+            ...(raw.latestOpinionatedReviews?.nodes ?? []).filter(
+              (n) => !sameLogin(n?.author?.login ?? null, me),
+            ),
+            { state: "APPROVED", submittedAt: at, author: { login: me }, commit: { oid: headSha } },
+          ],
+        },
+      };
+    };
     for (const { pr, headSha } of entries) {
       this.open = this.open.map((r) => (r.number === pr ? approve(r, headSha) : r));
       this.requestedOfMe.delete(pr);

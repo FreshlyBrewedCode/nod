@@ -456,6 +456,8 @@ export class FakeSource implements Source {
       changesRequestedBy: [],
     };
     const others = (list: ReadonlyArray<string>) => list.filter((l) => !sameLogin(l, reviewer));
+    // Asked through my team: my review answers the team's request too.
+    const viaTeam = review.fromMe && !review.requested.some((l) => sameLogin(l, reviewer));
     const counts = atHead && !sameLogin(f.author, reviewer);
     const slots = f.requirement.slots.map((s) =>
       counts && !s.nodsOnly && canFill(s, reviewer)
@@ -468,6 +470,7 @@ export class FakeSource implements Source {
       review: {
         ...review,
         requested: others(review.requested),
+        teams: you && viaTeam ? [] : review.teams,
         fromMe: you ? false : review.fromMe,
         approvedBy: [...others(review.approvedBy), reviewer],
         approvedAtHead: atHead
