@@ -333,6 +333,34 @@ describe("reading", () => {
 });
 
 describe("the list", () => {
+  test("add-repo answers with my login on the new repo's host, once it is read", async () => {
+    const t = await many({ list: [WIDGETS] });
+    const s = new Session({
+      source: t.source,
+      signer: new FakeSigner(t.clock),
+      clock: t.clock,
+      version: null,
+      fake: false,
+    });
+    const messages: ServerToClient[] = [];
+    const client = {
+      side: "loopback" as const,
+      send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient),
+    };
+    await s.attach(client);
+    await s.handle(client, JSON.stringify({ t: "add-repo", id: "a", repo: LEDGER }));
+    expect(messages.find((m) => m.t === "reply" && m.id === "a")).toMatchObject({
+      ok: true,
+      result: { repo: { key: LEDGER, login: "alice_acme" } },
+    });
+    const pushed = messages.filter((m) => m.t === "repos").at(-1) as Extract<
+      ServerToClient,
+      { t: "repos" }
+    >;
+    expect(pushed.repos.map((r) => r.key)).toEqual([REPO, LEDGER]);
+    s.stop();
+  });
+
   test("adding by URL: checked on its host, written next to the keys it does not know, polled", async () => {
     const t = await many({ list: [WIDGETS] });
     // Another part of nod keeps its update channel in the same file.
