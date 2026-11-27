@@ -7,11 +7,11 @@ order: 4
 
 | Term | Meaning |
 | --- | --- |
-| **approval** | A GitHub review that approves a pull request's head commit, by someone with write access other than its author. It fills a slot like a nod does, unless the policy asks for a nod only. Not released. [Policy](/docs/policy#approvals) |
-| **ask** | What the dashboard asks of you on a pull request: Self-attest, Sign as peer, Sign as owner or Re-attest. [Nodding](/docs/nodding#the-ask) |
+| **approval** | A GitHub review that approves a pull request's head commit, by someone with write access other than its author. It fills a slot like a nod does, unless the policy asks for a nod only. Without a key you give one from the batch dialog (**Approve**). Not released. [Policy](/docs/policy#approvals), [Nodding](/docs/nodding#approve-or-nod) |
+| **ask** | What the dashboard asks of you on a pull request: Self-attest, Sign as peer, Sign as owner or Re-attest; without a key that signs in the repository, Approve. [Nodding](/docs/nodding#the-ask) |
 | **attention tier** | One of four sizes a pull request is shown in: prominent, normal, one line, folded. [Dashboard](/docs/dashboard#attention-tiers) |
-| **batch** | One or more pull requests nodded with one signature. [Nodding](/docs/nodding#the-batch-dialog) |
-| **batch dialog** | The dialog every way to sign opens: review, unlock, signed |
+| **batch** | One or more pull requests nodded with one signature, or approved on GitHub together. [Nodding](/docs/nodding#the-batch-dialog) |
+| **batch dialog** | The dialog every way to sign or approve opens: review, unlock, signed; or review, approved |
 | **board** | The dashboard's view in columns, by who a pull request waits on or by state. [Dashboard](/docs/dashboard#board) |
 | **brief** | The pull request description an agent writes: what, why, risk, verified, look at. [Agents](/docs/agents#the-brief) |
 | **category** | Where the policy puts a pull request: `auto`, `decide` or `fyi`. [Policy](/docs/policy#requirements) |

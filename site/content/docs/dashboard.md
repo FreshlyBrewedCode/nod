@@ -36,8 +36,9 @@ Why these rules:
 At the [inbox](#the-inbox) step there is no nod to give: "needs you" there means a review asked
 of you, or your own pull request stuck. The same tiers apply.
 
-Only tiers 1 and 2 have a checkbox: those are the pull requests you can nod. At the inbox step
-they have none: there is nothing to sign.
+Only tiers 1 and 2 have a checkbox: those are the pull requests you can nod, or, without a key
+that signs, [approve](/docs/nodding#approve-or-nod). Your own stuck pull request at the inbox step
+has none: there is nothing to do about it here.
 
 Each row carries two small marks. The **diff indicator** is `+312 −88` and a short bar: its
 length is the size on a log scale up to 1,000 lines, split into added and removed. Lockfiles and
@@ -110,10 +111,16 @@ Not released. A repository with no `.nod/` (the first step of the
   its base, or changes requested (tier 2, tier 1 at high risk). A mention does not count.
 - **Worth knowing** holds pull requests whose brief says `FYI`. **Background** holds the rest:
   what waits on someone else's review, what was approved, drafts.
-- Such a row has no checkbox and no sign button. Its right-hand word says what it needs:
-  "review requested", "needs changes", "merge conflict". The panel's **Needed from you** links to
-  the pull request on GitHub, and a **Reviews** section (who is asked, who approved, who requested
-  changes) takes the place of Signatures.
+- A review requested from you asks **Approve**, with a checkbox: <kbd>s</kbd> or the selection
+  bar's **Review & approve** opens the batch dialog, which approves on GitHub with no key
+  ([Approve or nod](/docs/nodding#approve-or-nod)). The panel offers **review it on GitHub** too.
+  Once you approved, the request is answered and the row leaves **Needs you**.
+- Your own stuck pull request has no checkbox and no button. Its right-hand word says what it
+  needs: "needs changes", "merge conflict", a failing check; the panel links to it on GitHub. Your
+  own pull request never asks for an approval: GitHub does not let you approve it, and the panel
+  says so.
+- A **Reviews** section (who is asked, who approved, who requested changes) takes the place of
+  Signatures.
 
 `nod serve --fake --scenario inbox` shows it with the fictional team. The first visit still opens
 onboarding; **Look around first** leads to the dashboard.
