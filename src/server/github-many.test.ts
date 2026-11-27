@@ -360,7 +360,8 @@ describe("the list", () => {
     await t.advance(60 * SECOND);
     expect(t.source.repos().map((r) => r.key)).toEqual([REPO, "tallyho/fieldbook"]);
     expect(t.changes).toContain("setup");
-    await settle();
+    // The host polls a moment after the change.
+    await t.advance(5 * SECOND);
     expect(rows(t.source)).toContain("tallyho/fieldbook#482");
     expect(t.lines.join("\n")).toContain("the repo list changed: acme/widgets, tallyho/fieldbook");
   });
@@ -408,6 +409,11 @@ describe("the list", () => {
     ]);
     // github.com only: no other host is known yet.
     expect(t.ghe.calls).toEqual([]);
+    // Nothing polls with no repo, and still a `nod repo add` elsewhere is seen within a minute.
+    addConfigRepo(t.configFile, WIDGETS);
+    await t.advance(60 * SECOND);
+    expect(t.source.repos().map((r) => r.key)).toEqual([REPO]);
+    await t.source.removeRepo(REPO);
     await t.source.pickRepo("tallyho/fieldbook");
     expect(t.config().repos).toEqual([{ host: "github.com", repo: "tallyho/fieldbook" }]);
     await settle();
