@@ -41,7 +41,7 @@ import type {
   SyncStatus,
 } from "../shared/protocol";
 import { repoKey, sameRepo } from "../shared/repo-key";
-import type { Clock } from "./clock";
+import type { Clock, Timer } from "./clock";
 import {
   addConfigRepo,
   cacheDir as defaultCacheDir,
@@ -64,7 +64,7 @@ import {
   resolveClone,
   type PatchIds,
 } from "./github/clone";
-import { HostPoller } from "./github/host";
+import { DEFAULT_POLL_MS, HostPoller } from "./github/host";
 import { GitHubRepo, message, type RepoOptions } from "./github/repo";
 import { openSetupPrWithInit } from "./github/setup-pr";
 import {
@@ -145,6 +145,7 @@ export class GitHubSource implements Source {
   private readonly listeners = new Set<(change: SourceChange) => void>();
   private readonly last = { prs: "", setup: "", enrolment: "" };
   private stamp: number | null = null;
+  private configTimer: Timer | null = null;
   private started = false;
   private stopped = false;
 
@@ -157,8 +158,14 @@ export class GitHubSource implements Source {
 
   /** Start polling: every host's first read now. */
   start(): void {
+    if (this.started) return;
     this.started = true;
     for (const host of this.hosts.values()) host.start();
+    // The hosts look at the file before each poll; this also covers a list with no host yet.
+    if (this.options.configFile)
+      this.configTimer = this.clock.every(this.options.pollMs ?? DEFAULT_POLL_MS, () =>
+        this.syncConfig(),
+      );
   }
 
   /** Resolves once every host's first poll ended, well or not. */
@@ -601,6 +608,7 @@ export class GitHubSource implements Source {
 
   stop(): void {
     this.stopped = true;
+    this.configTimer?.clear();
     for (const h of this.hosts.values()) h.stop();
     for (const e of this.entries) e.repo.stop();
     this.listeners.clear();
