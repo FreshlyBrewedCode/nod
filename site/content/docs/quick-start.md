@@ -24,8 +24,9 @@ nobody who skips a step loses their normal GitHub workflow.
 
 Nothing stands between `nod serve` and the dashboard. Each further step is an
 [offer](/docs/dashboard#offers): a calm card above the list for the next one, which **Not now**
-puts away, and the same steps in the avatar menu. **Setup** in the avatar menu opens the setup
-page, where the steps are done.
+puts away, and the same steps in the avatar menu. Each opens the setup page, where the steps are
+done; [Settings](/docs/settings) in the avatar menu lists every repository with its step and leads
+to its ladder.
 
 Not released: the [inbox](/docs/dashboard#the-inbox) on its own (without the shared policy your
 `nod serve` classifies the pull requests itself), the offers and the setup page as the ladder, the
@@ -91,7 +92,8 @@ command.
 ## 3. Share one policy
 
 When you want the team to see the same classification, take the offer **Share one policy with the
-team**, or open **Setup** in the avatar menu. The setup page shows the ladder and what the setup PR
+team**, or open **Settings** in the avatar menu and **The ladder ›** on the repository's row. The
+setup page shows the ladder and what the setup PR
 adds: the policy file, the verifier and its workflow, the allowed signers.
 
 **Open the setup PR** opens it. It needs no signing key (not released; the released version asks

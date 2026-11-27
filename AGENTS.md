@@ -32,10 +32,12 @@ nod
 - working in this repo
   - `bun run check` = format:check + lint + typecheck + test; CI runs it plus `bun run build`
   - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
-    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos]
+    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos|dir]
       [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
       link. Fake passphrase: anything but `wrong`. `repos`: three repos at three ladder steps,
-      one on `acme.ghe.com` (`fake-repos.ts`); every other scenario reads one repo
+      one on `acme.ghe.com` (`fake-repos.ts`); `fresh`: an empty repo list; `dir`: `team` as a
+      fixed list (`--dir`); every other scenario reads one repo. The fake's list is managed:
+      add (a name with `missing` is not found, `private` forbidden), remove, suggestions
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
     - against GitHub: `bun src/cli.ts serve --dir <a clone of the repo> [--poll 60]`;
@@ -45,21 +47,25 @@ nod
   - server seams: `Source` (`src/server/source.ts`: one source knows every repo, each method
     that touches one takes its repo key, `repos()` lists them; the session groups a batch by
     repo and signs one payload per repo with `Signer.signLines`; `fake-source.ts` has a
-    `FakeRepo` per repo, `github-source.ts` is still one repo as a list of one, #48 reads many
+    `FakeRepo` per repo, `github-source.ts` is still one repo as a fixed list of one (stubs for
+    `addRepo`/`removeRepo`/`suggestRepos`), #48 reads many
     with its parts in `src/server/github/`: the `GitHubApi` seam with an injectable `fetch`,
     the queries, `map.ts` (GraphQL PR + the verifier's summary → `PrFacts`, never classifies),
     the brief parser, patch-ids in the clone, setup and enrolment; tests run on
     `github/fake-github.ts`), `Signer`
     (`signer.ts`: the seam, the unlock window and the fake), `view.ts` turns a source's `PrFacts` into the user-relative view model;
-    `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board) the UI
+    `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board, the repo
+    filter `inRepo` and `repoBoardView`) the UI
     renders; the web app talks only through `useConnection` (`src/web/hooks/`)
   - web app: `app.tsx` gates on the connection (calm full pages) and mounts
     `components/dashboard.tsx` (list state, keyboard, resizable panel); rows in
     `pr-row.tsx`, panel in `detail-panel.tsx`; pure helpers with tests in `src/web/lib/`
     (route, focus, selection, panel width, time, diff bar, wording); theme tokens (the r3
     palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). The board
-    (`board.tsx`, group by Waiting on or State) opens the same panel as a 540 px overlay
-    drawer. With several repos rows, cards, the panel and the sheet carry a repo chip
+    (`board.tsx`, group by Waiting on, State or, with several repos, Repository) opens the same
+    panel as a 540 px overlay drawer. With several repos the repo filter (`repo-filter.tsx`, in
+    the sub-bar and the board bar; `nod.repoFilter`, `readRepoFilter`) narrows list, board,
+    selection and the offer card to one repo. With several repos rows, cards, the panel and the sheet carry a repo chip
     (`RepoChip`, `chipsOf` in `lib/repos.ts`, which also has the enrolment helpers: the lock
     chip takes the best of all repos, a batch the worst of its own); with one, the top bar names
     it and there is no chip. Every way to sign calls `openBatch(prIds)` (`components/batch-dialog.tsx`):
@@ -68,12 +74,21 @@ nod
     GitHub approvals (request `approve`, review → approving → approved, one kind per batch;
     `--fake --scenario inbox`, and `join` at a set-up repo); the passphrase only ever lives in
     its input (`components/unlock.tsx`, also the lock chip). Screenshots of it: `docs/design/r3/impl/`
+  - settings (`#/settings[/<section>]`, `components/settings.tsx`, words in `lib/settings.ts`):
+    a section nav and one section, Repositories (rows with host, step, my key, the next offer,
+    "The ladder ›" to `#/setup/<repo>`, Remove; `AddRepo` in `add-repo.tsx` with
+    `suggest-repos`); a new section is its id in `SETTINGS_SECTIONS` (`lib/route.ts`), its words
+    in `SECTIONS`, its page in `SECTION_PAGES`. Requests `add-repo` (`parseRepoInput` in
+    `shared/repo-key.ts`), `remove-repo`, `suggest-repos`; `welcome.repoList` `managed|fixed`
+    (fixed: read-only, the session refuses changes); a list change pushes `repos` before the
+    snapshot, and a request's `repos` push comes before its reply
   - onboarding is offers, not a gate (ADR 0006): `app.tsx` shows a calm page only while `gh` is
-    not logged in or no repo is picked, then the dashboard. The ladder's next step for this repo
+    not logged in or the repo list is empty ("Add a repository", `add-repo.tsx`), then the
+    dashboard. The ladder's next step for this repo
     and me is one dismissible card above the list (`components/offer.tsx`; "Not now" is kept per
     viewer in `nod.offers`), every step offered is in the avatar menu, and the steps are done on
     the setup page `#/setup[/<repo>][/<step>]` (`components/onboarding.tsx`, the ladder; with
-    several repos it names one and switches). All of it is derived from server state only
+    several repos it names one and leads back to Settings → Repositories). All of it is derived from server state only
     (`lib/onboarding.ts`, tested per fake scenario) and takes one repo (`RepoInfo`: setup with
     `permission`, my enrolment there) and my signer; the card is the first repo's next step,
     named, and "Not now" brings up no other repo's. Deep links (`components/link-landing.tsx`,
