@@ -1,8 +1,9 @@
 /**
  * The `nod` CLI entry: `nod serve` (the local server, src/server/),
  * `nod repo` (the repo list, src/server/repo-cli.ts), `nod key` (the
- * signing key, src/server/signer/key-cli.ts) and `nod init`
- * (opens the repo-owned setup PR, src/init/).
+ * signing key, src/server/signer/key-cli.ts), `nod init`
+ * (opens the repo-owned setup PR, src/init/) and `nod inbox` (my own
+ * inbox, src/server/inbox/cli.ts).
  */
 import { resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
@@ -14,6 +15,7 @@ import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
 import { parseNamedHost, type NamedHost } from "./shared/named-host";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
 import { REPO_HELP, parseRepoArgs, type RepoFlags } from "./server/repo-cli";
+import { INBOX_HELP, parseInboxArgs, type InboxFlags } from "./server/inbox/cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 
 // Placeholder: the release task (semantic-release) stamps the real version.
@@ -46,6 +48,8 @@ export interface ServeFlags {
   readonly allowHost: NamedHost | null;
   /** `--web-dir`: the built web app served on that name. */
   readonly webDir: string | null;
+  /** `--inbox`: my own inbox's folder (default `$XDG_CONFIG_HOME/nod/inbox`). */
+  readonly inbox: string | null;
 }
 
 export type Command =
@@ -53,6 +57,7 @@ export type Command =
   | { kind: "init"; flags: InitFlags }
   | { kind: "key"; flags: KeyFlags }
   | { kind: "repo"; flags: RepoFlags }
+  | { kind: "inbox"; flags: InboxFlags }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -66,6 +71,7 @@ commands:
   repo         add, remove or list the repositories nod serve reads
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key (see below)
+  inbox        your own inbox: write it, test it on a pull request
 
 nod serve reads every repository of its list (nod repo, below), each from
 nod's own clone. With an empty list, started in a clone, it reads that
@@ -88,6 +94,9 @@ serve options:
   --fake              serve a fake team and repo instead of GitHub
   --scenario <name>   with --fake: ${SCENARIOS.join(", ")} (default team)
   --frozen            with --fake: nothing changes on its own
+  --inbox <path>      your own inbox's folder (default
+                      $XDG_CONFIG_HOME/nod/inbox; with --fake: the
+                      scenario's, the built-in defaults but for insights)
   --token-file <path> where the pairing token is kept
                       (default $XDG_CONFIG_HOME/nod/serve-token); the
                       remote token is next to it, as <path>-remote
@@ -108,7 +117,7 @@ ${REPO_HELP}
 ${INIT_HELP}
 
 ${KEY_HELP}
-
+${INBOX_HELP}
 options:
   --help       show this help
   --version    show the version
@@ -123,6 +132,7 @@ export function parseArgs(argv: readonly string[]): Command {
   if (first === "serve") return parseServe(rest);
   if (first === "key") return parseKeyArgs(rest);
   if (first === "repo") return parseRepoArgs(rest);
+  if (first === "inbox") return parseInboxArgs(rest);
   return { kind: "error", message: `unknown command: ${first}` };
 }
 
@@ -150,6 +160,7 @@ function parseServe(args: string[]): Command {
         open: { type: "boolean", default: false },
         "allow-host": { type: "string" },
         "web-dir": { type: "string" },
+        inbox: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     }));
@@ -210,6 +221,7 @@ function parseServe(args: string[]): Command {
       open: values.open,
       allowHost,
       webDir: values["web-dir"] ?? null,
+      inbox: values.inbox ?? null,
     },
   };
 }
@@ -244,6 +256,7 @@ async function runServe(flags: ServeFlags): Promise<number> {
       ...(flags.dir !== null && { dir: flags.dir }),
       ...(flags.poll !== null && { pollMs: flags.poll * 1000 }),
       namedHost: flags.allowHost && webRoot ? { host: flags.allowHost, webRoot } : null,
+      ...(flags.inbox !== null && { inbox: { dir: resolve(flags.inbox) } }),
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -326,6 +339,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return (await import("./server/signer/key-cli")).runKey(cmd.flags);
     case "repo":
       return (await import("./server/repo-cli")).runRepo(cmd.flags);
+    case "inbox":
+      return (await import("./server/inbox/cli")).runInbox(cmd.flags, { version: VERSION });
     case "init": {
       const { runInit } = await import("./init/init");
       return runInit(cmd.flags, { version: VERSION });

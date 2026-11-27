@@ -1,0 +1,12 @@
+{
+  "name": "nod-inbox",
+  "private": true,
+  "description": "My own nod inbox. nod serve runs it with its own kit; this pin is for the editor's types (bun install here).",
+  "type": "module",
+  "dependencies": {
+    "@frebreco/nod": "__NOD_KIT_SPEC__"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2"
+  }
+}

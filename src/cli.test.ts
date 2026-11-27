@@ -65,6 +65,7 @@ test("serve defaults: GitHub, port 4518, no browser", () => {
     open: false,
     allowHost: null,
     webDir: null,
+    inbox: null,
   });
 });
 
@@ -101,6 +102,7 @@ test("serve flags", () => {
     open: true,
     allowHost: null,
     webDir: null,
+    inbox: null,
   });
   expect(serveFlags(["--no-open"]).open).toBe(false);
   expect(serveFlags(["--dir", "/tmp/clone", "--poll", "30"])).toMatchObject({

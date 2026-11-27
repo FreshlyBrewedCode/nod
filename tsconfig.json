@@ -21,5 +21,5 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
   },
-  "include": ["src", "templates/.nod/**/*.ts", "vite.config.ts"]
+  "include": ["src", "templates/.nod/**/*.ts", "templates/inbox/**/*.ts", "vite.config.ts"]
 }
