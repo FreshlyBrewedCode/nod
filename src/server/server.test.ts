@@ -95,7 +95,7 @@ describe("http", () => {
   test("/health says what it is, with CORS only for allowed origins", async () => {
     const { http } = startFake();
     const plain = await fetch(`${http}/health`);
-    expect(await plain.json()).toEqual({ ok: true, name: "nod", protocol: 1, version: null });
+    expect(await plain.json()).toEqual({ ok: true, name: "nod", protocol: 2, version: null });
     expect(plain.headers.get("access-control-allow-origin")).toBeNull();
     const ours = await fetch(`${http}/health`, {
       headers: { Origin: "https://ui.nod.frebreco.de" },
@@ -153,7 +153,7 @@ describe("the socket", () => {
     expect(messages[0]).toMatchObject({
       t: "welcome",
       me: { login: "mara-l" },
-      repo: "tallyho/fieldbook",
+      repos: [{ key: "tallyho/fieldbook" }],
     });
   });
 
@@ -320,7 +320,7 @@ describe("--allow-host: one named host behind a TLS proxy (ADR 0005)", () => {
     try {
       await until(() => [desk, phone].every((c) => c.state.snapshot !== null));
       const entries = [
-        { pr: 482, head_sha: desk.state.snapshot!.prs.find((p) => p.number === 482)!.headSha },
+        { repo: "tallyho/fieldbook", pr: 482, head_sha: desk.state.snapshot!.prs.find((p) => p.number === 482)!.headSha },
       ];
       await desk.request("unlock", { passphrase: "pass" });
       await until(() => desk.state.signer?.state === "unlocked");
@@ -398,7 +398,7 @@ describe("the web client against the fake", () => {
 
       const pr = client.state.snapshot!.prs.find((p) => p.number === 482)!;
       const result = await client.request("sign", {
-        entries: [{ pr: 482, head_sha: pr.headSha }],
+        entries: [{ repo: "tallyho/fieldbook", pr: 482, head_sha: pr.headSha }],
         verdict: "approve",
       });
       expect(result.posted.map((p) => p.pr)).toEqual([482]);
@@ -406,7 +406,7 @@ describe("the web client against the fake", () => {
         () => client.state.snapshot!.prs.find((p) => p.number === 482)!.needsMe === false,
       );
 
-      await client.request("ack-fyi", { pr: 478 });
+      await client.request("ack-fyi", { repo: "tallyho/fieldbook", pr: 478 });
       await until(
         () => client.state.snapshot!.prs.find((p) => p.number === 478)!.fyiForMe === false,
       );

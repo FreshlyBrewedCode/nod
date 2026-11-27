@@ -128,7 +128,6 @@ export function setupStatusOf(f: SetupFacts): SetupStatus {
     },
   ];
   return {
-    repo: f.repo,
     state: ready ? "ready" : f.setupPr ? "pending" : "missing",
     checks,
     setupPr: ready ? null : f.setupPr,

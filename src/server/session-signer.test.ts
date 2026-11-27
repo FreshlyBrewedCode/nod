@@ -24,6 +24,7 @@ import type { PostNodInput } from "./source";
 const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const CHEAP = { N: 2 ** 10, r: 8, p: 1 };
 const PASS = "correct horse battery";
+const R = "tallyho/fieldbook";
 
 let dir = "";
 let cleanup = async () => {};
@@ -64,7 +65,12 @@ async function setup(scenario: FakeScenario, withKey: boolean) {
       (p) => p.number === n,
     ) as PrView;
   const lastSigner = () => messages.filter((m) => m.t === "signer").at(-1);
-  return { file, created, source, signer, session, ask, pr, posted, lastSigner };
+  const lastRepos = () => messages.filter((m) => m.t === "repos").at(-1);
+  const at = (repo: string, n: number) =>
+    (messages.filter((m) => m.t === "snapshot").at(-1) as Snapshot).prs.find(
+      (p) => p.repo === repo && p.number === n,
+    ) as PrView;
+  return { file, created, source, signer, session, ask, pr, at, posted, lastSigner, lastRepos };
 }
 
 const ok = (reply: Reply) => {
@@ -80,13 +86,13 @@ test("unlock, sign a batch: the posted comment parses with the kit and verifies 
   const result = ok(
     await ask("sign", {
       entries: [
-        { pr: 482, head_sha: pr(482).headSha },
-        { pr: 488, head_sha: pr(488).headSha },
+        { repo: R, pr: 482, head_sha: pr(482).headSha },
+        { repo: R, pr: 488, head_sha: pr(488).headSha },
       ],
       verdict: "approve",
       note: "Billing looks right.",
     }),
-  ) as { payload: string; posted: { pr: number }[] };
+  ) as { payloads: { payload: string }[]; posted: { pr: number }[] };
   expect(result.posted.map((p) => p.pr)).toEqual([482, 488]);
   expect(posted).toHaveLength(1);
 
@@ -98,7 +104,7 @@ test("unlock, sign a batch: the posted comment parses with the kit and verifies 
   ).toBe(true);
   const blocks = parseNodComments(body);
   expect(blocks).toHaveLength(1);
-  expect(blocks[0]!.payloadLine).toBe(result.payload);
+  expect(blocks[0]!.payloadLine).toBe(result.payloads[0]!.payload);
 
   const allowedSignersPath = join(dir, "allowed_signers");
   await writeFile(
@@ -116,19 +122,23 @@ test("unlock, sign a batch: the posted comment parses with the kit and verifies 
 });
 
 test("onboarding with the real key: create over the socket, test signature verified by ssh-keygen", async () => {
-  const { file, ask, lastSigner } = await setup("join", false);
+  const { file, ask, lastSigner, lastRepos } = await setup("join", false);
   expect(err(await ask("create-key", { passphrase: "short" }))).toBe("weak-passphrase");
   const { key } = ok(await ask("create-key", { passphrase: PASS })) as {
-    key: { publicKey: string; location: string; enrolment: { state: string } };
+    key: { publicKey: string; location: string };
   };
-  expect(key).toMatchObject({ location: file, enrolment: { state: "not-enrolled" } });
+  expect(key).toMatchObject({ location: file });
+  expect(key).not.toHaveProperty("enrolment");
+  await Promise.resolve();
+  expect(lastRepos()).toMatchObject({ repos: [{ enrolment: { state: "not-enrolled" } }] });
   expect(err(await ask("create-key", { passphrase: PASS }))).toBe("key-exists");
   expect(lastSigner()).toMatchObject({ signer: { state: "locked" } });
 
   // enrolment compares the key, not the comment
-  const { pr } = ok(await ask("open-enrol-pr")) as { pr: { number: number } };
-  expect(lastSigner()).toMatchObject({
-    signer: { key: { enrolment: { state: "pending", pr: { number: pr.number } } } },
+  const { pr } = ok(await ask("open-enrol-pr", { repo: R })) as { pr: { number: number } };
+  await Promise.resolve();
+  expect(lastRepos()).toMatchObject({
+    repos: [{ enrolment: { state: "pending", pr: { number: pr.number } } }],
   });
 
   expect(err(await ask("test-signature"))).toBe("locked");
@@ -147,10 +157,10 @@ test("onboarding with the real key: create over the socket, test signature verif
 test("enrolment matches the key blob whatever the comment says", async () => {
   const { created, source } = await setup("team", true);
   const [type, base64] = created!.record.publicKey.split(" ");
-  expect(source.enrolment(`${type} ${base64} someone-else@example.invalid`)).toEqual({
+  expect(source.enrolment(R, `${type} ${base64} someone-else@example.invalid`)).toEqual({
     state: "active",
   });
-  expect(source.enrolment(`${type} ${base64}`)).toEqual({ state: "active" });
+  expect(source.enrolment(R, `${type} ${base64}`)).toEqual({ state: "active" });
 });
 
 test("nod serve without --fake reads the key file before anything else", async () => {
@@ -168,4 +178,37 @@ test("nod serve without --fake reads the key file before anything else", async (
   expect(() => start(options)).toThrow(/is not a git clone/);
   await writeFile(keyFile, "{}");
   expect(() => start(options)).toThrow(expect.objectContaining({ code: "bad-key-file" }));
+});
+
+test("a batch across two repos: one unlock, one signature per repo, each verifies with ssh-keygen", async () => {
+  const LEDGER = "acme.ghe.com/finance/ledger";
+  const { created, source, ask, at, posted, lastSigner } = await setup("repos", true);
+  await source.ready;
+  ok(await ask("unlock", { passphrase: PASS, once: true }));
+  const result = ok(
+    await ask("sign", {
+      entries: [
+        { repo: R, pr: 482, head_sha: at(R, 482).headSha },
+        { repo: LEDGER, pr: 57, head_sha: at(LEDGER, 57).headSha },
+      ],
+      verdict: "approve",
+    }),
+  ) as { payloads: { repo: string; payload: string }[] };
+  expect(lastSigner()).toMatchObject({ signer: { state: "locked" } });
+  expect(posted.map((p) => p.repo)).toEqual([R, LEDGER]);
+  const allowedSignersPath = join(dir, "allowed_signers");
+  await writeFile(
+    allowedSignersPath,
+    `${allowedSignersLine("mara-l", created!.record.publicKey)}\n`,
+  );
+  for (const [i, input] of posted.entries()) {
+    const [block] = parseNodComments(input.body);
+    expect(block!.payloadLine).toBe(result.payloads[i]!.payload);
+    const verified = await verifyNodBlock(block!, { allowedSignersPath });
+    expect(verified.ok).toBe(true);
+  }
+  expect(JSON.parse(result.payloads[1]!.payload)).toMatchObject({
+    repo: "finance/ledger",
+    entries: [{ pr: 57 }],
+  });
 });

@@ -70,7 +70,8 @@ interface SlotSeed {
   };
 }
 
-interface Seed {
+/** One PR of a fake data set; `seedFacts` turns it into `PrFacts`. */
+export interface Seed {
   readonly n: number;
   readonly title: string;
   readonly by: Who;
@@ -828,7 +829,7 @@ export const SEEDS: ReadonlyArray<Seed> = [
   },
 ];
 
-function file(path: string, added: number, removed: number, area: string): FileChange {
+export function file(path: string, added: number, removed: number, area: string): FileChange {
   return { path, added, removed, area, excluded: null };
 }
 
@@ -845,12 +846,18 @@ export const UNCLASSIFIED_TITLES = [
 
 const MIN = 60_000;
 
-export function prUrl(repo: string, n: number): string {
-  return `https://github.com/${repo}/pull/${n}`;
+/** A PR's page; `webUrl` is its host's web UI (github.com unless said). */
+export function prUrl(repo: string, n: number, webUrl = "https://github.com"): string {
+  return `${webUrl}/${repo}/pull/${n}`;
 }
 
-/** One seed as `PrFacts`, with times relative to `now`. */
-export function seedFacts(seed: Seed, now: number, repo = FAKE_REPO): PrFacts {
+/** One seed as `PrFacts`, with times relative to `now`; `repo` is `owner/name` on `webUrl`'s host. */
+export function seedFacts(
+  seed: Seed,
+  now: number,
+  repo = FAKE_REPO,
+  webUrl = "https://github.com",
+): PrFacts {
   const ago = (min: number) => now - min * MIN;
   const login = (w: Who) => FAKE_PEOPLE[w].login;
   const signatures: Omit<Signature, "byMe">[] = [];
@@ -870,7 +877,7 @@ export function seedFacts(seed: Seed, now: number, repo = FAKE_REPO): PrFacts {
         counts: s.state === "ok",
         why: s.state === "stale" ? "content changed since" : null,
         batchSize: 1,
-        commentUrl: `${prUrl(repo, seed.n)}#issuecomment-${seed.n}00${signatures.length + 1}`,
+        commentUrl: `${prUrl(repo, seed.n, webUrl)}#issuecomment-${seed.n}00${signatures.length + 1}`,
       });
       signature = signatures.length - 1;
     }
@@ -950,7 +957,7 @@ export function seedFacts(seed: Seed, now: number, repo = FAKE_REPO): PrFacts {
   return {
     number: seed.n,
     title: seed.title,
-    url: prUrl(repo, seed.n),
+    url: prUrl(repo, seed.n, webUrl),
     state: seed.state,
     author: login(seed.by),
     prompter: login(seed.by),

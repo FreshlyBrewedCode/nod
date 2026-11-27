@@ -37,6 +37,7 @@ const mockup = () => new FakeSource({ clock: new ManualClock(NOW) }).snapshot()!
 /** A PR view with defaults that make it tier 4; tests override what matters. */
 function pr(over: Partial<PrView> & { number: number }): PrView {
   return {
+    repo: "tallyho/fieldbook",
     title: `#${over.number}`,
     url: "",
     state: "open",
