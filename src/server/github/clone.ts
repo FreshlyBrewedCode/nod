@@ -18,7 +18,17 @@ import { dirname, join, resolve } from "node:path";
 
 import { run } from "../../kit/exec.ts";
 import { githubHost, parseRemote, type GitHubHost } from "../../kit/host.ts";
-import { fetchPullRequestObjects, gitEnv, patchId, tokenGitEnv } from "../../kit/patch-id.ts";
+import { gitInboxIO } from "../../kit/inbox/git-io.ts";
+import type { InboxIO } from "../../kit/inbox/types.ts";
+import {
+  changedFiles,
+  fetchPullRequestObjects,
+  git,
+  gitEnv,
+  patchId,
+  tokenGitEnv,
+  type ChangedFile,
+} from "../../kit/patch-id.ts";
 
 export class CloneError extends Error {
   override name = "CloneError";
@@ -99,6 +109,49 @@ export function resolveClone(dir: string, repo: string | null, host: string | nu
 export interface PatchIds {
   /** Fetches the base branch (as it is now) and the head into the clone, then diffs. */
   compute(input: { readonly base: string; readonly headSha: string }): Promise<string>;
+  /**
+   * My inbox's view of a PR whose patch-id this computed (ADR 0009): its
+   * files from git and the I/O over the clone, at the base tip the patch-id
+   * used. null when its objects are not fetched yet. The I/O runs here, in
+   * `nod serve`, with the host's token for lazy blob fetches; the inbox
+   * subprocess only asks for results.
+   */
+  inbox?(input: {
+    readonly base: string;
+    readonly headSha: string;
+  }): Promise<{ readonly files: ChangedFile[]; readonly io: InboxIO } | null>;
+}
+
+/** The base tip a patch-id was computed against, by base and head; and the inbox I/O over it. */
+class BaseTips {
+  private readonly tips = new Map<string, string>();
+  private readonly files = new Map<string, ChangedFile[]>();
+
+  /** The SHA `refs/nod/base` points at now: it moves with the next fetch. */
+  async remember(repoDir: string, base: string, headSha: string, env: Record<string, string>) {
+    const sha = (
+      await git(repoDir, ["rev-parse", "--verify", "refs/nod/base^{commit}"], { env })
+    ).trim();
+    this.tips.set(`${base}\u0000${headSha}`, sha);
+    return sha;
+  }
+
+  async inbox(
+    repoDir: string,
+    input: { readonly base: string; readonly headSha: string },
+    env: () => Record<string, string>,
+  ): Promise<{ files: ChangedFile[]; io: InboxIO } | null> {
+    const key = `${input.base}\u0000${input.headSha}`;
+    const baseTip = this.tips.get(key);
+    if (!baseTip) return null;
+    let files = this.files.get(key);
+    if (!files) {
+      files = await changedFiles({ repoDir, baseTip, head: input.headSha, env: env() });
+      this.files.set(key, files);
+      if (this.files.size > 500) this.files.delete(this.files.keys().next().value!);
+    }
+    return { files, io: gitInboxIO({ repoDir, baseTip, head: input.headSha, env: env() }) };
+  }
 }
 
 /**
@@ -115,6 +168,11 @@ export function clonePatchIds(
   remote = clone.remoteUrl,
 ): PatchIds {
   let queue: Promise<unknown> = Promise.resolve();
+  const tips = new BaseTips();
+  const env = (): Record<string, string> => {
+    const t = token();
+    return t ? tokenGitEnv(t, `${clone.host.webUrl}/`) : {};
+  };
   return {
     compute({ base, headSha }) {
       const job = queue.then(async () => {
@@ -127,11 +185,14 @@ export function clonePatchIds(
           serverUrl: `${clone.host.webUrl}/`,
           ...(t ? { token: t } : {}),
         });
-        return patchId({ repoDir: clone.dir, baseTip, head: headSha });
+        const id = await patchId({ repoDir: clone.dir, baseTip, head: headSha });
+        await tips.remember(clone.dir, base, headSha, {});
+        return id;
       });
       queue = job.catch(() => {});
       return job;
     },
+    inbox: (input) => tips.inbox(clone.dir, input, env),
   };
 }
 
@@ -256,6 +317,7 @@ export class OwnClone {
  * ({@link clonePatchIds}); the diff's blobs come on demand, with the token.
  */
 export function ownClonePatchIds(clone: OwnClone, host: GitHubHost): PatchIds {
+  const tips = new BaseTips();
   return {
     compute: ({ base, headSha }) =>
       clone.serial(async () => {
@@ -269,7 +331,11 @@ export function ownClonePatchIds(clone: OwnClone, host: GitHubHost): PatchIds {
           serverUrl: `${host.webUrl}/`,
           ...(token ? { token } : {}),
         });
-        return patchId({ repoDir: clone.dir, baseTip, head: headSha, env: clone.env() });
+        const id = await patchId({ repoDir: clone.dir, baseTip, head: headSha, env: clone.env() });
+        await tips.remember(clone.dir, base, headSha, {});
+        return id;
       }),
+    // Blobs a diff or a read needs come on demand, with the token, in this process.
+    inbox: (input) => tips.inbox(clone.dir, input, () => clone.env()),
   };
 }

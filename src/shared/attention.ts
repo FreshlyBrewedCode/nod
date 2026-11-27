@@ -24,6 +24,7 @@ export type TierInput = Pick<
   | "ask"
   | "waitingOn"
   | "classifiedBy"
+  | "personal"
 >;
 
 /**
@@ -46,11 +47,48 @@ export type TierInput = Pick<
  * requested changes (tier 2, tier 1 at high risk).
  */
 export function tier(p: TierInput): Tier {
+  return adjustTier(repoTier(p), p);
+}
+
+/**
+ * The tier before my inbox's adjustment: the rule above. My inbox's `fyi`
+ * on an open PR it does not mute counts as an FYI for me (rule 3).
+ */
+export function repoTier(p: TierInput): Tier {
   if (p.needsMe) return p.risk >= 3 || !p.mine ? 1 : 2;
-  if (p.fyiForMe) return 3;
+  if (p.fyiForMe || personalFyi(p)) return 3;
   if (waitsOnMyKey(p)) return 3;
   if (!isDone(p) && ((p.mine && p.stuck !== null) || p.risk >= 3)) return 3;
   return 4;
+}
+
+/**
+ * My inbox's adjustment (ADR 0009 decision 1), applied to a tier without
+ * touching the risk or the requirement: `1` raises it one tier, `-1` lowers
+ * it one, `mute` folds it into Background. Within two rules it cannot break:
+ *
+ * - what the repo asks of me stays in the "needs me" tiers: `-1` moves a
+ *   tier-1 PR that needs me to tier 2, never further, and `mute` leaves it
+ *   where the repo put it;
+ * - an open high-risk PR is never folded (concept decision 11), nor one that
+ *   waits on my key (rule 4): `-1` and `mute` stop at tier 3.
+ */
+export function adjustTier(base: Tier, p: TierInput): Tier {
+  const a = p.personal?.attention ?? 0;
+  if (a === 0) return base;
+  const lowest: Tier = p.needsMe ? 2 : (!isDone(p) && p.risk >= 3) || waitsOnMyKey(p) ? 3 : 4;
+  if (a === 1) return Math.max(1, base - 1) as Tier;
+  if (a === -1) return Math.min(base + 1, lowest) as Tier;
+  return p.needsMe ? base : lowest;
+}
+
+/**
+ * My inbox says an open PR is worth knowing about (`personal.fyi`) and does
+ * not mute it: it goes to Worth knowing, as an FYI of the repo's does. It
+ * needs no ack and is gone once the PR is merged or closed.
+ */
+export function personalFyi(p: Pick<PrView, "personal" | "state">): boolean {
+  return p.personal?.fyi === true && p.personal.attention !== "mute" && !isDone(p);
 }
 
 /**
@@ -234,10 +272,15 @@ function folded(id: string, prs: ReadonlyArray<PrView>): Item[] {
 
 export type Lane = "needs" | "know" | "background";
 
-/** Needs you: waits on my nod. Worth knowing: an FYI for me. Background: the rest. */
-export function lane(p: Pick<PrView, "needsMe" | "fyiForMe">): Lane {
+/**
+ * Needs you: waits on my nod. Worth knowing: an FYI for me (the repo's, or
+ * my inbox's). Background: the rest, and whatever my inbox mutes that does
+ * not need me.
+ */
+export function lane(p: Pick<PrView, "needsMe" | "fyiForMe" | "personal" | "state">): Lane {
   if (p.needsMe) return "needs";
-  if (p.fyiForMe) return "know";
+  if (p.personal?.attention === "mute") return "background";
+  if (p.fyiForMe || personalFyi(p)) return "know";
   return "background";
 }
 

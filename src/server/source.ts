@@ -29,6 +29,7 @@ import type {
   SetupStatus,
   Snapshot,
 } from "../shared/protocol";
+import type { InboxSubject } from "./inbox/service";
 
 /** A repo the source reads: the wire's `RepoInfo` without what the session adds. */
 export interface SourceRepo {
@@ -187,4 +188,11 @@ export interface Source {
   keyCreated(publicKey: string): void;
   subscribe(listener: (change: SourceChange) => void): () => void;
   stop(): void;
+  /**
+   * My inbox (ADR 0009): an open PR as personal classifiers and analyzers
+   * read it, with I/O over its clone on this side (a token for lazy
+   * fetches never leaves the server). null while it is not known (no
+   * patch-id or clone yet); absent: the source has none.
+   */
+  inboxSubject?(repo: RepoKey, pr: number): Promise<InboxSubject | null>;
 }

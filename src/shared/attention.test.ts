@@ -634,3 +634,75 @@ describe("hints and summaries", () => {
     ).toBe(1);
   });
 });
+
+describe("my inbox's adjustment (ADR 0009)", () => {
+  const personal = (
+    attention: -1 | 0 | 1 | "mute",
+    more: Partial<NonNullable<PrView["personal"]>> = {},
+  ): PrView["personal"] => ({ attention, tags: [], fyi: false, marks: [], errors: [], ...more });
+  const ask = { kind: "peer", label: "Sign as peer", then: { outcome: "satisfied" } } as const;
+  const needsMe = { needsMe: true, ask } as const;
+
+  test("+1 raises one tier, -1 lowers one, without touching risk", () => {
+    const folded = pr({ number: 1 });
+    expect(tier(folded)).toBe(4);
+    const up = pr({ number: 1, personal: personal(1) });
+    expect([tier(up), up.risk]).toEqual([3, 0]);
+    expect(tier(pr({ number: 2, mine: true, ...needsMe, personal: personal(1) }))).toBe(1);
+    expect(tier(pr({ number: 3, fyiForMe: true, personal: personal(-1) }))).toBe(4);
+    expect(tier(pr({ number: 4, ...needsMe, personal: personal(1) }))).toBe(1);
+  });
+
+  test("what the repo asks of me stays in the needs-me tiers", () => {
+    // A teammate's PR that needs me is tier 1: -1 makes it tier 2, never lower.
+    const down = pr({ number: 5, ...needsMe, personal: personal(-1) });
+    expect([tier(down), lane(down), selectable(down)]).toEqual([2, "needs", true]);
+    expect(tier(pr({ number: 6, mine: true, ...needsMe, personal: personal(-1) }))).toBe(2);
+    // Mute leaves it where the repo put it.
+    const muted = pr({ number: 7, ...needsMe, personal: personal("mute") });
+    expect([tier(muted), lane(muted)]).toEqual([1, "needs"]);
+  });
+
+  test("mute folds into Background, but never an open high-risk PR", () => {
+    const fyi = pr({ number: 8, fyiForMe: true, personal: personal("mute") });
+    expect([tier(fyi), lane(fyi)]).toEqual([4, "background"]);
+    const risky = pr({ number: 9, risk: 3, personal: personal("mute") });
+    expect([tier(risky), lane(risky)]).toEqual([3, "background"]);
+    expect(tier(pr({ number: 10, risk: 3, personal: personal(-1) }))).toBe(3);
+    // Merged, a high-risk PR folds like any other.
+    expect(tier(pr({ number: 11, risk: 3, state: "merged", personal: personal("mute") }))).toBe(4);
+  });
+
+  test("a PR waiting on my key is not folded by -1 or mute", () => {
+    const waits = {
+      classifiedBy: "verifier",
+      ask: null,
+      waitingOn: [{ kind: "me" }],
+    } as const;
+    expect(tier(pr({ number: 12, ...waits, personal: personal("mute") }))).toBe(3);
+    expect(tier(pr({ number: 13, ...waits, personal: personal(-1) }))).toBe(3);
+  });
+
+  test("my inbox's fyi puts an open PR into Worth knowing", () => {
+    const fyi = pr({ number: 14, personal: personal(0, { fyi: true }) });
+    expect([tier(fyi), lane(fyi)]).toEqual([3, "know"]);
+    const merged = pr({ number: 15, state: "merged", personal: personal(0, { fyi: true }) });
+    expect([tier(merged), lane(merged)]).toEqual([4, "background"]);
+    const mutedFyi = pr({ number: 16, personal: personal("mute", { fyi: true }) });
+    expect(lane(mutedFyi)).toBe("background");
+  });
+
+  test("attentionView moves a muted PR to Background and keeps the rest", () => {
+    const prs = [
+      pr({ number: 20, fyiForMe: true }),
+      pr({ number: 21, fyiForMe: true, personal: personal("mute") }),
+      pr({ number: 22, ...needsMe, personal: personal("mute") }),
+    ];
+    const lanes = attentionView(prs);
+    const numbers = (l: number) =>
+      lanes[l]!.items.flatMap((i) =>
+        i.kind === "pr" ? [i.pr.number] : i.prs.map((p) => p.number),
+      );
+    expect([numbers(0), numbers(1), numbers(2)]).toEqual([[22], [20], [21]]);
+  });
+});

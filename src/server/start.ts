@@ -16,6 +16,7 @@ import { defaultKeyFile } from "./signer/key-store";
 import type { Source } from "./source";
 import { loadOrCreateToken, remoteTokenFile } from "./token";
 import { allowedOrigins, hostLink, isRelease, serverUrl } from "./web-url";
+import { startInbox, type StartedInbox } from "./inbox/setup";
 
 export interface StartOptions {
   readonly port: number;
@@ -53,6 +54,11 @@ export interface StartOptions {
    * device with it.
    */
   readonly namedHost?: { readonly host: NamedHost; readonly webRoot: string } | null;
+  /**
+   * My own inbox (ADR 0009): its folder (`--inbox`; default
+   * `$XDG_CONFIG_HOME/nod/inbox`, with `fake` the scenario's). null: none.
+   */
+  readonly inbox?: { readonly dir?: string } | null;
 }
 
 export interface Started {
@@ -67,6 +73,8 @@ export interface Started {
   readonly session: Session;
   readonly source: Source;
   readonly signer: Signer;
+  /** My inbox's runner and service; null without one. */
+  readonly inbox: StartedInbox | null;
   stop(): Promise<void>;
 }
 
@@ -100,7 +108,23 @@ export function start(options: StartOptions): Started {
         },
       });
   const version = isRelease(options.version) ? options.version : null;
-  const session = new Session({ source, signer, clock, version, fake: fake !== null });
+  // My own inbox: personal code in a subprocess, never the key or the token.
+  const inbox =
+    options.inbox === null
+      ? null
+      : startInbox({
+          source,
+          fake: fake?.scenario ?? null,
+          ...(options.inbox?.dir !== undefined && { dir: options.inbox.dir }),
+        });
+  const session = new Session({
+    source,
+    signer,
+    clock,
+    version,
+    fake: fake !== null,
+    inbox: inbox?.service ?? null,
+  });
   const named = options.namedHost ?? null;
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });
   // Renewed even without a named host, so a lost phone's token is dead
@@ -127,6 +151,7 @@ export function start(options: StartOptions): Started {
     });
   } catch (error) {
     session.stop();
+    inbox?.stop();
     source.stop();
     signer.stop();
     throw error;
@@ -142,8 +167,10 @@ export function start(options: StartOptions): Started {
     session,
     source,
     signer,
+    inbox,
     async stop() {
       await serving.stop();
+      inbox?.stop();
       source.stop();
       signer.stop();
     },

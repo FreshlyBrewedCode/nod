@@ -67,6 +67,7 @@ import {
 } from "./github/clone";
 import { DEFAULT_POLL_MS, HostPoller } from "./github/host";
 import { GitHubRepo, message, type RepoOptions } from "./github/repo";
+import type { InboxSubject } from "./inbox/service";
 import { openSetupPrWithInit } from "./github/setup-pr";
 import { rankSuggestions, resolveRepo, suggestOnHost } from "./github/suggest";
 import {
@@ -405,6 +406,11 @@ export class GitHubSource implements Source {
 
   async signTarget(repo: RepoKey, pr: number): Promise<SignTarget | null> {
     return this.need(repo).repo.signTarget(pr);
+  }
+
+  /** My inbox's view of an open PR (ADR 0009), from its repo's clone. */
+  async inboxSubject(repo: RepoKey, pr: number): Promise<InboxSubject | null> {
+    return this.need(repo).repo.inboxSubject(pr);
   }
 
   // -- Source: writing ------------------------------------------------------
