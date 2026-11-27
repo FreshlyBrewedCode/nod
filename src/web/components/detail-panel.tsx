@@ -120,7 +120,8 @@ export function DetailPanel({
 }
 
 function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
-  const { people, me, openBatch, selection, toggleSelected, signingIn, chips } = useDashboard();
+  const { people, meIn, openBatch, selection, toggleSelected, signingIn, chips } = useDashboard();
+  const me = meIn(pr);
   const now = useNow(MINUTE);
   const checks = checksTag(pr);
   const id = idOf(pr);
@@ -255,7 +256,7 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
         )}
         {pr.fyi && (
           <Fold title="FYI" summary={fyiSummary(pr.fyi, people, me)} open={wide}>
-            <FyiBody fyi={pr.fyi} />
+            <FyiBody fyi={pr.fyi} repo={pr.repo} />
           </Fold>
         )}
         <Fold title="Files" summary={filesSummary(pr)} open={wide}>
@@ -364,7 +365,8 @@ export function ReasonsBody({ pr }: { pr: PrView }) {
 
 /** The inside of the "Reviews" fold of a locally classified PR: GitHub's reviews. */
 export function ReviewsBody({ pr }: { pr: PrView }) {
-  const { people, me } = useDashboard();
+  const { people, meIn } = useDashboard();
+  const me = meIn(pr);
   const lines = pr.review ? reviewLines(pr.review, people, me) : [];
   if (lines.length === 0)
     return <p className="text-tx3 m-0 text-[13px]">Nobody is asked to review it yet.</p>;
@@ -399,7 +401,8 @@ export function ReviewsBody({ pr }: { pr: PrView }) {
 
 /** The inside of the "Signatures" fold. */
 export function SignaturesBody({ pr }: { pr: PrView }) {
-  const { people, me } = useDashboard();
+  const { people, meIn } = useDashboard();
+  const me = meIn(pr);
   const now = useNow(MINUTE);
   const offset = useUtcOffset();
   return (
@@ -436,8 +439,9 @@ export function SignaturesBody({ pr }: { pr: PrView }) {
 }
 
 /** The inside of the "FYI" fold. */
-export function FyiBody({ fyi }: { fyi: NonNullable<PrView["fyi"]> }) {
-  const { people, me } = useDashboard();
+export function FyiBody({ fyi, repo }: { fyi: NonNullable<PrView["fyi"]>; repo: PrView["repo"] }) {
+  const { people, meIn } = useDashboard();
+  const me = meIn({ repo });
   return (
     <>
       <p className="text-tx2 m-0 text-[13px]">{fyi.reason}</p>

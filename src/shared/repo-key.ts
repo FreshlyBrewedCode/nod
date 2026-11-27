@@ -8,7 +8,7 @@
  * returns it. Keys compare case-insensitively (`sameRepo`).
  */
 
-import { GITHUB_COM, hostName } from "../kit/host.ts";
+import { GITHUB_COM, githubHost, hostName } from "../kit/host.ts";
 
 /** `owner/name` on github.com, `host/owner/name` elsewhere: `tallyho/fieldbook`, `acme.ghe.com/finance/ledger`. */
 export type RepoKey = string;
@@ -51,11 +51,22 @@ function sshHost(host: string): string | null {
   return name && name.includes(".") && !/^github\.com.|\.ghe\.com./.test(name) ? name : null;
 }
 
+/** Not a name of GitHub's that is no instance: `api.github.com`, `gist.github.com` (`githubHost`). */
+function isGitHubHost(host: string): boolean {
+  try {
+    githubHost(host);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A repo as a person names it when adding one (ADR 0007, 2): `owner/name`
  * (github.com), `host/owner/name`, or a link to the repo or anything in it
  * (`https://acme.ghe.com/finance/ledger/pull/57`, a clone URL, `git@host:owner/name.git`).
- * The host is lowercased (`hostName`); null when it names no repo. Whether
+ * The host is lowercased (`hostName`); null when it names no repo, or names
+ * a host that is no GitHub instance (`api.github.com`, `gist.github.com`). Whether
  * the repo exists is the server's to find out.
  */
 export function parseRepoInput(
@@ -64,7 +75,7 @@ export function parseRepoInput(
   const s = input.trim().replace(/\/+$/, "");
   if (!s || s.length > 300 || /\s/.test(s)) return null;
   const result = (host: string | null, name: string | null) =>
-    host && name ? { host, name, key: repoKey(host, name) } : null;
+    host && name && isGitHubHost(host) ? { host, name, key: repoKey(host, name) } : null;
   // A link: https://host/owner/name[/…], or a remote git accepts.
   const url = /^(?:https?|ssh|git):\/\/(?:[^@/]*@)?([^/]+)\/([^/?#]+)\/([^/?#]+)/i.exec(s);
   if (url) {

@@ -214,8 +214,9 @@ function RightColumn({
   /** The classes that place it in a phone's grid. */
   phoneRow: string;
 }) {
-  const { openBatch, ackFyi, people, me, signingIn } = useDashboard();
+  const { openBatch, ackFyi, people, meIn, signingIn } = useDashboard();
   const pr = item.pr;
+  const me = meIn(pr);
   // My own PR without a key: GitHub does not let me approve it; said quietly, on hover.
   const own = ownPrHint(pr, signingIn(pr)) ?? undefined;
   const size = small ? "text-[12.5px]" : "text-[13px]";

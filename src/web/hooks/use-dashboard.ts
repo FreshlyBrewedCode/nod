@@ -26,7 +26,10 @@ export interface DashboardState {
   readonly chips: ReadonlyMap<RepoKey, string>;
   /** The GitHub host a PR's repo is on. */
   githubOf(pr: Pick<PrView, "repo">): GitHubInfo;
+  /** My login on the first repo's host (`snapshot.me`): for what is no one repo's. */
   readonly me: string;
+  /** My login in a PR's repo, on its host: for "you" and "mine to fill" on a PR. */
+  meIn(pr: Pick<PrView, "repo">): string;
   readonly people: ReadonlyArray<Person>;
   readonly focus: FocusKey | null;
   /** Focus a row; `open` also opens the panel on it. */

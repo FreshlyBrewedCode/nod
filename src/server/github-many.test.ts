@@ -176,9 +176,10 @@ describe("reading", () => {
 
   test("my login is the repo's host's", async () => {
     const t = await many();
-    expect(t.source.login(REPO)).toBe(ALICE);
-    expect(t.source.login(LEDGER)).toBe("alice_acme");
-    expect(t.source.login("tallyho/elsewhere")).toBeNull();
+    const login = (key: string) => t.source.repos().find((r) => r.key === key)?.login;
+    expect(login(REPO)).toBe(ALICE);
+    expect(login(LEDGER)).toBe("alice_acme");
+    expect(t.source.repoList).toBe("managed");
   });
 
   test("a repo GitHub cannot read fails alone, naming itself; the others show", async () => {
@@ -284,6 +285,51 @@ describe("reading", () => {
     expect(t.ghe.misdirected).toEqual([]);
     s.stop();
   });
+
+  test("the session goes by my login on each repo's host", async () => {
+    const t = await many();
+    t.ghe.repo("finance/ledger").open.push(rawPr({ number: 8, author: "alice_acme" }));
+    await t.source.refresh();
+    await settle();
+    const s = new Session({
+      source: t.source,
+      signer: new FakeSigner(t.clock),
+      clock: t.clock,
+      version: null,
+      fake: false,
+    });
+    const messages: ServerToClient[] = [];
+    const client = {
+      side: "loopback" as const,
+      send: (d: string) => void messages.push(JSON.parse(d) as ServerToClient),
+    };
+    await s.attach(client);
+    const welcome = messages[0] as Extract<ServerToClient, { t: "welcome" }>;
+    expect(welcome.repoList).toBe("managed");
+    expect(welcome.repos.map((r) => [r.key, r.login])).toEqual([
+      [REPO, ALICE],
+      [LEDGER, "alice_acme"],
+      ["tallyho/fieldbook", ALICE],
+    ]);
+    expect(t.source.snapshot()!.prs.find((p) => p.repo === LEDGER && p.number === 8)?.mine).toBe(
+      true,
+    );
+    // alice_acme's own PR: GitHub would refuse the approval, so nothing is posted.
+    await s.handle(
+      client,
+      JSON.stringify({
+        t: "approve",
+        id: "own",
+        entries: [{ repo: LEDGER, pr: 8, head_sha: sha("head-8") }],
+      }),
+    );
+    expect(messages.find((m) => m.t === "reply" && m.id === "own")).toMatchObject({
+      ok: false,
+      error: { code: "forbidden" },
+    });
+    expect(t.ghe.rests().some((c) => c.path.endsWith("/pulls/8/reviews"))).toBe(false);
+    s.stop();
+  });
 });
 
 describe("the list", () => {
@@ -297,6 +343,8 @@ describe("the list", () => {
       key: LEDGER,
       name: "finance/ledger",
       github: { host: "acme.ghe.com", webUrl: "https://acme.ghe.com" },
+      // Not read yet: the host's first poll brings it.
+      login: null,
     });
     expect(t.config()).toEqual({
       nod: "config",
@@ -307,7 +355,8 @@ describe("the list", () => {
         { host: "acme.ghe.com", repo: "finance/ledger" },
       ],
     });
-    expect(t.changes).toContain("setup");
+    // The list first, so a tab knows the repo before its PRs arrive.
+    expect(t.changes.slice(-3)).toEqual(["repos", "setup", "enrolment"]);
     await settle();
     expect(t.ghe.rests().map((c) => `${c.method} ${c.path}`)).toContain(
       "GET /repos/Finance/ledger",
@@ -331,7 +380,7 @@ describe("the list", () => {
       code: "forbidden",
       message: expect.stringContaining("gh auth login --hostname acme.ghe.com"),
     });
-    await expect(t.source.addRepo("not a repo")).rejects.toMatchObject({ code: "not-found" });
+    await expect(t.source.addRepo("not a repo")).rejects.toMatchObject({ code: "bad-request" });
     expect(readFileSync(t.configFile, "utf8")).toBe(before);
     expect(t.source.repos()).toHaveLength(1);
   });
@@ -359,7 +408,7 @@ describe("the list", () => {
     utimesSync(t.configFile, new Date(T0 + 1000), new Date(T0 + 1000));
     await t.advance(60 * SECOND);
     expect(t.source.repos().map((r) => r.key)).toEqual([REPO, "tallyho/fieldbook"]);
-    expect(t.changes).toContain("setup");
+    expect(t.changes).toContain("repos");
     // The host polls a moment after the change.
     await t.advance(5 * SECOND);
     expect(rows(t.source)).toContain("tallyho/fieldbook#482");
@@ -394,17 +443,19 @@ describe("the list", () => {
     expect(t.ghe.queries("Suggest")).toHaveLength(1);
   });
 
-  test("no list and no clone: no repo, the first-run picker offers the suggestions and adds the pick", async () => {
+  test("no list and no clone: no repo, the suggestions, and adding one", async () => {
     const t = await many({ list: [] });
     expect(t.source.repos()).toEqual([]);
+    expect(t.source.repoList).toBe("managed");
     expect(t.source.snapshot()).toBeNull();
     t.com.mine = ["tallyho/fieldbook"];
-    expect(await t.source.listRepos()).toEqual([
+    expect(await t.source.suggestRepos()).toEqual([
       {
-        repo: "tallyho/fieldbook",
-        current: false,
-        canWrite: true,
-        pushedAt: T0 - 30 * 60 * SECOND,
+        key: "tallyho/fieldbook",
+        name: "tallyho/fieldbook",
+        github: { host: "github.com", webUrl: "https://github.com" },
+        myOpenPrs: 1,
+        reviewRequests: 0,
       },
     ]);
     // github.com only: no other host is known yet.
@@ -414,7 +465,7 @@ describe("the list", () => {
     await t.advance(60 * SECOND);
     expect(t.source.repos().map((r) => r.key)).toEqual([REPO]);
     await t.source.removeRepo(REPO);
-    await t.source.pickRepo("tallyho/fieldbook");
+    await t.source.addRepo("tallyho/fieldbook");
     expect(t.config().repos).toEqual([{ host: "github.com", repo: "tallyho/fieldbook" }]);
     await settle();
     expect(rows(t.source)).toEqual(["tallyho/fieldbook#482"]);

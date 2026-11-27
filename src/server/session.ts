@@ -12,6 +12,10 @@
  * and `remove-repo`; a `fixed` one (`--dir`) refuses both here, before the
  * source is asked. A change of the list pushes `repos` before the snapshot
  * that follows it, so a tab never sees PRs of a repo it does not know.
+ *
+ * Who I am is per repo (ADR 0007, 8): a nod's `reviewer` and "your own PR"
+ * use my login on the repo's host (`SourceRepo.login`), not `welcome.me`,
+ * which is the first repo's host's account.
  */
 
 import type {
@@ -223,6 +227,7 @@ export class Session {
       key: repo.key,
       name: repo.name,
       github: repo.github,
+      login: repo.login,
       setup: await source.setup(repo.key),
       enrolment:
         status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
@@ -294,17 +299,25 @@ export class Session {
       }
       return [...groups.values()];
     };
-    const needMe = async () => {
+    /**
+     * My login in a repo: the one on its host. Before its host is read, the
+     * account (`welcome.me`) stands in where it is the same host.
+     */
+    const loginIn = async (repo: SourceRepo): Promise<string> => {
+      if (repo.login) return repo.login;
+      const host = repo.github.host;
       const me = await this.me();
-      if (!me) {
-        const host = source.repos()[0]?.github.host ?? GITHUB_COM;
-        throw new RequestFailure(
-          "github",
-          `\`gh\` is not logged in to ${host}. Run \`${ghLoginCommand(host)}\`.`,
-        );
-      }
-      return me;
+      if (me && host === (source.repos()[0]?.github.host ?? GITHUB_COM)) return me.login;
+      throw new RequestFailure(
+        "github",
+        `\`gh\` is not logged in to ${host}. Run \`${ghLoginCommand(host)}\`.`,
+      );
     };
+    /** My login in each repo of a batch, by repo key; fails before anything is done. */
+    const loginsOf = async (groups: ReadonlyArray<{ repo: SourceRepo }>) =>
+      new Map(
+        await Promise.all(groups.map(async (g) => [g.repo.key, await loginIn(g.repo)] as const)),
+      );
     /**
      * Each entry's PR as it is now, all or nothing: a PR that is gone or not
      * open fails the request; one whose head moved since the user looked
@@ -381,7 +394,7 @@ export class Session {
       },
       sign: async ({ entries, verdict, note }, { side }) => {
         const groups = byRepo(entries);
-        const me = await needMe();
+        const logins = await loginsOf(groups);
         const status = needKey(side);
         // Every repo of the batch must trust my key: each is its own trust root.
         for (const { repo } of groups) {
@@ -423,7 +436,7 @@ export class Session {
             entries: built,
             verdict,
             level: "review",
-            reviewer: me.login,
+            reviewer: logins.get(repo.key)!,
             signed_at: signedAt,
           };
           return { repo, payload, line: payloadLine(payload) };
@@ -455,14 +468,14 @@ export class Session {
       },
       approve: async ({ entries, note }) => {
         const groups = byRepo(entries);
-        const me = await needMe();
+        const logins = await loginsOf(groups);
         const checked = await atHeads(groups, "approved", "approved");
-        for (const { targets } of checked) {
-          const own = targets.find((t) => sameLogin(t.author, me.login));
+        for (const { repo, targets } of checked) {
+          const own = targets.find((t) => sameLogin(t.author, logins.get(repo.key)!));
           if (own)
             throw new RequestFailure(
               "forbidden",
-              `#${own.pr} is your own pull request; GitHub does not let you approve it. Nothing was approved.`,
+              `${checked.length > 1 ? `${repo.key}#${own.pr}` : `#${own.pr}`} is your own pull request; GitHub does not let you approve it. Nothing was approved.`,
             );
         }
         const posted: Array<PrRef & { url: string }> = [];

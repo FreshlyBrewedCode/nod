@@ -598,7 +598,7 @@ function Review({
                   </p>
                   {batchRepos.map((r, i) => (
                     <p key={r?.key ?? i} className="text-tx2 m-0 mt-1.5 font-mono text-xs">
-                      {r?.key ?? "?"} · review APPROVE · commit_id head · by {me}
+                      {r?.key ?? "?"} · review APPROVE · commit_id head · by {r?.login ?? me}
                     </p>
                   ))}
                 </div>
@@ -616,7 +616,8 @@ function Review({
                       className="text-tx2 m-0 mt-1.5 font-mono text-xs [overflow-wrap:anywhere]"
                     >
                       {r && r.github.host !== "github.com" ? `${r.github.host} · ` : ""}
-                      repo {r?.name ?? "?"} · verdict approve · level review · reviewer {me}
+                      repo {r?.name ?? "?"} · verdict approve · level review · reviewer{" "}
+                      {r?.login ?? me}
                     </p>
                   ))}
                 </div>

@@ -279,9 +279,10 @@ function AvatarOrCheckbox({
 }
 
 export function Card({ item, inside = false }: { item: PrItem; inside?: boolean }) {
-  const { people, me, selection, focusRow, chips } = useDashboard();
+  const { people, meIn, selection, focusRow, chips } = useDashboard();
   const now = useNow(MINUTE);
   const pr = item.pr;
+  const me = meIn(pr);
   const id = idOf(pr);
   const key = prKey(id);
   const label = `#${pr.number} ${pr.title}`;

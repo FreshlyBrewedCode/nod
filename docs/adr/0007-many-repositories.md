@@ -72,9 +72,11 @@ Status: accepted (2026-11-27), from the owner's second brainstorm ([concept](../
 The GitHub source now reads many repos. Decided while building it, in the spirit of the above:
 
 - **2, the list.**
-  - `nod serve` outside a clone with an empty list starts with no repo. Until the settings page
-    (#49), the first-run picker (`list-repos`) offers the suggestions, named by repo key, and
-    `pick-repo` adds the pick to the list.
+  - `nod serve` outside a clone with an empty list starts with no repo (`welcome.repoList` is
+    `managed`): the web app's "Add a repository" page, with the suggestions (`suggest-repos`),
+    adds one (`add-repo`). The first-run picker (`list-repos`, `pick-repo`, `RepoChoice`) is gone
+    from the protocol and from the GitHub source.
+  - The clone override is `welcome.repoList: "fixed"`.
   - In the clone override, adding and removing are refused (`forbidden`, with a sentence naming
     `nod repo add`) and there are no suggestions: the list is never written there. An explicit
     `--repo` or `--host` is the override too.
@@ -100,7 +102,12 @@ The GitHub source now reads many repos. Decided while building it, in the spirit
   sentence (naming it) joins `sync.error`; a rate-limited host's `until` is the latest of them.
   Measured once (two public repos on github.com, cold): the first poll took one `Poll` and three
   `Details` rounds, 13 points in all.
-- **8, logins.** The source knows my login per host (`GitHubSource.login(repo)`). The session
-  still signs and checks "your own PR" with `welcome.me`, the first repo's host's login; on a host
-  where the login differs (every GHE.com managed user) the payload's `reviewer` must be that
-  host's login. Wiring it (and `RepoInfo` carrying the login) lands with #49's rebase.
+- **8, logins.** My login is per repo, as its host knows it: `SourceRepo.login` and
+  `RepoInfo.login` (an optional field within protocol 2; null before the host's first read). The
+  session signs with it (the payload's `reviewer`) and checks "your own PR" with it; before the
+  host is read, `welcome.me` stands in only on that account's own host, else the request fails
+  with the host's sign-in command. The web app's "you" and "mine to fill" on a PR go by it
+  (`loginIn`), falling back to `snapshot.me`. The fake proves it: on its GHE.com host the team are
+  managed users (`mara_acme`).
+- **The list's push.** A change of the list, or of my login on a repo's host, is the source's
+  `repos` change, emitted before the `prs` that follows it.

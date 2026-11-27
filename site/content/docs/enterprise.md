@@ -40,7 +40,8 @@ side. Each host has its own `gh` login, its own token and its own rate limit, an
 asks each host once per poll for all of its repositories. A host you are not logged in to shows
 the command to log in on its repositories; the other hosts work. Your login may differ between
 hosts (`mona` on github.com, `mona_acme` on GHE.com); each pull request is shown relative to the
-login of its own host.
+login of its own host, and a nod there names that login as its reviewer, so the repository's
+`.nod/allowed_signers` lists your key under it.
 
 nod's own clones (the [clone cache](/docs/cli#files-and-environment)) are fetched over https from
 the host's web URL, with the same token passed for that URL only, and never written into the

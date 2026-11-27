@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import { parseArgs as parseFlags } from "node:util";
 
 import { githubHost, type GitHubHost } from "../kit/host.ts";
-import { repoKey } from "../shared/repo-key";
+import { parseRepoInput, repoKey } from "../shared/repo-key";
 import {
   addConfigRepo,
   cacheDir as defaultCacheDir,
@@ -21,7 +21,7 @@ import {
 } from "./config";
 import { GitHubApi } from "./github/api";
 import { OwnClone, ownClonePath } from "./github/clone";
-import { parseRepoInput, resolveRepo } from "./github/suggest";
+import { resolveRepo } from "./github/suggest";
 import { ghToken } from "./github-source";
 
 export type RepoCommand = "add" | "remove" | "list";
