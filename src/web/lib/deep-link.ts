@@ -85,6 +85,11 @@ export function whyNotNeeded(pr: PrView, people: People, now: number): string | 
   if (pr.ask && pr.patchId === null) return "its patch-id is not known yet; try again in a moment";
   if (pr.ask) return null;
   if (pr.state === "draft") return "a draft: the agent is still writing it";
+  // The inbox step: no policy, nothing to sign; what it needs of me is on GitHub.
+  if (pr.classifiedBy === "local")
+    return pr.needsMe
+      ? "it needs you on GitHub: this repository has no nod policy, so there is nothing to sign"
+      : "this repository has no nod policy, so there is nothing to sign";
   if (pr.signatures.some((s) => s.byMe && s.counts)) return "you signed it already";
   if (pr.requirement.slots.length === 0 && pr.tags.includes("not classified"))
     return "not classified yet: the verifier has not run on it";

@@ -57,6 +57,11 @@ export interface PrSpec {
   readonly acks?: ReadonlyArray<readonly [string, number]>;
   readonly timeline?: ReadonlyArray<RawTimelineItem>;
   readonly autoMerge?: number;
+  /** Logins, or `org/team` for a team, asked to review. */
+  readonly requested?: ReadonlyArray<string>;
+  /** Latest deciding reviews: login, state, minutes ago. */
+  readonly reviews?: ReadonlyArray<readonly [string, "APPROVED" | "CHANGES_REQUESTED", number]>;
+  readonly mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 }
 
 function checkRun(c: CheckSpec, n: number): RawCheckRun {
@@ -116,6 +121,21 @@ export function rawPr(spec: PrSpec): RawPr {
     deletions: files.reduce((n, f) => n + f[2], 0),
     changedFiles: files.length,
     autoMergeRequest: spec.autoMerge !== undefined ? { enabledAt: iso(spec.autoMerge) } : null,
+    mergeable: spec.mergeable ?? "MERGEABLE",
+    reviewRequests: {
+      nodes: (spec.requested ?? []).map((r) => ({
+        requestedReviewer: r.includes("/")
+          ? { __typename: "Team", combinedSlug: r }
+          : { __typename: "User", login: r },
+      })),
+    },
+    latestOpinionatedReviews: {
+      nodes: (spec.reviews ?? []).map(([login, state, at]) => ({
+        state,
+        submittedAt: iso(at),
+        author: { login },
+      })),
+    },
     files: {
       totalCount: files.length,
       nodes: files.map(([path, additions, deletions]) => ({ path, additions, deletions })),

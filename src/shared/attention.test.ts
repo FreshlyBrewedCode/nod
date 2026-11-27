@@ -509,12 +509,40 @@ describe("board", () => {
 });
 
 describe("hints and summaries", () => {
-  test("only tiers 1 and 2 get a checkbox", () => {
-    expect(selectable(pr({ number: 1, needsMe: true, mine: false }))).toBe(true);
-    expect(selectable(pr({ number: 1, needsMe: true, mine: true, risk: 1 }))).toBe(true);
+  test("only tiers 1 and 2 with something to sign get a checkbox", () => {
+    const ask = { kind: "peer", label: "Sign as peer", then: { outcome: "satisfied" } } as const;
+    expect(selectable(pr({ number: 1, needsMe: true, mine: false, ask }))).toBe(true);
+    expect(selectable(pr({ number: 1, needsMe: true, mine: true, risk: 1, ask }))).toBe(true);
     expect(selectable(pr({ number: 1, fyiForMe: true }))).toBe(false);
     expect(selectable(pr({ number: 1, risk: 3 }))).toBe(false);
     expect(selectable(pr({ number: 1 }))).toBe(false);
+    // The inbox step: a review requested from me needs me, and there is nothing to sign.
+    expect(
+      selectable(
+        pr({ number: 1, needsMe: true, classifiedBy: "local", waitingOn: [{ kind: "me" }] }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a review requested at the inbox step does not wait on my key", () => {
+    const review = { state: "open", ask: null, waitingOn: [{ kind: "me" }] } as const;
+    expect(waitsOnMyKey(review)).toBe(true);
+    expect(waitsOnMyKey({ ...review, classifiedBy: "local" })).toBe(false);
+  });
+
+  test("the inbox scenario: review requests and my stuck PRs need me, by the same tiers", async () => {
+    const source = new FakeSource({ clock: new ManualClock(NOW), scenario: "inbox" });
+    await source.ready;
+    const prs = source.snapshot()!.prs;
+    expect(prs.every((p) => p.classifiedBy === "local" && p.ask === null)).toBe(true);
+    const [needs, know, background] = attentionView(prs);
+    // A teammate's PR whose review is asked of me (or my team) is tier 1; mine and stuck tier 2.
+    expect(show(needs!.items)).toEqual(["515/1", "512/1", "511/2", "509/2"]);
+    expect(show(know!.items)).toEqual(["513/3"]);
+    // High risk and nobody asked: a one-liner; the rest folded.
+    expect(show(background!.items)[0]).toBe("510/3");
+    expect(background!.items.at(-1)?.kind).toBe("cluster");
+    source.stop();
   });
 
   test("the oldest wait of what needs me: waitingSince, else the opening", () => {
@@ -539,6 +567,8 @@ describe("hints and summaries", () => {
           pr({ number: 2, state: "merged", mergedAt: NOW - 30 * HOUR }),
           pr({ number: 3, state: "merged", mergedAt: NOW - HOUR, signatures: [mine] }),
           pr({ number: 4, state: "open" }),
+          // The inbox step: a person merged it.
+          pr({ number: 5, state: "merged", mergedAt: NOW - HOUR, classifiedBy: "local" }),
         ],
         since,
       ),

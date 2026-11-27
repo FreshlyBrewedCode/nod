@@ -62,6 +62,22 @@ describe("connecting", () => {
     expect(t.snapshot()!.prs).toHaveLength(18);
   });
 
+  test("the inbox scenario: step 0, no key, the PRs classified locally once ready", async () => {
+    const { session, source, tab } = setup("inbox");
+    const t = tab();
+    await source.ready;
+    await session.attach(t.client);
+    expect(t.last("welcome")).toMatchObject({
+      repo: "tallyho/fieldbook",
+      setup: { state: "missing", step: "inbox" },
+      signer: { state: "no-key" },
+    });
+    const prs = t.snapshot()!.prs;
+    expect(prs.length).toBeGreaterThan(8);
+    expect(prs.every((p) => p.classifiedBy === "local" && p.ask === null)).toBe(true);
+    expect(prs.filter((p) => p.needsMe).map((p) => p.number)).toEqual([512, 515, 509, 511]);
+  });
+
   test("before a repo is picked there is no snapshot", async () => {
     const { session, tab } = setup("fresh");
     const t = tab();

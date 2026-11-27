@@ -14,7 +14,15 @@ export type Tier = 1 | 2 | 3 | 4;
 
 export type TierInput = Pick<
   PrView,
-  "needsMe" | "risk" | "mine" | "fyiForMe" | "stuck" | "state" | "ask" | "waitingOn"
+  | "needsMe"
+  | "risk"
+  | "mine"
+  | "fyiForMe"
+  | "stuck"
+  | "state"
+  | "ask"
+  | "waitingOn"
+  | "classifiedBy"
 >;
 
 /**
@@ -30,6 +38,11 @@ export type TierInput = Pick<
  *
  * The README says "not merged" in rule 4; a closed PR counts as merged here,
  * since neither will change any more.
+ *
+ * At the inbox step (classified locally, no policy) the same rule applies:
+ * `needsMe` is then a review requested from me or my team (a teammate's
+ * work: tier 1), or my own PR stuck by a failing check, a conflict or
+ * requested changes (tier 2, tier 1 at high risk).
  */
 export function tier(p: TierInput): Tier {
   if (p.needsMe) return p.risk >= 3 || !p.mine ? 1 : 2;
@@ -43,10 +56,18 @@ export function tier(p: TierInput): Tier {
  * An open PR with a slot my nod would fill, but no ask: with no key, a
  * pending or a not enrolled one nothing is signable (ADR 0002), so `needsMe`
  * is false while `waitingOn` still names me. It waits on me once my key is
- * enrolled.
+ * enrolled. A locally classified PR has no slots: what it waits on me for is
+ * a review on GitHub, which needs no key.
  */
-export function waitsOnMyKey(p: Pick<PrView, "state" | "ask" | "waitingOn">): boolean {
-  return p.state === "open" && p.ask === null && p.waitingOn.some((w) => w.kind === "me");
+export function waitsOnMyKey(
+  p: Pick<PrView, "state" | "ask" | "waitingOn" | "classifiedBy">,
+): boolean {
+  return (
+    p.classifiedBy !== "local" &&
+    p.state === "open" &&
+    p.ask === null &&
+    p.waitingOn.some((w) => w.kind === "me")
+  );
 }
 
 export function isDone(p: Pick<PrView, "state">): boolean {
@@ -116,6 +137,11 @@ const item = (pr: PrView): PrItem => {
 
 /** Size tags say how big, not what kind of change: the subtitle leaves them out. */
 const SIZE_TAG = /^size:(s|m|l|xl)$/;
+
+/** `size:s` … `size:xl`, the diff size classifier's tags: the diff indicator says it already. */
+export function isSizeTag(tag: string): boolean {
+  return SIZE_TAG.test(tag);
+}
 
 /**
  * A policy tag in words: `tier-2` and `tier 2` -> "tier 2", `protected` ->
@@ -540,10 +566,12 @@ export function stateBoardView(prs: ReadonlyArray<PrView>): ReadonlyArray<StateC
 
 /**
  * Whether a row gets a checkbox for signing: only tiers 1 and 2, the ones that
- * need me (r3 open question 5). One-liners and folded PRs never need me.
+ * need me (r3 open question 5), and only with something to sign (`ask`): a PR
+ * that needs my review at the inbox step has none. One-liners and folded PRs
+ * never need me.
  */
 export function selectable(p: TierInput): boolean {
-  return tier(p) <= 2;
+  return p.ask !== null && tier(p) <= 2;
 }
 
 /**
@@ -557,12 +585,15 @@ export function oldestWaitingSince(prs: ReadonlyArray<PrView>): number | null {
 
 /**
  * What merged on its own since a time, for "Since yesterday 17:42: 5 merged on
- * their own": merged PRs that carry no nod of mine.
+ * their own": merged PRs that carry no nod of mine, and that a policy let
+ * through (not classified locally).
  */
 export function mergedOnTheirOwn(prs: ReadonlyArray<PrView>, since: number): number {
   return prs.filter(
     (p) =>
       p.state === "merged" &&
+      // At the inbox step nothing merges on its own: a person merged it.
+      p.classifiedBy !== "local" &&
       p.mergedAt !== null &&
       p.mergedAt >= since &&
       !p.signatures.some((s) => s.byMe),

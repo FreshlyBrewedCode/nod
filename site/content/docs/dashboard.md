@@ -29,9 +29,15 @@ Why these rules:
 - Your own work only gets room when it needs you or is stuck. Otherwise your agents are fine
   without you.
 - An open high-risk pull request is never folded, even while it waits on someone else.
-- **Stuck** means a check is failing, or it has waited on a person for 12 hours or more.
+- **Stuck** means a check is failing, it conflicts with its base, a reviewer requested changes,
+  or it has waited on a person for 12 hours or more. Not released: the conflict and the requested
+  changes.
 
-Only tiers 1 and 2 have a checkbox: those are the pull requests you can nod.
+At the [inbox](#the-inbox) step there is no nod to give: "needs you" there means a review asked
+of you, or your own pull request stuck. The same tiers apply.
+
+Only tiers 1 and 2 have a checkbox: those are the pull requests you can nod. At the inbox step
+they have none: there is nothing to sign.
 
 Each row carries two small marks. The **diff indicator** is `+312 −88` and a short bar: its
 length is the size on a log scale up to 1,000 lines, split into added and removed. Lockfiles and
@@ -42,7 +48,8 @@ high.
 
 The default view. Three lanes, top to bottom:
 
-- **Needs you**: pull requests that wait for your nod, sorted by tier, then risk, then age.
+- **Needs you**: pull requests that wait for your nod (at the [inbox](#the-inbox): for your
+  review, or yours and stuck), sorted by tier, then risk, then age.
 - **Worth knowing**: FYIs you have not acked. No input wanted.
 - **Background**: everything else. The ones that are yours and stuck, or high risk, show as one
   line; the rest fold into one cluster at the end.
@@ -86,6 +93,30 @@ It shows, in this order:
 4. Folded sections: why it needs you (the classifier findings), signatures, FYI acks, files.
 
 ![The detail panel next to the list](./screenshots/detail-panel.webp)
+
+## The inbox
+
+Not released. A repository with no `.nod/` (the first step of the
+[ladder](/docs/quick-start#the-ladder)) still gets a sorted dashboard, for you alone:
+
+- **Classified by your nod, not the repo.** With no policy and no verifier, your `nod serve`
+  classifies each pull request itself: the built-in classifiers (paths, diff size, dependencies,
+  what the brief declares) and the default rules, on the file list and the brief GitHub returns.
+  It runs no code from the repository and posts nothing; it only decides how much room a pull
+  request gets on your screen. The panel says so under "Why this needs you". Once the repository
+  has its shared policy, the verifier classifies instead; its word always wins.
+- **Needs you** holds a teammate's pull request whose review is requested from you or from a team
+  you are in (tier 1), and your own pull request when it is stuck: a check failing, a conflict with
+  its base, or changes requested (tier 2, tier 1 at high risk). A mention does not count.
+- **Worth knowing** holds pull requests whose brief says `FYI`. **Background** holds the rest:
+  what waits on someone else's review, what was approved, drafts.
+- Such a row has no checkbox and no sign button. Its right-hand word says what it needs:
+  "review requested", "needs changes", "merge conflict". The panel's **Needed from you** links to
+  the pull request on GitHub, and a **Reviews** section (who is asked, who approved, who requested
+  changes) takes the place of Signatures.
+
+`nod serve --fake --scenario inbox` shows it with the fictional team. The first visit still opens
+onboarding; **Look around first** leads to the dashboard.
 
 ## Keyboard
 

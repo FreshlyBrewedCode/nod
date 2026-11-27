@@ -22,9 +22,10 @@ GitHub workflow.
 | **Signing** | each person | nod comments from those who enrolled | nodding your own agents' pull requests |
 | **Enforced** | the repository, `nod init --ruleset` | a required `nod` check, zero required approvals | agents merge on their own |
 
-Not released: the check that never blocks, and approvals counting toward the policy. Not built:
-the inbox on its own. Without the shared policy, the dashboard lists pull requests as "not
-classified" today.
+Not released: the check that never blocks, approvals counting toward the policy, and the
+[inbox](/docs/dashboard#the-inbox) on its own: without the shared policy, your `nod serve`
+classifies the pull requests itself. The first visit still opens onboarding; **Look around first**
+leads to the dashboard.
 
 ## What you need
 

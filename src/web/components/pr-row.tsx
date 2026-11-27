@@ -32,6 +32,7 @@ import {
   clusterStatus,
   dependencyHints,
   fyiWhy,
+  localNeed,
   rowTag,
   statusText,
   whoOf,
@@ -192,7 +193,7 @@ function RightColumn({
   /** The classes that place it in a phone's grid. */
   phoneRow: string;
 }) {
-  const { openBatch, ackFyi, people } = useDashboard();
+  const { openBatch, ackFyi, people, me } = useDashboard();
   const pr = item.pr;
   const size = small ? "text-[12.5px]" : "text-[13px]";
   const phoneAction = cn(
@@ -217,6 +218,20 @@ function RightColumn({
       >
         {pr.ask.label}
       </button>
+    );
+  // The inbox step: needed from me, but nothing to sign here (the panel links to GitHub).
+  const need = localNeed(pr, people, me);
+  if (need)
+    return (
+      <span
+        className={cn(
+          "text-need justify-self-end text-right font-semibold whitespace-nowrap",
+          size,
+          phoneAction,
+        )}
+      >
+        {need.row}
+      </span>
     );
   if (pr.fyiForMe)
     return (

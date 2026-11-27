@@ -4,6 +4,10 @@
  * (why this needs you, signatures, FYI, files). Narrow: a vertical journey
  * and the sections closed. From 620 px: "Look at", a horizontal journey and
  * the sections open.
+ *
+ * A PR classified locally (the inbox step, no policy in the repo) says so in
+ * "Why this needs you"; what it needs of me links to GitHub (nothing to
+ * sign), and "Reviews" (GitHub's) takes the place of "Signatures".
  */
 
 import { ExternalLink, Lock, Maximize2, X } from "lucide-react";
@@ -24,7 +28,11 @@ import {
   filesSummary,
   fyiSummary,
   journeyDetail,
+  LOCAL_NOTE,
+  localNeed,
   reasonsSummary,
+  reviewLines,
+  reviewsSummary,
   signaturesSummary,
   slotText,
   thenText,
@@ -106,6 +114,8 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
   const now = useNow(MINUTE);
   const checks = checksTag(pr);
   const selected = selection.includes(pr.number);
+  const need = localNeed(pr, people, me);
+  const local = pr.classifiedBy === "local";
   return (
     <div className="px-6 pt-5 pb-10">
       <h1 className="m-0 mb-1.5 text-[19px] leading-[1.3] font-bold tracking-[-0.01em]">
@@ -144,6 +154,23 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
               {selected ? "In the batch" : "Add to batch"} <Kbd>x</Kbd>
             </button>
           </div>
+        </div>
+      )}
+      {need && (
+        <div className="border-need-line bg-bg mt-[18px] flex flex-wrap items-center gap-4 rounded-[14px] border px-[18px] py-4">
+          <div>
+            <h6 className={H6}>Needed from you</h6>
+            <b className="block text-[15.5px] font-bold">{need.headline}</b>
+            <div className="text-tx3 text-[12.5px] leading-[1.55]">{need.detail}</div>
+          </div>
+          <a
+            href={need.href}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(BUTTON, PRIMARY, "ml-auto")}
+          >
+            {need.action} <ExternalLink className="size-3.5" />
+          </a>
         </div>
       )}
 
@@ -192,9 +219,15 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
         <Fold title="Why this needs you" summary={reasonsSummary(pr)} open={wide}>
           <ReasonsBody pr={pr} />
         </Fold>
-        <Fold title="Signatures" summary={signaturesSummary(pr)} open={wide}>
-          <SignaturesBody pr={pr} />
-        </Fold>
+        {local ? (
+          <Fold title="Reviews" summary={reviewsSummary(pr.review)} open={wide}>
+            <ReviewsBody pr={pr} />
+          </Fold>
+        ) : (
+          <Fold title="Signatures" summary={signaturesSummary(pr)} open={wide}>
+            <SignaturesBody pr={pr} />
+          </Fold>
+        )}
         {pr.fyi && (
           <Fold title="FYI" summary={fyiSummary(pr.fyi, people, me)} open={wide}>
             <FyiBody fyi={pr.fyi} />
@@ -210,8 +243,17 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
 
 /** The inside of the "Why this needs you" fold (the panel's and the phone page's). */
 export function ReasonsBody({ pr }: { pr: PrView }) {
+  const local = pr.classifiedBy === "local";
   return (
     <>
+      {local && (
+        <p
+          role="note"
+          className="border-line2 text-tx2 mt-0 mb-2.5 rounded-[10px] border border-dashed px-3 py-2 text-[12.5px] leading-[1.55] phone:text-[13px]"
+        >
+          {LOCAL_NOTE}
+        </p>
+      )}
       {pr.reasons.map((r) => (
         <div
           key={`${r.classifier}:${r.fact}`}
@@ -224,9 +266,47 @@ export function ReasonsBody({ pr }: { pr: PrView }) {
           </span>
         </div>
       ))}
-      <p className="text-tx3 mt-2 mb-0 text-[12.5px]">
-        Policy rule <span className="font-mono">{pr.requirement.policy}</span>, read from {pr.base}.
-      </p>
+      {!local && (
+        <p className="text-tx3 mt-2 mb-0 text-[12.5px]">
+          Policy rule <span className="font-mono">{pr.requirement.policy}</span>, read from{" "}
+          {pr.base}.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** The inside of the "Reviews" fold of a locally classified PR: GitHub's reviews. */
+export function ReviewsBody({ pr }: { pr: PrView }) {
+  const { people, me } = useDashboard();
+  const lines = pr.review ? reviewLines(pr.review, people, me) : [];
+  if (lines.length === 0)
+    return <p className="text-tx3 m-0 text-[13px]">Nobody is asked to review it yet.</p>;
+  return (
+    <>
+      {lines.map((l) => (
+        <div
+          key={`${l.who}:${l.detail}`}
+          className="grid grid-cols-[22px_1fr] gap-2.5 py-[7px] text-[13.5px]"
+        >
+          <span
+            className={cn(
+              "mt-0.5 grid size-[18px] place-items-center rounded-full text-[11px] font-bold",
+              l.tone === "ok"
+                ? "bg-ok text-[#06140d]"
+                : l.tone === "bad"
+                  ? "border-bad text-bad border-[1.5px]"
+                  : "border-line2 border-[1.5px]",
+            )}
+          >
+            {l.tone === "ok" ? "✓" : l.tone === "bad" ? "!" : ""}
+          </span>
+          <div>
+            {l.who}
+            <small className="text-tx3 block text-[12.5px]">{l.detail}</small>
+          </div>
+        </div>
+      ))}
     </>
   );
 }
