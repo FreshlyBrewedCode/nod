@@ -31,8 +31,16 @@ export interface StartOptions {
   readonly repo?: string | null;
   /** The GitHub host; default: the one of the clone's remote (`--host`, for an ssh alias). */
   readonly host?: string | null;
-  /** The clone the GitHub source reads patch-ids from (default: the current folder). */
+  /**
+   * `--dir`: the one clone the GitHub source serves instead of the list.
+   * Without it the list is read, or, when it is empty, the current folder
+   * when it is a clone.
+   */
   readonly dir?: string;
+  /** The repo list (default `$XDG_CONFIG_HOME/nod/config.json`). */
+  readonly configFile?: string;
+  /** nod's cache, its own clones (default `$XDG_CACHE_HOME/nod`). */
+  readonly cacheDir?: string;
   /** How often the GitHub source polls (default 60 s). */
   readonly pollMs?: number;
   readonly clock?: Clock;
@@ -82,6 +90,8 @@ export function start(options: StartOptions): Started {
         repo: options.repo ?? null,
         host: options.host ?? null,
         ...(options.dir !== undefined && { dir: options.dir }),
+        ...(options.configFile !== undefined && { configFile: options.configFile }),
+        ...(options.cacheDir !== undefined && { cacheDir: options.cacheDir }),
         ...(options.pollMs !== undefined && { pollMs: options.pollMs }),
         ...(options.version && { version: options.version }),
         myKey: () => {

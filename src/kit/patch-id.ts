@@ -88,11 +88,17 @@ export interface DiffRange {
   baseTip: string;
   /** The PR head commit. */
   head: string;
+  /**
+   * Added to git's environment, e.g. an `http.<url>.extraheader` through
+   * `GIT_CONFIG_*`, for a partial (blobless) clone that fetches the blobs
+   * the diff needs on demand.
+   */
+  env?: Record<string, string>;
 }
 
 /** `git merge-base <baseTip> <head>`: where the PR's diff starts. */
-export async function mergeBase({ repoDir, baseTip, head }: DiffRange): Promise<string> {
-  return (await git(repoDir, ["merge-base", baseTip, head])).trim();
+export async function mergeBase({ repoDir, baseTip, head, env }: DiffRange): Promise<string> {
+  return (await git(repoDir, ["merge-base", baseTip, head], { env })).trim();
 }
 
 /**
@@ -104,17 +110,14 @@ export async function mergeBase({ repoDir, baseTip, head }: DiffRange): Promise<
  * differ from the verifier's.
  */
 export async function patchId(range: DiffRange): Promise<string> {
-  const { repoDir, head } = range;
+  const { repoDir, head, env } = range;
   await assertNoInfoAttributes(repoDir);
   const base = await mergeBase(range);
-  const diff = await git(repoDir, [
-    `--attr-source=${EMPTY_TREE}`,
-    "diff",
-    ...PATCH_ID_DIFF_ARGS,
-    base,
-    head,
-    "--",
-  ]);
+  const diff = await git(
+    repoDir,
+    [`--attr-source=${EMPTY_TREE}`, "diff", ...PATCH_ID_DIFF_ARGS, base, head, "--"],
+    { env },
+  );
   if (diff === "") return "";
   const out = await git(repoDir, ["patch-id", "--stable"], { input: diff });
   return out.trim().split(/\s+/)[0] ?? "";
@@ -217,6 +220,21 @@ export function gitFileReader(
 }
 
 /**
+ * The environment that hands git a token for one host only: an
+ * `http.<serverUrl>.extraheader` through `GIT_CONFIG_COUNT`/`_KEY_0`/`_VALUE_0`,
+ * so it never shows on a command line or in a repo's config, and git sends
+ * it to URLs under `serverUrl` and nowhere else.
+ */
+export function tokenGitEnv(token: string, serverUrl: string): Record<string, string> {
+  const host = serverUrl.endsWith("/") ? serverUrl : `${serverUrl}/`;
+  return {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: `http.${host}.extraheader`,
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`,
+  };
+}
+
+/**
  * Fetches a PR's base branch and head commit as plain objects, never
  * checking anything out: `+refs/heads/<base>` lands in `refs/nod/base` and
  * the head SHA is fetched by id. A token, if given, goes into an
@@ -245,13 +263,7 @@ export async function fetchPullRequestObjects(options: {
   if (!/^[^\s:~^?*[\\]+$/.test(base) || base.startsWith("-") || /\p{Cc}/u.test(base)) {
     throw new Error("unexpected base branch name");
   }
-  const env: Record<string, string> = {};
-  if (token) {
-    const host = serverUrl.endsWith("/") ? serverUrl : `${serverUrl}/`;
-    env.GIT_CONFIG_COUNT = "1";
-    env.GIT_CONFIG_KEY_0 = `http.${host}.extraheader`;
-    env.GIT_CONFIG_VALUE_0 = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
-  }
+  const env = token ? tokenGitEnv(token, serverUrl) : {};
   const ref = "refs/nod/base";
   await git(
     repoDir,

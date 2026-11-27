@@ -6,7 +6,16 @@ import { afterEach, expect, test } from "bun:test";
 import { fetchPullRequestObjects, git, patchId } from "../../kit/patch-id.ts";
 import { tempDir, tempRepo } from "../../kit/test-support.ts";
 import { githubHost } from "../../kit/host.ts";
-import { CloneError, clonePatchIds, resolveClone, type Clone } from "./clone";
+import {
+  CloneError,
+  OwnClone,
+  clonePatchIds,
+  cloneUrl,
+  ownClonePatchIds,
+  ownClonePath,
+  resolveClone,
+  type Clone,
+} from "./clone";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -191,4 +200,96 @@ test("git sends the token only to the host's web URL", async () => {
     }),
   ).rejects.toThrow();
   expect(seen.some((a) => a?.startsWith("basic "))).toBe(true);
+});
+
+test("nod's own clone: where it lives, and the URL it clones from", () => {
+  expect(ownClonePath("/c/nod", "acme.ghe.com", "Finance/Ledger")).toBe(
+    "/c/nod/clones/acme.ghe.com/finance/ledger.git",
+  );
+  expect(ownClonePath("/c/nod", "git.example.test:8443", "acme/widgets")).toBe(
+    "/c/nod/clones/git.example.test:8443/acme/widgets.git",
+  );
+  expect(cloneUrl(githubHost("acme.ghe.com"), "finance/ledger")).toBe(
+    "https://acme.ghe.com/finance/ledger.git",
+  );
+  expect(cloneUrl(GITHUB_COM, "acme/widgets")).toBe("https://github.com/acme/widgets.git");
+});
+
+test("nod's own clone: blobless and bare, made on the first patch-id, which matches a full clone's", async () => {
+  const remote = await tempRepo();
+  cleanups.push(remote.cleanup);
+  // A server that hands out filtered packs, as GitHub does.
+  await remote.git("config", "uploadpack.allowFilter", "true");
+  await remote.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  await remote.write("app.ts", "export const a = 1;\n");
+  await remote.write("big.bin", "x".repeat(4096));
+  await remote.commit("base");
+  await remote.git("switch", "-q", "-c", "agent/change");
+  await remote.write("app.ts", "export const a = 2;\n");
+  const head = await remote.commit("change");
+  await remote.git("switch", "-q", "main");
+
+  const cache = await tempDir();
+  cleanups.push(cache.cleanup);
+  const dir = ownClonePath(cache.dir, "github.com", "acme/widgets");
+  const clone = new OwnClone({
+    dir,
+    host: GITHUB_COM,
+    name: "acme/widgets",
+    token: () => null,
+    url: `file://${remote.dir}`,
+  });
+  expect(clone.exists()).toBe(false);
+  const ids = ownClonePatchIds(clone, GITHUB_COM);
+  const [one, two] = await Promise.all([
+    ids.compute({ base: "main", headSha: head }),
+    ids.compute({ base: "main", headSha: head }),
+  ]);
+  expect(one).toBe(await patchId({ repoDir: remote.dir, baseTip: "main", head }));
+  expect(two).toBe(one);
+  expect(clone.exists()).toBe(true);
+  // Bare, a partial clone of origin, remote-tracking branches as a normal clone has them.
+  expect((await git(dir, ["rev-parse", "--is-bare-repository"])).trim()).toBe("true");
+  expect((await git(dir, ["config", "remote.origin.promisor"])).trim()).toBe("true");
+  expect((await git(dir, ["config", "remote.origin.partialclonefilter"])).trim()).toBe("blob:none");
+  expect((await git(dir, ["config", "remote.origin.fetch"])).trim()).toBe(
+    "+refs/heads/*:refs/remotes/origin/*",
+  );
+  // The token is never written into its config.
+  expect(await git(dir, ["config", "--list"])).not.toContain("extraheader");
+  // Nothing half-made is left next to it.
+  const { readdir } = await import("node:fs/promises");
+  expect(await readdir(join(cache.dir, "clones", "github.com", "acme"))).toEqual(["widgets.git"]);
+});
+
+test("a clone that fails leaves nothing that looks like a clone; the next try clones again", async () => {
+  const cache = await tempDir();
+  cleanups.push(cache.cleanup);
+  const dir = ownClonePath(cache.dir, "github.com", "acme/widgets");
+  let url = `file://${cache.dir}/nowhere`;
+  const clone = new OwnClone({
+    dir,
+    host: GITHUB_COM,
+    name: "acme/widgets",
+    token: () => null,
+    url,
+  });
+  await expect(clone.ensure()).rejects.toThrow(/cloning acme\/widgets from github.com failed/);
+  expect(clone.exists()).toBe(false);
+  const { readdir } = await import("node:fs/promises");
+  expect(await readdir(join(cache.dir, "clones", "github.com", "acme"))).toEqual([]);
+  const remote = await tempRepo();
+  cleanups.push(remote.cleanup);
+  await remote.write("a", "1\n");
+  await remote.commit("a");
+  url = `file://${remote.dir}`;
+  const again = new OwnClone({
+    dir,
+    host: GITHUB_COM,
+    name: "acme/widgets",
+    token: () => null,
+    url,
+  });
+  await again.ensure();
+  expect(again.exists()).toBe(true);
 });

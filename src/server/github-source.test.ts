@@ -2,7 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { githubHost } from "../kit/host.ts";
+import { githubHost, type GitHubHost } from "../kit/host.ts";
 import { tempRepo } from "../kit/test-support.ts";
 import type { Ask, Reply, ServerToClient } from "../shared/protocol";
 import { ManualClock } from "./clock";
@@ -66,6 +66,35 @@ function team(gh: FakeGitHub) {
   });
 }
 
+/** The key of a one-repo source's repo. */
+const keyOf = (source: GitHubSource) => source.repos()[0]!.key;
+
+/** One repo, `acme/widgets`, as the clone override serves it. */
+function oneRepo(o: {
+  clock: ManualClock;
+  api: GitHubApi | null;
+  host?: GitHubHost;
+  patchIds: PatchIds | null;
+  myKey?: () => string | null;
+  identity?: { name: string; email: string };
+  openSetupPr?: (input: { login: string; publicKey: string | null }) => Promise<string>;
+}) {
+  return new GitHubSource({
+    clock: o.clock,
+    repos: [{ host: o.host ?? githubHost("github.com"), name: REPO }],
+    api: () => o.api,
+    configFile: null,
+    clone: { dir: "/tmp/acme-widgets" },
+    repoOptions: () => ({
+      patchIds: o.patchIds,
+      identity: () => o.identity ?? null,
+      ...(o.openSetupPr && { openSetupPr: o.openSetupPr }),
+    }),
+    ...(o.myKey && { myKey: o.myKey }),
+    log: () => {},
+  });
+}
+
 function setup(options: { myKey?: string | null; patchIds?: PatchIds; withTeam?: boolean } = {}) {
   const gh = new FakeGitHub();
   if (options.withTeam !== false) team(gh);
@@ -79,15 +108,7 @@ function setup(options: { myKey?: string | null; patchIds?: PatchIds; withTeam?:
     },
   };
   let key: string | null = options.myKey === undefined ? FAKE_KEY.publicKey : options.myKey;
-  const source = new GitHubSource({
-    clock,
-    repo: REPO,
-    api,
-    patchIds,
-    dir: "/tmp/acme-widgets",
-    myKey: () => key,
-    log: () => {},
-  });
+  const source = oneRepo({ clock, api, patchIds, myKey: () => key });
   const changes: SourceChange[] = [];
   source.subscribe((c) => changes.push(c));
   const advance = async (ms: number) => {
@@ -337,9 +358,9 @@ describe("the inbox step: a repo without nod's setup", () => {
     expect(t.pr(32).fyiForMe).toBe(true);
     // The search rides in the one poll query.
     expect(t.gh.queries("Poll")[0]!.body).toMatchObject({
-      requested: `repo:${REPO} is:pr is:open review-requested:@me`,
+      q0: `repo:${REPO} is:pr is:open review-requested:@me`,
     });
-    expect((await t.source.setup(t.source.key())).step).toBe("inbox");
+    expect((await t.source.setup(keyOf(t.source))).step).toBe("inbox");
   });
 
   test("a key changes nothing: there is nothing to sign, a review request asks for an approval", async () => {
@@ -436,7 +457,7 @@ describe("the inbox step: a repo without nod's setup", () => {
     ]);
     expect(snap.unclassified.map((u) => u.number)).toEqual([30, 31, 32]);
     // The fake's branch rules require the `nod` check.
-    expect((await t.source.setup(t.source.key())).step).toBe("enforced");
+    expect((await t.source.setup(keyOf(t.source))).step).toBe("enforced");
   });
 });
 
@@ -445,12 +466,12 @@ describe("my key", () => {
     const t = setup();
     t.source.start();
     await settle();
-    expect(t.source.enrolment(t.source.key(), FAKE_KEY.publicKey)).toEqual({ state: "active" });
+    expect(t.source.enrolment(keyOf(t.source), FAKE_KEY.publicKey)).toEqual({ state: "active" });
     expect(t.pr(26).needsMe).toBe(true);
 
     const other = publicKeyLine(ed25519PublicKeyBlob(new Uint8Array(32).fill(7)));
     t.setKey(other);
-    expect(t.source.enrolment(t.source.key(), other)).toEqual({ state: "not-enrolled" });
+    expect(t.source.enrolment(keyOf(t.source), other)).toEqual({ state: "not-enrolled" });
     // Not enrolled: a teammate's peer slot asks for a GitHub approval instead (ADR 0006).
     expect(t.pr(26)).toMatchObject({ needsMe: true, ask: APPROVE, waitingOn: [{ kind: "me" }] });
 
@@ -471,17 +492,17 @@ describe("my key", () => {
     t.gh.headSigners.set(enrol.headRefOid, `${t.gh.signers}${ALICE} namespaces="nod" ${mine}\n`);
     t.source.start();
     await settle();
-    expect(t.source.enrolment(t.source.key(), mine)).toEqual({
+    expect(t.source.enrolment(keyOf(t.source), mine)).toEqual({
       state: "pending",
       pr: { number: 50, url: `https://github.com/${REPO}/pull/50` },
     });
     // the same key under another login is not mine
     t.gh.headSigners.clear();
-    expect(t.source.enrolment(t.source.key(), FAKE_KEY.publicKey.replace("nod-fake", "x"))).toEqual(
-      {
-        state: "active",
-      },
-    );
+    expect(
+      t.source.enrolment(keyOf(t.source), FAKE_KEY.publicKey.replace("nod-fake", "x")),
+    ).toEqual({
+      state: "active",
+    });
   });
 
   test("a merged enrolment turns the key active and the asks appear", async () => {
@@ -492,7 +513,7 @@ describe("my key", () => {
     expect(t.pr(27).needsMe).toBe(false);
     t.gh.signers = `${t.gh.signers}${ALICE} namespaces="nod" ${mine}\n`;
     await t.advance(60 * SECOND);
-    expect(t.source.enrolment(t.source.key(), mine)).toEqual({ state: "active" });
+    expect(t.source.enrolment(keyOf(t.source), mine)).toEqual({ state: "active" });
     expect(t.pr(27).needsMe).toBe(true);
     expect(t.changes).toContain("enrolment");
   });
@@ -637,7 +658,7 @@ describe("FYI acks", () => {
     t.source.start();
     await settle();
     expect(t.pr(60).fyiForMe).toBe(true);
-    await t.source.ackFyi(t.source.key(), 60);
+    await t.source.ackFyi(keyOf(t.source), 60);
     expect(t.gh.rests().at(-1)).toEqual({
       method: "POST",
       path: `/repos/${REPO}/issues/60/reactions`,
@@ -646,7 +667,7 @@ describe("FYI acks", () => {
     expect(t.pr(60).fyiForMe).toBe(false);
     expect(t.pr(60).fyi?.acked).toEqual([ALICE]);
     expect(t.pr(60).journey.some((e) => e.text === "You got it")).toBe(true);
-    await expect(t.source.ackFyi(t.source.key(), 61)).rejects.toMatchObject({ code: "not-found" });
+    await expect(t.source.ackFyi(keyOf(t.source), 61)).rejects.toMatchObject({ code: "not-found" });
   });
 
   test("acks by others come from the reactions on the next poll", async () => {
@@ -664,7 +685,7 @@ describe("setup and enrolment", () => {
   test("a set-up repo: every check ok", async () => {
     const t = setup();
     t.source.start();
-    const status = await t.source.setup(t.source.key());
+    const status = await t.source.setup(keyOf(t.source));
     expect(status.state).toBe("ready");
     expect(status.checks.map((c) => [c.id, c.state])).toEqual([
       ["policy", "ok"],
@@ -684,7 +705,7 @@ describe("setup and enrolment", () => {
       message: "Upgrade to GitHub Pro or make this repository public to enable this feature.",
     };
     t.source.start();
-    const status = await t.source.setup(t.source.key());
+    const status = await t.source.setup(keyOf(t.source));
     expect(status.checks.find((c) => c.id === "required-check")).toMatchObject({
       state: "missing",
       note: "needs a paid plan",
@@ -699,7 +720,7 @@ describe("setup and enrolment", () => {
     t.gh.autoMergeAllowed = false;
     t.gh.open.push(rawPr({ number: 14, headRef: "nod/setup" }));
     t.source.start();
-    const status = await t.source.setup(t.source.key());
+    const status = await t.source.setup(keyOf(t.source));
     expect(status).toMatchObject({ state: "pending", setupPr: { number: 14 } });
     expect(status.checks.map((c) => [c.id, c.state, c.note])).toEqual([
       ["policy", "pending", "in #14"],
@@ -709,7 +730,7 @@ describe("setup and enrolment", () => {
       ["required-check", "missing", "after merge"],
       ["auto-merge", "missing", "after merge"],
     ]);
-    expect(await t.source.openSetupPr(t.source.key(), "ssh-ed25519 AAAA")).toEqual({
+    expect(await t.source.openSetupPr(keyOf(t.source), "ssh-ed25519 AAAA")).toEqual({
       number: 14,
       url: expect.any(String),
     });
@@ -720,12 +741,10 @@ describe("setup and enrolment", () => {
     t.gh.files = { policy: false, verifier: false, workflow: false };
     t.gh.signers = null;
     const opened: unknown[] = [];
-    const source = new GitHubSource({
+    const source = oneRepo({
       clock: t.clock,
-      repo: REPO,
       api: t.api,
       patchIds: null,
-      log: () => {},
       openSetupPr: async (input) => {
         opened.push(input);
         return `https://github.com/${REPO}/pull/14`;
@@ -733,19 +752,19 @@ describe("setup and enrolment", () => {
     });
     source.start();
     // No key: the setup PR opens with an empty allowed_signers (ADR 0006).
-    expect(await source.openSetupPr(source.key(), null)).toEqual({
+    expect(await source.openSetupPr(keyOf(source), null)).toEqual({
       number: 14,
       url: `https://github.com/${REPO}/pull/14`,
     });
     expect(opened).toEqual([{ login: ALICE, publicKey: null }]);
     // Opened once: a key created later is not added to it.
-    expect((await source.openSetupPr(source.key(), "ssh-ed25519 KEY")).number).toBe(14);
+    expect((await source.openSetupPr(keyOf(source), "ssh-ed25519 KEY")).number).toBe(14);
     expect(opened).toHaveLength(1);
-    expect((await source.setup(source.key())).state).toBe("pending");
+    expect((await source.setup(keyOf(source))).state).toBe("pending");
     source.stop();
     const done = setup();
     done.source.start();
-    await expect(done.source.openSetupPr(done.source.key(), "x")).rejects.toMatchObject({
+    await expect(done.source.openSetupPr(keyOf(done.source), "x")).rejects.toMatchObject({
       code: "already-set-up",
     });
   });
@@ -755,18 +774,16 @@ describe("setup and enrolment", () => {
     const raw = publicKey.export({ format: "jwk" }).x!;
     const mine = publicKeyLine(ed25519PublicKeyBlob(Buffer.from(raw, "base64url")), "nod");
     const t = setup({ myKey: mine });
-    const source = new GitHubSource({
+    const source = oneRepo({
       clock: t.clock,
-      repo: REPO,
       api: t.api,
       patchIds: null,
       myKey: () => mine,
       identity: { name: "Alice Example", email: "alice@example.invalid" },
-      log: () => {},
     });
     source.start();
     await settle();
-    const pr = await source.openEnrolPr(source.key(), mine);
+    const pr = await source.openEnrolPr(keyOf(source), mine);
     expect(pr).toEqual({ number: 77, url: `https://github.com/${REPO}/pull/77` });
     const rest = t.gh.rests().map((c) => `${c.method} ${c.path.split("?")[0]}`);
     expect(rest.filter((r) => !r.includes("/rules/"))).toEqual([
@@ -801,12 +818,12 @@ describe("setup and enrolment", () => {
     });
     expect(create.body).toContain("`.nod/**`");
     expect(create.body).toContain("peer");
-    expect(source.enrolment(source.key(), mine)).toEqual({ state: "pending", pr });
-    expect(await source.openEnrolPr(source.key(), mine)).toEqual(pr); // twice: the same PR, nothing new
+    expect(source.enrolment(keyOf(source), mine)).toEqual({ state: "pending", pr });
+    expect(await source.openEnrolPr(keyOf(source), mine)).toEqual(pr); // twice: the same PR, nothing new
     expect(
       t.gh.rests().filter((c) => c.method === "POST" && c.path.endsWith("/pulls")),
     ).toHaveLength(1);
-    await expect(source.openEnrolPr(source.key(), FAKE_KEY.publicKey)).rejects.toMatchObject({
+    await expect(source.openEnrolPr(keyOf(source), FAKE_KEY.publicKey)).rejects.toMatchObject({
       code: "already-enrolled",
     });
     source.stop();
@@ -828,17 +845,11 @@ describe("setup and enrolment", () => {
   });
 
   test("without gh: no account, no snapshot, a clear sync error", async () => {
-    const source = new GitHubSource({
-      clock: new ManualClock(T0),
-      repo: REPO,
-      api: null,
-      patchIds: null,
-      log: () => {},
-    });
+    const source = oneRepo({ clock: new ManualClock(T0), api: null, patchIds: null });
     source.start();
     expect(await source.account()).toBeNull();
     expect(source.snapshot()).toBeNull();
-    expect((await source.setup(source.key())).checks.every((c) => c.state === "unknown")).toBe(
+    expect((await source.setup(keyOf(source))).checks.every((c) => c.state === "unknown")).toBe(
       true,
     );
   });
@@ -886,8 +897,10 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       clock,
       repo: null,
       dir: clone.dir,
-      token,
-      fetch: gh.fetch,
+      configFile: `${clone.dir}/.no-config.json`,
+      cacheDir: `${clone.dir}/.no-cache`,
+      token: () => token,
+      fetch: () => gh.fetch,
       patchIds: { compute: async (input) => sha(`pid-${input.headSha}`) },
       log: (l) => lines.push(l),
       myKey: () => FAKE_KEY.publicKey,
@@ -909,10 +922,10 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
   ] as const)
     test(`${kind}: reads, signs, approves and posts through ${host}'s API only`, async () => {
       const { gh, source, clock } = await enterprise(origin, host);
-      expect(source.github()).toEqual({ host, webUrl });
+      expect(source.repos()[0]!.github).toEqual({ host, webUrl });
       // Off github.com the repo key names the host (ADR 0007): another repo than github.com's acme/widgets.
       const KEY = `${host}/${REPO}`;
-      expect(source.key()).toBe(KEY);
+      expect(keyOf(source)).toBe(KEY);
       expect(source.snapshot()!.prs.every((p) => p.repo === KEY)).toBe(true);
       await expect(source.setup(REPO)).rejects.toMatchObject({ code: "not-found" });
       expect(source.snapshot()!.prs.map((p) => p.number)).toEqual([26, 27, 28]);
@@ -979,23 +992,20 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       "`gh` is not logged in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com`",
     );
     expect(source.snapshot()).toBeNull();
-    const setup = await source.setup(source.key());
+    const setup = await source.setup(keyOf(source));
     expect(setup.checks.every((c) => c.state === "unknown")).toBe(true);
     expect(await source.account()).toBeNull();
   });
 
   test("an API bound to another host than the repo's is refused", () => {
     const api = new GitHubApi({ token: "t0ken", fetch: new FakeGitHub().fetch });
-    expect(
-      () =>
-        new GitHubSource({
-          clock: new ManualClock(T0),
-          repo: REPO,
-          host: githubHost("acme.ghe.com"),
-          api,
-          patchIds: null,
-          log: () => {},
-        }),
+    expect(() =>
+      oneRepo({
+        clock: new ManualClock(T0),
+        host: githubHost("acme.ghe.com"),
+        api,
+        patchIds: null,
+      }),
     ).toThrow(/bound to github.com/);
   });
 });

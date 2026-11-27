@@ -46,6 +46,14 @@ export class RateLimited extends GitHubApiError {
   }
 }
 
+/** One entry of a GraphQL answer's `errors`. */
+export interface GraphQLError {
+  readonly type?: string;
+  readonly message?: string;
+  /** The field it is about: `["r1"]` for a repo block of a poll. */
+  readonly path?: ReadonlyArray<string | number>;
+}
+
 export interface GitHubApiOptions {
   readonly token: string;
   readonly fetch?: typeof fetch;
@@ -89,21 +97,44 @@ export class GitHubApi {
 
   /** One GraphQL query. Throws on transport errors, rate limits and any GraphQL error. */
   async graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+    const { data, errors, status } = await this.graphqlPartial<T>(query, variables);
+    if (errors.length)
+      throw new GitHubApiError(
+        status,
+        errors.map((e) => e.message ?? "GraphQL error").join("; ") || "no data",
+      );
+    return data;
+  }
+
+  /**
+   * One GraphQL query that may answer in part: the data and the errors
+   * GitHub sent with it (each with the `path` of the field it is about), so
+   * one repo of a host's poll that is gone or not readable does not fail
+   * the others. Throws on transport errors, rate limits, and an answer
+   * without data.
+   */
+  async graphqlPartial<T>(
+    query: string,
+    variables: Record<string, unknown> = {},
+  ): Promise<{ data: T; errors: GraphQLError[]; status: number }> {
     this.calls.graphql++;
     const res = await this.send("POST", this.host.graphqlUrl, "/graphql", { query, variables });
     const json = (await this.json(res, "/graphql")) as {
       data?: T & {
         rateLimit?: { cost: number; remaining: number; limit: number; resetAt: string };
       };
-      errors?: Array<{ type?: string; message?: string }>;
+      errors?: GraphQLError[];
     };
-    const errors = json.errors ?? [];
+    const errors = (json.errors ?? []).map((e) => ({
+      ...e,
+      ...(e.message !== undefined && { message: this.scrub(e.message) }),
+    }));
     if (errors.some((e) => e.type === "RATE_LIMITED"))
       throw new RateLimited(this.resetFrom(res.headers), "GitHub is rate-limiting nod.");
-    if (errors.length || !json.data)
+    if (!json.data)
       throw new GitHubApiError(
         res.status,
-        this.scrub(errors.map((e) => e.message ?? "GraphQL error").join("; ") || "no data"),
+        errors.map((e) => e.message ?? "GraphQL error").join("; ") || "no data",
       );
     const rl = json.data.rateLimit;
     if (rl) this.calls.cost += rl.cost;
@@ -114,7 +145,7 @@ export class GitHubApi {
         limit: rl.limit,
         resetAt: Date.parse(rl.resetAt),
       };
-    return json.data;
+    return { data: json.data, errors, status: res.status };
   }
 
   /** One REST call; `path` starts with `/`. Throws `GitHubApiError` on a non-2xx answer. */
