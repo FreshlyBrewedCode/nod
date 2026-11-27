@@ -10,3 +10,4 @@ Decisions go here as `NNNN-title.md`, one per file: context, decision, consequen
 | [0004](0004-signer.md) | The signer: an encrypted key file, a session unlock, SSHSIG |
 | [0005](0005-named-host.md) | Another device reaches `nod serve` through one named host, same origin |
 | [0006](0006-opt-in-ladder.md) | The opt-in ladder: approvals count, the check is neutral until enforced |
+| [0007](0007-many-repositories.md) | Many repositories: the repo list, own clones, hosts side by side, protocol 2 |
