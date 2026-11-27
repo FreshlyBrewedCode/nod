@@ -68,6 +68,9 @@ Built and not released yet, among others:
   its ladder; adding (with suggestions) and removing; the repo filter and the board grouped by
   repository. With `--dir` the list is the one clone and cannot be changed there.
   [Settings](/docs/settings)
+- **`nod service`.** `nod serve` as a systemd user unit or a LaunchAgent, so it runs without a
+  terminal. Tested against fakes only; never run on a real systemd or launchd. Not on Windows.
+  [In the background](/docs/background)
 
 ## Not built
 

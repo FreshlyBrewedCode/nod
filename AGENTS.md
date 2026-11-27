@@ -145,7 +145,8 @@ nod
       `vite.config.ts` emits `sw.js`, writes the build id and precache list into it and
       `<meta name="nod-build">` into `index.html`
     - "nod serve isn't running": `closedPageOf` (`lib/app.ts`) and `NotRunningPage`
-      (`full-page.tsx`); `SERVICE_HINT` names `nod service install` as not released
+      (`full-page.tsx`); `SERVICE_HINT` names `nod service install` (`src/service/`, as
+      unreleased as the app)
     - badge: `badgeCount` in `src/shared/attention.ts` (tier 1, open, every repo), `lib/badge.ts`
       (`titleFor`, `applyBadge`, `nod.badge`), `hooks/use-badge.ts` at the root (`app.tsx`);
       install: `hooks/use-install.ts` (`listenForInstall` in `main.tsx`), Settings → App

@@ -101,7 +101,8 @@ export function installHelp(userAgent: string): { readonly browser: string; read
 
 /**
  * The service hint on the "not running" page: `nod service` keeps `nod
- * serve` running in the background (#52). Not released yet, so said so.
+ * serve` running in the background (#52). It is as unreleased as the app
+ * itself, and the page says so.
  */
 export const SERVICE_HINT = "nod service install";
 

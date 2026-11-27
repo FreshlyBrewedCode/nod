@@ -12,6 +12,7 @@ nod <command>
   repo         add, remove or list the repositories nod serve reads
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key
+  service      run nod serve in the background
 
   --help       show the help
   --version    show the version
@@ -153,6 +154,25 @@ The signing key from a terminal. The passphrase is read without echo and never p
 `--key-file <path>` works with all three: the key file, by default
 `$XDG_CONFIG_HOME/nod/signing-key.json`.
 
+## `nod service`
+
+Not released. `nod serve` in the background, as a systemd user unit (Linux) or a LaunchAgent
+(macOS): started now and at login, restarted when it fails. [In the background](/docs/background)
+has the details.
+
+| Command | Does |
+| --- | --- |
+| `nod service install [serve options]` | Write the unit, enable it and (re)start it. It runs the nod that installed it, as `nod serve` with the options given here: any of [`nod serve`'s](#nod-serve), except `--open`. Run it again to change them |
+| `nod service uninstall` | Stop the service and remove its unit |
+| `nod service status` | Not installed, installed but not running, or running, with the unit file and the command it runs |
+
+```sh
+nod service install --port 4518 --poll 30
+nod service status
+```
+
+Windows is not supported yet: `nod service status` says so, and the other commands refuse.
+
 ## Files and environment
 
 | Path or variable | What |
@@ -162,6 +182,8 @@ The signing key from a terminal. The passphrase is read without echo and never p
 | `$XDG_CONFIG_HOME/nod/serve-token-remote` | The remote token, the named host's (`--allow-host`) |
 | `$XDG_CONFIG_HOME/nod/config.json` | The repo list. Not released. Keys nod does not know are kept when it writes the file |
 | `$XDG_CACHE_HOME/nod/clones/` | The clone cache: `<host>/<owner>/<repo>.git` per repository of the list. `~/.cache/nod/` when the variable is unset. Not released |
+| `$XDG_CONFIG_HOME/systemd/user/nod.service` | The service of `nod service install` on Linux. Not released |
+| `~/Library/LaunchAgents/de.frebreco.nod.plist` | The same on macOS. Not released |
 | `NOD_WEB_URL` | The web app the printed link opens, as `--web-url` |
 | `NOD_DEBUG=1` | Log each poll |
 | `gh auth token --hostname <host>` | Where the GitHub token of each host comes from; it is sent to that host only. `gh` keeps its login under `$XDG_CONFIG_HOME/gh`, so a changed `XDG_CONFIG_HOME` also needs `GH_CONFIG_DIR` |
