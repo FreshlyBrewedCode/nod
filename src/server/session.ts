@@ -222,13 +222,16 @@ export class Session {
 
   private async repoInfo(repo: SourceRepo): Promise<RepoInfo> {
     const { source, signer } = this.options;
+    const setup = await source.setup(repo.key);
+    // The setup waits for the host's first read, which is what brings my login there.
+    const login = source.repos().find((r) => sameRepo(r.key, repo.key))?.login ?? repo.login;
     const status = signer.status();
     return {
       key: repo.key,
       name: repo.name,
       github: repo.github,
-      login: repo.login,
-      setup: await source.setup(repo.key),
+      login,
+      setup,
       enrolment:
         status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
     };
