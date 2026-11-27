@@ -60,6 +60,7 @@ order: 4
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
 | **self nod** | A nod by the pull request's author: the prompter attesting their own agent's work |
+| **service** | `nod serve` run in the background by your system: a systemd user unit on Linux, a LaunchAgent on macOS. `nod service install` sets it up. Not released. [In the background](/docs/background) |
 | **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right. This version has two, Repositories and App. Not released. [Settings](/docs/settings) |
 | **setup page** | `#/setup`: one repository's ladder, its four steps, where each stands for the repository and you, and where they are done. Reached from an offer, the avatar menu's next steps, or the repository's row in Settings → Repositories (**The ladder ›**). Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
 | **setup PR** | The pull request `nod init` opens to add `.nod/` and the workflow. [Quick start](/docs/quick-start) |
