@@ -19,7 +19,8 @@
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import type { GitHubInfo, PrView, SignerState, Snapshot } from "../../shared/protocol";
+import type { PrId, PrView, RepoInfo, SignerState, Snapshot } from "../../shared/protocol";
+import { idOf, sameRepo } from "../../shared/repo-key";
 import { MINUTE, useNow } from "@/hooks/use-clock";
 import { rememberLink } from "@/lib/connection";
 import {
@@ -199,28 +200,29 @@ function NoteCard({ title, children }: { title: ReactNode; children: ReactNode }
 export function LinkLanding({
   route,
   snapshot,
-  github,
+  repos,
   signer,
   onOpen,
   onList,
 }: {
   route: LinkRoute;
   snapshot: Snapshot;
-  /** The GitHub host `nod serve` reads. */
-  github: GitHubInfo;
+  /** The repos `nod serve` reads: the link's must be one of them (host and name). */
+  repos: ReadonlyArray<RepoInfo>;
   signer: SignerState | null;
   /** Show a PR in the full list, with its details open. */
-  onOpen: (pr: number) => void;
+  onOpen: (pr: PrId) => void;
   onList: () => void;
 }) {
   const { openBatch } = useBatch();
   const now = useNow(MINUTE);
   const landing = useMemo(
-    () => landingOf(route, snapshot, now, github),
-    [route, snapshot, now, github],
+    () => landingOf(route, snapshot, now, repos),
+    [route, snapshot, now, repos],
   );
   const targets = landing.kind === "found" ? landing.targets : [];
-  const needing = targets.filter((t) => t.needsMe).map((t) => t.pr.number);
+  const here = landing.kind === "found" ? landing.repo : null;
+  const needing = targets.filter((t) => t.needsMe).map((t) => idOf(t.pr));
   const [left, setLeft] = useState<ReadonlySet<number>>(new Set());
   const selected = targets.filter((t) => t.needsMe && !left.has(t.pr.number)).map((t) => t.pr);
   const people = snapshot.people;
@@ -232,12 +234,12 @@ export function LinkLanding({
   useEffect(() => {
     if (route.view !== "batch" || opened.current === key || !needing.length) return;
     opened.current = key;
-    openBatch([...needing, ...targets.filter((t) => !t.needsMe).map((t) => t.pr.number)]);
+    openBatch([...needing, ...targets.filter((t) => !t.needsMe).map((t) => idOf(t.pr))]);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per link
   }, [key, needing.length]);
 
   const otherNeeds = snapshot.prs.filter(
-    (p) => p.needsMe && !linkNumbers(route).includes(p.number),
+    (p) => p.needsMe && !(sameRepo(p.repo, here?.key) && linkNumbers(route).includes(p.number)),
   ).length;
   const toList = (
     <p className="text-tx3 mx-1 my-4 text-[12.5px] leading-[1.55]">
@@ -263,8 +265,10 @@ export function LinkLanding({
         <Banner route={route} />
         <main className="col-span-full max-w-[660px] phone:order-2">
           <NoteCard title={`This link is for ${landing.repo}`}>
-            nod serve here reads {landing.here} only, the repository of the folder it runs in. To
-            look at {numbers.map((n) => `#${n}`).join(", ")} in nod, run{" "}
+            {landing.here.length === 1
+              ? `nod serve here reads ${landing.here[0]} only, the repository of the folder it runs in.`
+              : `nod serve here reads ${landing.here.join(", ")}, not this one.`}{" "}
+            To look at {numbers.map((n) => `#${n}`).join(", ")} in nod, run{" "}
             <code className="font-mono text-[12px]">nod serve</code> in a clone of {landing.repo}.
             Or open {numbers.length === 1 ? "it" : "them"} on GitHub:{" "}
             {numbers.map((n, i) => (
@@ -289,7 +293,8 @@ export function LinkLanding({
   }
 
   const ready = signer?.state === "unlocked";
-  const keyState = readiness(signer).state;
+  const enrolment = here?.enrolment ?? null;
+  const keyState = readiness(signer, enrolment).state;
   const keyBlocked =
     (keyState === "pending" || keyState === "not-enrolled" || keyState === "no-key") &&
     targets.some((t) => t.pr.waitingOn.some((w) => w.kind === "me"));
@@ -302,7 +307,7 @@ export function LinkLanding({
       <main className="min-w-0 phone:order-3">
         {targets.map((t) => (
           <PrCard
-            key={t.pr.number}
+            key={idOf(t.pr)}
             target={t}
             people={people}
             selected={t.needsMe && !left.has(t.pr.number)}
@@ -313,7 +318,7 @@ export function LinkLanding({
                 return next;
               })
             }
-            onOpen={() => onOpen(t.pr.number)}
+            onOpen={() => onOpen(idOf(t.pr))}
             mixed={needing.length > 0}
           />
         ))}
@@ -328,11 +333,11 @@ export function LinkLanding({
         ))}
         {landing.missing.map((n) => (
           <NoteCard key={n} title={`#${n} is not here`}>
-            It is not among the open pull requests of {snapshot.repo}, nor those merged or closed in
-            the last 14 days: it may have merged long ago, or the number is wrong.{" "}
+            It is not among the open pull requests of {here?.key}, nor those merged or closed in the
+            last 14 days: it may have merged long ago, or the number is wrong.{" "}
             <a
               className={LINK}
-              href={githubPrUrl(github.webUrl, snapshot.repo, n)}
+              href={githubPrUrl(here?.github.webUrl ?? webUrlOf(route.host), route.repo, n)}
               target="_blank"
               rel="noreferrer"
             >
@@ -356,7 +361,7 @@ export function LinkLanding({
               {!targets.length
                 ? "This link names nothing nod can show here."
                 : keyBlocked
-                  ? cannotSignText(readiness(signer))
+                  ? cannotSignText(readiness(signer, enrolment))
                   : "Nothing this link names needs you now."}
             </p>
             <button type="button" className={cn(GHOST, "mt-3 w-full")} onClick={onList}>
@@ -381,7 +386,7 @@ export function LinkLanding({
               type="button"
               className={cn(PRIMARY, "w-full")}
               disabled={selected.length === 0}
-              onClick={() => openBatch(selected.map((p: PrView) => p.number))}
+              onClick={() => openBatch(selected.map((p: PrView) => idOf(p)))}
             >
               {!ready && !approving && <Lock className="size-4" />}
               Review &amp; {approving ? "approve" : "sign"} {selected.length}

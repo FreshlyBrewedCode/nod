@@ -19,6 +19,7 @@ import {
   outcomeOf,
   outcomeSentence,
   readiness,
+  reposOf,
   reviewAgain,
   roleShort,
   staleText,
@@ -31,14 +32,17 @@ import { openedKey } from "./storage";
 
 const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const snapshot = new FakeSource({ clock: new ManualClock(NOW) }).snapshot()!;
-const { people, repo, prs } = snapshot;
+const { people, prs } = snapshot;
+const repo = "tallyho/fieldbook";
+/** A PR id in the mockup's repo. */
+const id = (n: number) => `${repo}#${n}`;
 const pr = (n: number) => prs.find((p) => p.number === n)!;
 const opened = { [openedKey(repo, 482)]: NOW - 60_000 };
 
 // The mockup's batch (r2 `11`) plus the owner sign-off on #476.
 const BATCH = [482, 485, 476, 488, 491];
-const rowsOf = (numbers = BATCH, model = openModel(prs, numbers)) =>
-  batchRows(model, prs, { opened, repo });
+const rowsOf = (numbers = BATCH, model = openModel(prs, numbers.map(id))) =>
+  batchRows(model, prs, { opened });
 
 describe("rows and roles", () => {
   test("grouped by my role: peer, owner, re-attest, my own", () => {
@@ -53,28 +57,28 @@ describe("rows and roles", () => {
 
   test("peers from several teammates", () => {
     const ines = { ...pr(482), number: 900, prompter: "inescal" };
-    const model = openModel([...prs, ines], [482, 900]);
-    const rows = batchRows(model, [...prs, ines], { opened, repo });
+    const model = openModel([...prs, ines], [482, 900].map(id));
+    const rows = batchRows(model, [...prs, ines], { opened });
     expect(groupByRole(rows, people)[0]!.title).toBe("Teammates’ work · you sign as peer");
   });
 
   test("the entries are the included rows at the heads I looked at", () => {
-    const model = toggleRow(openModel(prs, BATCH), 485);
+    const model = toggleRow(openModel(prs, BATCH.map(id)), id(485));
     expect(entriesOf(rowsOf(BATCH, model))).toEqual([
-      { pr: 482, head_sha: pr(482).headSha },
-      { pr: 476, head_sha: pr(476).headSha },
-      { pr: 488, head_sha: pr(488).headSha },
-      { pr: 491, head_sha: pr(491).headSha },
+      { repo, pr: 482, head_sha: pr(482).headSha },
+      { repo, pr: 476, head_sha: pr(476).headSha },
+      { repo, pr: 488, head_sha: pr(488).headSha },
+      { repo, pr: 491, head_sha: pr(491).headSha },
     ]);
     // and back in
-    expect(entriesOf(rowsOf(BATCH, toggleRow(model, 485)))).toHaveLength(5);
+    expect(entriesOf(rowsOf(BATCH, toggleRow(model, id(485))))).toHaveLength(5);
   });
 
   test("a PR that stopped needing me, or has no patch-id yet, is left out", () => {
     const done = { ...pr(482), ask: null, needsMe: false };
     const noPatch = { ...pr(485), patchId: null };
     const list = prs.map((p) => (p.number === 482 ? done : p.number === 485 ? noPatch : p));
-    const rows = batchRows(openModel(list, [482, 485, 488]), list, { opened, repo });
+    const rows = batchRows(openModel(list, [482, 485, 488].map(id)), list, { opened });
     expect(rows.map((r) => [r.pr.number, r.included, r.blocked])).toEqual([
       [482, false, "no-ask"],
       [485, false, "no-patch-id"],
@@ -84,15 +88,15 @@ describe("rows and roles", () => {
   });
 
   test("a head that moved after I looked is marked; review again takes the new one", () => {
-    const model = openModel(prs, [482]);
+    const model = openModel(prs, [482].map(id));
     const moved = prs.map((p) => (p.number === 482 ? { ...p, headSha: "f".repeat(40) } : p));
-    const [row] = batchRows(model, moved, { opened, repo });
+    const [row] = batchRows(model, moved, { opened });
     expect(row!.moved).toBe(true);
     expect(row!.headSha).toBe(pr(482).headSha);
     const again = reviewAgain(model, [
-      { pr: 482, signed: pr(482).headSha, current: "f".repeat(40) },
+      { repo, pr: 482, signed: pr(482).headSha, current: "f".repeat(40) },
     ]);
-    const [fresh] = batchRows(again, moved, { opened, repo });
+    const [fresh] = batchRows(again, moved, { opened });
     expect([fresh!.moved, fresh!.changed, fresh!.headSha]).toEqual([false, true, "f".repeat(40)]);
   });
 });
@@ -114,9 +118,9 @@ describe("not opened", () => {
     };
     const before = { [openedKey(repo, 491)]: NOW - 7_200_000 };
     const after = { [openedKey(repo, 491)]: NOW - 60_000 };
-    expect(isNotOpened(theirs, before, repo)).toBe(true);
-    expect(isNotOpened(theirs, after, repo)).toBe(false);
-    expect(isNotOpened(base, {}, repo)).toBe(false);
+    expect(isNotOpened(theirs, before)).toBe(true);
+    expect(isNotOpened(theirs, after)).toBe(false);
+    expect(isNotOpened(base, {})).toBe(false);
   });
 });
 
@@ -127,7 +131,7 @@ describe("sentences", () => {
     );
     expect(summarySentence(rowsOf([482, 485]))).toBe("You are signing 2 changes as peer.");
     expect(summarySentence(rowsOf([488]))).toBe("You are signing 1 change of your own.");
-    expect(summarySentence(rowsOf([482], toggleRow(openModel(prs, [482]), 482)))).toBe(
+    expect(summarySentence(rowsOf([482], toggleRow(openModel(prs, [482].map(id)), id(482))))).toBe(
       "Nothing is left to sign. Tick a row to put it back.",
     );
   });
@@ -164,6 +168,7 @@ describe("sentences", () => {
 
   test("how a stale PR changed", () => {
     const entry = {
+      repo,
       pr: 482,
       signed: "9f3c2ab".padEnd(40, "0"),
       current: "1c4d5e6".padEnd(40, "0"),
@@ -186,30 +191,30 @@ describe("sentences", () => {
 
 describe("readiness", () => {
   const key = { fingerprint: "SHA256:x", publicKey: "ssh-ed25519 AAAA", location: "here" };
-  test("from the signer state and the key's enrolment", () => {
-    expect(readiness(null).state).toBe("locked");
-    expect(readiness({ state: "no-key" }).state).toBe("no-key");
-    const active = { ...key, enrolment: { state: "active" } } as const;
-    expect(readiness({ state: "locked", key: active }).state).toBe("locked");
-    expect(readiness({ state: "unlocked", key: active, until: NOW, once: false }).state).toBe(
+  test("from the signer state and the key's enrolment in the repo", () => {
+    expect(readiness(null, null).state).toBe("locked");
+    expect(readiness({ state: "no-key" }, null).state).toBe("no-key");
+    const active = { state: "active" } as const;
+    expect(readiness({ state: "locked", key }, active).state).toBe("locked");
+    expect(readiness({ state: "unlocked", key, until: NOW, once: false }, active).state).toBe(
       "unlocked",
     );
-    const pending: SignerState = {
-      state: "unlocked",
-      key: { ...key, enrolment: { state: "pending", pr: { number: 501, url: "" } } },
-      until: NOW,
-      once: false,
-    };
-    expect(readiness(pending)).toEqual({ state: "pending", pr: 501 });
-    expect(
-      readiness({ state: "locked", key: { ...key, enrolment: { state: "not-enrolled" } } }).state,
-    ).toBe("not-enrolled");
+    const unlocked: SignerState = { state: "unlocked", key, until: NOW, once: false };
+    expect(readiness(unlocked, { state: "pending", pr: { number: 501, url: "" } })).toEqual({
+      state: "pending",
+      pr: 501,
+    });
+    expect(readiness({ state: "locked", key }, { state: "not-enrolled" }).state).toBe(
+      "not-enrolled",
+    );
+    // Not known yet (a repo the list does not have): the lock state alone.
+    expect(readiness({ state: "locked", key }, null).state).toBe("locked");
   });
 });
 
 describe("the state machine", () => {
   const rows = [pr(482), pr(485)];
-  const entries = rows.map((p) => ({ pr: p.number, head_sha: p.headSha }));
+  const entries = rows.map((p) => ({ repo: p.repo, pr: p.number, head_sha: p.headSha }));
   const sign = (
     readinessState: "unlocked" | "locked" | "no-key",
   ): Extract<BatchEvent, { t: "sign" }> => ({
@@ -219,9 +224,9 @@ describe("the state machine", () => {
     entries,
   });
   const result: SignResult = {
-    payload: "nod v1 …",
-    posted: [{ pr: 482, url: "u1" }],
-    failed: [{ pr: 485, message: "GitHub said no." }],
+    payloads: [{ repo, payload: "nod v1 …" }],
+    posted: [{ repo, pr: 482, url: "u1" }],
+    failed: [{ repo, pr: 485, message: "GitHub said no." }],
   };
   const run = (...events: BatchEvent[]) =>
     events.reduce<BatchState>((s, e) => batchReducer(s, e), INITIAL_BATCH);
@@ -266,7 +271,7 @@ describe("the state machine", () => {
   });
 
   test("stale: nothing signed, the moved PRs listed; back to review", () => {
-    const stale = [{ pr: 482, signed: "a", current: "b" }];
+    const stale = [{ repo, pr: 482, signed: "a", current: "b" }];
     const s = run(sign("unlocked"), {
       t: "sign-failed",
       failure: { code: "stale", message: "#482 changed" },
@@ -303,7 +308,11 @@ describe("the state machine", () => {
     expect(retry).toMatchObject({ step: "signing", attempt: { shown: rows, prior: result } });
     const after = batchReducer(retry, {
       t: "signed",
-      result: { payload: "nod v1 again", posted: [{ pr: 485, url: "u2" }], failed: [] },
+      result: {
+        payloads: [{ repo, payload: "nod v1 again" }],
+        posted: [{ repo, pr: 485, url: "u2" }],
+        failed: [],
+      },
     });
     expect(after).toMatchObject({
       step: "signed",
@@ -318,7 +327,7 @@ describe("the state machine", () => {
     expect(again).toEqual({
       step: "signed",
       shown: rows,
-      result: { ...result, failed: [{ pr: 485, message: "Still down." }] },
+      result: { ...result, failed: [{ repo, pr: 485, message: "Still down." }] },
     });
     // a locked retry goes through the field, and Back returns to the signed step
     const locked = batchReducer(signed, { ...sign("locked"), entries: [entries[1]!] });
@@ -336,8 +345,12 @@ describe("the state machine", () => {
   test("merging results: posted adds up, failed is the latest", () => {
     expect(mergeResults(null, result)).toBe(result);
     expect(
-      mergeResults(result, { payload: "p", posted: [{ pr: 482, url: "x" }], failed: [] }).posted,
-    ).toEqual([{ pr: 482, url: "u1" }]);
+      mergeResults(result, {
+        payloads: [{ repo, payload: "p" }],
+        posted: [{ repo, pr: 482, url: "x" }],
+        failed: [],
+      }).posted,
+    ).toEqual([{ repo, pr: 482, url: "u1" }]);
   });
 });
 
@@ -361,9 +374,9 @@ describe("approving on GitHub (ADR 0006)", () => {
 
   test("rows: approvals need no patch-id; the batch's kind is the asks'", async () => {
     const all = await inbox();
-    const model = openModel(all, [512, 515, 514]);
+    const model = openModel(all, [512, 515, 514].map(id));
     expect(batchKind(model, all)).toBe("approve");
-    const rows = batchRows(model, all, { opened: {}, repo });
+    const rows = batchRows(model, all, { opened: {} });
     expect(rows.map((r) => [r.pr.number, r.role, r.included, r.blocked, r.notOpened])).toEqual([
       [512, "approve", true, null, true],
       [515, "approve", true, null, true],
@@ -375,15 +388,15 @@ describe("approving on GitHub (ADR 0006)", () => {
     ]);
     expect(summarySentence(rows, "approve")).toBe("You are approving 2 changes on GitHub.");
     expect(entriesOf(rows)).toEqual([
-      { pr: 512, head_sha: rows[0]!.pr.headSha },
-      { pr: 515, head_sha: rows[1]!.pr.headSha },
+      { repo, pr: 512, head_sha: rows[0]!.pr.headSha },
+      { repo, pr: 515, head_sha: rows[1]!.pr.headSha },
     ]);
   });
 
   test("one kind per batch: a row of the other kind is left out and says so", async () => {
     const all = await inbox();
     const mixed = [...all, pr(482)];
-    const approveFirst = batchRows(openModel(mixed, [512, 482]), mixed, { opened, repo });
+    const approveFirst = batchRows(openModel(mixed, [512, 482].map(id)), mixed, { opened });
     expect(approveFirst.map((r) => [r.pr.number, r.included, r.blocked])).toEqual([
       [512, true, null],
       [482, false, "other-kind"],
@@ -392,8 +405,8 @@ describe("approving on GitHub (ADR 0006)", () => {
       role: "other-kind",
       title: "To sign · in a batch of their own",
     });
-    const signFirst = batchRows(openModel(mixed, [482, 512]), mixed, { opened, repo });
-    expect(batchKind(openModel(mixed, [482, 512]), mixed)).toBe("sign");
+    const signFirst = batchRows(openModel(mixed, [482, 512].map(id)), mixed, { opened });
+    expect(batchKind(openModel(mixed, [482, 512].map(id)), mixed)).toBe("sign");
     expect(signFirst.map((r) => [r.pr.number, r.blocked])).toEqual([
       [482, null],
       [512, "other-kind"],
@@ -419,11 +432,11 @@ describe("approving on GitHub (ADR 0006)", () => {
 
   describe("the state machine: review → approving → approved / stale / error", () => {
     const rows = [pr(482), pr(485)];
-    const entries = rows.map((p) => ({ pr: p.number, head_sha: p.headSha }));
+    const entries = rows.map((p) => ({ repo: p.repo, pr: p.number, head_sha: p.headSha }));
     const approve: Extract<BatchEvent, { t: "approve" }> = { t: "approve", rows, entries };
     const result: ApproveResult = {
-      posted: [{ pr: 482, url: "r1" }],
-      failed: [{ pr: 485, message: "GitHub said no." }],
+      posted: [{ repo, pr: 482, url: "r1" }],
+      failed: [{ repo, pr: 485, message: "GitHub said no." }],
     };
     const run = (...events: BatchEvent[]) =>
       events.reduce<BatchState>((s, e) => batchReducer(s, e), INITIAL_BATCH);
@@ -442,7 +455,7 @@ describe("approving on GitHub (ADR 0006)", () => {
     });
 
     test("stale: nothing approved, the moved PRs listed; back to review", () => {
-      const stale = [{ pr: 482, signed: "a", current: "b" }];
+      const stale = [{ repo, pr: 482, signed: "a", current: "b" }];
       const s = run(approve, {
         t: "approve-failed",
         failure: { code: "stale", message: "#482 changed" },
@@ -470,7 +483,7 @@ describe("approving on GitHub (ADR 0006)", () => {
       expect(
         batchReducer(retry, {
           t: "approved",
-          result: { posted: [{ pr: 485, url: "r2" }], failed: [] },
+          result: { posted: [{ repo, pr: 485, url: "r2" }], failed: [] },
         }),
       ).toMatchObject({ result: { posted: [{ pr: 482 }, { pr: 485 }], failed: [] } });
       expect(
@@ -478,7 +491,7 @@ describe("approving on GitHub (ADR 0006)", () => {
       ).toEqual({
         step: "approved",
         shown: rows,
-        result: { ...result, failed: [{ pr: 485, message: "Down." }] },
+        result: { ...result, failed: [{ repo, pr: 485, message: "Down." }] },
       });
       expect(mergeApprovals(null, result)).toBe(result);
     });
@@ -496,21 +509,92 @@ describe("approving on GitHub (ADR 0006)", () => {
     });
   });
 
-  test("canSignWith: an active key, locked or not", () => {
-    expect(canSignWith(null)).toBe(false);
-    expect(canSignWith({ state: "no-key" })).toBe(false);
-    const key = (state: "active" | "not-enrolled") =>
-      ({
-        fingerprint: "SHA256:x",
-        publicKey: "ssh-ed25519 AAAA",
-        location: "/tmp/k",
-        enrolment: { state },
-      }) as const;
-    expect(canSignWith({ state: "locked", key: key("active") })).toBe(true);
-    expect(canSignWith({ state: "locked", key: key("not-enrolled") })).toBe(false);
+  test("canSignWith: an active key in the repo, locked or not", () => {
+    expect(canSignWith(null, null)).toBe(false);
+    expect(canSignWith({ state: "no-key" }, null)).toBe(false);
+    const locked = {
+      state: "locked",
+      key: { fingerprint: "SHA256:x", publicKey: "ssh-ed25519 AAAA", location: "/tmp/k" },
+    } as const;
+    expect(canSignWith(locked, { state: "active" })).toBe(true);
+    expect(canSignWith(locked, { state: "not-enrolled" })).toBe(false);
   });
 
   test("roleShort: approve", () => {
     expect(roleShort("approve")).toBe("approve");
+  });
+});
+
+const manySource = new FakeSource({ clock: new ManualClock(NOW), scenario: "repos" });
+await manySource.ready;
+
+describe("a batch across repos (ADR 0007)", () => {
+  const LEDGER = "acme.ghe.com/finance/ledger";
+  const many = manySource.snapshot()!;
+  const ref = (repo: string, n: number) => `${repo}#${n}`;
+
+  test("rows of two repos: one signature each, the entries name their repo", () => {
+    const ids = [ref(repo, 482), ref(LEDGER, 57), ref(repo, 488)];
+    const rows = batchRows(openModel(many.prs, ids), many.prs, { opened });
+    expect(rows.map((r) => [r.pr.repo, r.pr.number, r.included])).toEqual([
+      [repo, 482, true],
+      [LEDGER, 57, true],
+      [repo, 488, true],
+    ]);
+    expect(reposOf(rows)).toEqual([repo, LEDGER]);
+    expect(entriesOf(rows).map((e) => [e.repo, e.pr])).toEqual([
+      [repo, 482],
+      [LEDGER, 57],
+      [repo, 488],
+    ]);
+    expect(summarySentence(rows)).toBe(
+      "You are signing 3 changes in two repositories, one signature each: 2 as peer, 1 your own.",
+    );
+  });
+
+  test("the same number in two repos is two rows; review again moves only the stale one", () => {
+    const twin = { ...pr(482), repo: LEDGER, headSha: "c".repeat(40) };
+    const list = [...prs, twin];
+    const model = openModel(list, [ref(repo, 482), ref(LEDGER, 482)]);
+    expect(model.ids).toHaveLength(2);
+    const again = reviewAgain(model, [
+      { repo: LEDGER, pr: 482, signed: "c".repeat(40), current: "d".repeat(40) },
+    ]);
+    expect(again.heads[ref(LEDGER, 482)]).toBe("d".repeat(40));
+    expect(again.heads[ref(repo, 482)]).toBe(pr(482).headSha);
+    expect(again.changed).toEqual([ref(LEDGER, 482)]);
+  });
+
+  test("approvals across repos say so, without signatures", () => {
+    const ids = [ref("tallyho/field-app", 512), ref("tallyho/field-app", 515)];
+    const rows = batchRows(openModel(many.prs, ids), many.prs, { opened: {} });
+    expect(summarySentence(rows, "approve")).toBe("You are approving 2 changes on GitHub.");
+    const both = batchRows(
+      openModel(many.prs, [ids[0]!, ref(LEDGER, 57)]),
+      many.prs.map((p) =>
+        p.repo === LEDGER && p.number === 57
+          ? { ...p, ask: { ...p.ask!, kind: "approve" as const } }
+          : p,
+      ),
+      { opened: {} },
+    );
+    expect(summarySentence(both, "approve")).toBe(
+      "You are approving 2 changes on GitHub in two repositories.",
+    );
+  });
+
+  test("a retry adds to what posted, per repo", () => {
+    const first: SignResult = {
+      payloads: [{ repo, payload: "a" }],
+      posted: [{ repo, pr: 7, url: "u" }],
+      failed: [{ repo: LEDGER, pr: 7, message: "down" }],
+    };
+    const merged = mergeResults(first, {
+      payloads: [{ repo: LEDGER, payload: "b" }],
+      posted: [{ repo: LEDGER, pr: 7, url: "v" }],
+      failed: [],
+    });
+    expect(merged.posted.map((p) => `${p.repo}#${p.pr}`)).toEqual([`${repo}#7`, `${LEDGER}#7`]);
+    expect(merged.payloads.map((p) => p.repo)).toEqual([repo, LEDGER]);
   });
 });

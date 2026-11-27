@@ -27,6 +27,31 @@ describe("parseRoute", () => {
     expect(parseRoute("#/setup/nonsense")).toEqual({ view: "setup" });
   });
 
+  test("the setup page of one repo of several (ADR 0007): the host only off github.com", () => {
+    expect(parseRoute("#/setup/tallyho/field-app/shared-policy")).toEqual({
+      view: "setup",
+      repo: "tallyho/field-app",
+      step: "shared-policy",
+    });
+    expect(parseRoute("#/setup/tallyho/field-app")).toEqual({
+      view: "setup",
+      repo: "tallyho/field-app",
+    });
+    expect(parseRoute("#/setup/Acme.GHE.com/finance/ledger/signing")).toEqual({
+      view: "setup",
+      repo: "acme.ghe.com/finance/ledger",
+      step: "signing",
+    });
+    // A repo named like a step: a repo, as owners have no dots.
+    expect(parseRoute("#/setup/acme/signing")).toEqual({ view: "setup", repo: "acme/signing" });
+    expect(parseRoute("#/setup/acme.ghe.com/acme/signing")).toEqual({
+      view: "setup",
+      repo: "acme.ghe.com/acme/signing",
+    });
+    for (const bad of ["#/setup/a/b/c/d", "#/setup/not a/repo", "#/setup/x.y/repo"])
+      expect(parseRoute(bad)).toEqual({ view: "setup" });
+  });
+
   test("a deep link to a PR", () => {
     expect(parseRoute("#/pr/tallyho/fieldbook/482")).toEqual({
       view: "pr",
@@ -121,6 +146,8 @@ describe("formatRoute", () => {
       { view: "board" },
       { view: "setup" },
       { view: "setup", step: "enforced" },
+      { view: "setup", repo: "tallyho/field-app" },
+      { view: "setup", repo: "acme.ghe.com/finance/ledger", step: "signing" },
       { view: "forward", to: "https://nod.example.test:8445" },
       { view: "forward", to: "odd & ?#= value" },
       { view: "forward", to: null },

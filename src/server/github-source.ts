@@ -357,7 +357,11 @@ export class GitHubSource implements Source {
   async postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>> {
     const results: PostResult[] = [];
     for (const entry of input.payload.entries) {
-      if (!this.api || !sameRepo(input.repo, this.key()) || !sameLogin(input.payload.repo, this.repo())) {
+      if (
+        !this.api ||
+        !sameRepo(input.repo, this.key()) ||
+        !sameLogin(input.payload.repo, this.repo())
+      ) {
         results.push({ pr: entry.pr, ok: false, url: null, message: `Not ${this.repo()}.` });
         continue;
       }

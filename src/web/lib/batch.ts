@@ -11,6 +11,10 @@
  * blocked, and says to do it in a batch of its own. Within one repo that
  * cannot happen (the key decides every ask alike); with many repos it can.
  *
+ * A batch may span repos (ADR 0007): its rows are PR ids (`<repo>#<n>`),
+ * and a batch of nods is one signature per repo (`reposOf`), signed in one
+ * go; whether my key can sign is the worst of its repos' enrolments.
+ *
  * The passphrase is never in here: it goes from the input straight into the
  * one `unlock` request (`components/batch-dialog.tsx`).
  */
@@ -19,13 +23,17 @@ import { shortName } from "../../shared/attention";
 import type {
   ApproveResult,
   Ask,
+  Enrolment,
   ErrorCode,
+  PrId,
   PrView,
+  RepoKey,
   RequestError,
   SignEntry,
   SignResult,
   SignerState,
 } from "../../shared/protocol";
+import { idOf, prId } from "../../shared/repo-key";
 import { namesOf, type People } from "./wording";
 import { openedKey, type Opened } from "./storage";
 
@@ -70,13 +78,12 @@ export interface BatchRow {
  * counts, since the content changed after it. My own work is never marked.
  */
 export function isNotOpened(
-  pr: Pick<PrView, "number" | "ask" | "mine" | "signatures">,
+  pr: Pick<PrView, "repo" | "number" | "ask" | "mine" | "signatures">,
   opened: Opened,
-  repo: string,
 ): boolean {
   const kind = pr.ask?.kind;
   if (!kind || kind === "self" || (kind === "re-attest" && pr.mine)) return false;
-  const at = opened[openedKey(repo, pr.number)];
+  const at = opened[openedKey(pr.repo, pr.number)];
   if (at === undefined) return true;
   if (kind !== "re-attest") return false;
   const mine = pr.signatures.filter((s) => s.byMe).map((s) => s.at);
@@ -84,28 +91,30 @@ export function isNotOpened(
 }
 
 export interface BatchModel {
-  /** The PRs in the order they were picked. */
-  readonly numbers: ReadonlyArray<number>;
+  /** The PRs (their ids) in the order they were picked. */
+  readonly ids: ReadonlyArray<PrId>;
   /** The head of each PR as I looked at it (when the dialog opened, or after "review again"). */
-  readonly heads: Readonly<Record<number, string>>;
-  readonly removed: ReadonlyArray<number>;
-  readonly changed: ReadonlyArray<number>;
+  readonly heads: Readonly<Record<PrId, string>>;
+  readonly removed: ReadonlyArray<PrId>;
+  readonly changed: ReadonlyArray<PrId>;
 }
 
-export function openModel(prs: ReadonlyArray<PrView>, numbers: ReadonlyArray<number>): BatchModel {
-  const found = numbers.filter(
-    (n, i) => numbers.indexOf(n) === i && prs.some((p) => p.number === n),
-  );
+/** The PR of an id, in a snapshot's list. */
+export const findPr = (prs: ReadonlyArray<PrView>, id: PrId): PrView | undefined =>
+  prs.find((p) => idOf(p) === id);
+
+export function openModel(prs: ReadonlyArray<PrView>, ids: ReadonlyArray<PrId>): BatchModel {
+  const found = ids.filter((id, i) => ids.indexOf(id) === i && findPr(prs, id) !== undefined);
   return {
-    numbers: found,
-    heads: Object.fromEntries(found.map((n) => [n, prs.find((p) => p.number === n)!.headSha])),
+    ids: found,
+    heads: Object.fromEntries(found.map((id) => [id, findPr(prs, id)!.headSha])),
     removed: [],
     changed: [],
   };
 }
 
 /** Take a row out of the batch, or put it back. */
-export function toggleRow(model: BatchModel, pr: number): BatchModel {
+export function toggleRow(model: BatchModel, pr: PrId): BatchModel {
   const removed = model.removed.includes(pr)
     ? model.removed.filter((n) => n !== pr)
     : [...model.removed, pr];
@@ -115,8 +124,8 @@ export function toggleRow(model: BatchModel, pr: number): BatchModel {
 /** "Review again" after a stale refusal: look at the new heads, mark those rows. */
 export function reviewAgain(model: BatchModel, stale: ReadonlyArray<StaleEntry>): BatchModel {
   const heads = { ...model.heads };
-  for (const s of stale) heads[s.pr] = s.current;
-  const changed = [...new Set([...model.changed, ...stale.map((s) => s.pr)])];
+  for (const s of stale) heads[prId(s.repo, s.pr)] = s.current;
+  const changed = [...new Set([...model.changed, ...stale.map((s) => prId(s.repo, s.pr))])];
   return { ...model, heads, changed };
 }
 
@@ -125,8 +134,8 @@ export function reviewAgain(model: BatchModel, stale: ReadonlyArray<StaleEntry>)
  * (nods when none does).
  */
 export function batchKind(model: BatchModel, prs: ReadonlyArray<PrView>): BatchKind {
-  for (const n of model.numbers) {
-    const ask = prs.find((p) => p.number === n)?.ask;
+  for (const id of model.ids) {
+    const ask = findPr(prs, id)?.ask;
     if (ask) return kindOf(ask.kind);
   }
   return "sign";
@@ -135,13 +144,13 @@ export function batchKind(model: BatchModel, prs: ReadonlyArray<PrView>): BatchK
 export function batchRows(
   model: BatchModel,
   prs: ReadonlyArray<PrView>,
-  context: { readonly opened: Opened; readonly repo: string },
+  context: { readonly opened: Opened },
 ): ReadonlyArray<BatchRow> {
   const kind = batchKind(model, prs);
-  return model.numbers.flatMap((n): BatchRow[] => {
-    const pr = prs.find((p) => p.number === n);
+  return model.ids.flatMap((id): BatchRow[] => {
+    const pr = findPr(prs, id);
     if (!pr) return [];
-    const headSha = model.heads[n] ?? pr.headSha;
+    const headSha = model.heads[id] ?? pr.headSha;
     const blocked =
       pr.state !== "open" && pr.state !== "draft"
         ? "not-open"
@@ -158,10 +167,10 @@ export function batchRows(
         pr,
         role: pr.ask?.kind ?? null,
         headSha,
-        included: !model.removed.includes(n) && blocked === null,
-        notOpened: isNotOpened(pr, context.opened, context.repo),
+        included: !model.removed.includes(id) && blocked === null,
+        notOpened: isNotOpened(pr, context.opened),
         moved: pr.headSha !== headSha,
-        changed: model.changed.includes(n),
+        changed: model.changed.includes(id),
         blocked,
       },
     ];
@@ -170,7 +179,17 @@ export function batchRows(
 
 /** What the `sign` request carries: the included rows at the heads I looked at. */
 export function entriesOf(rows: ReadonlyArray<BatchRow>): ReadonlyArray<SignEntry> {
-  return rows.filter((r) => r.included).map((r) => ({ pr: r.pr.number, head_sha: r.headSha }));
+  return rows
+    .filter((r) => r.included)
+    .map((r) => ({ repo: r.pr.repo, pr: r.pr.number, head_sha: r.headSha }));
+}
+
+/**
+ * The repos of the included rows, in the order they first appear: a batch
+ * of nods is one signature per repo (ADR 0007, 10).
+ */
+export function reposOf(rows: ReadonlyArray<BatchRow>): ReadonlyArray<RepoKey> {
+  return [...new Set(rows.filter((r) => r.included).map((r) => r.pr.repo))];
 }
 
 export interface RoleGroup {
@@ -266,21 +285,28 @@ const ROLE_PHRASES: Readonly<Record<Role, string>> = {
 /**
  * The batch in one sentence, by role: "You are signing 4 changes: 2 as
  * peer, 1 as owner, 1 your own." With one role: "You are signing 3 changes
- * as peer."
+ * as peer." Across repos it says so: "… in two repositories, one signature
+ * each." (ADR 0007, 10).
  */
 export function summarySentence(rows: ReadonlyArray<BatchRow>, kind: BatchKind = "sign"): string {
   const included = rows.filter((r) => r.included && r.role !== null);
   if (included.length === 0) return `Nothing is left to ${kind}. Tick a row to put it back.`;
-  if (kind === "approve") return `You are approving ${changes(included.length)} on GitHub.`;
+  const repos = reposOf(included).length;
+  const across =
+    repos > 1
+      ? ` in ${countWord(repos)} repositories${kind === "sign" ? ", one signature each" : ""}`
+      : "";
+  if (kind === "approve")
+    return `You are approving ${changes(included.length)} on GitHub${across}.`;
   const parts = ROLE_ORDER.map(
     (role) => [role, included.filter((r) => r.role === role).length] as const,
   ).filter(([, n]) => n > 0);
   if (parts.length === 1) {
     const [role] = parts[0]!;
     const phrase = role === "self" ? "of your own" : ROLE_PHRASES[role];
-    return `You are signing ${changes(included.length)} ${phrase}.`;
+    return `You are signing ${changes(included.length)} ${phrase}${across}.`;
   }
-  return `You are signing ${changes(included.length)}: ${parts.map(([role, n]) => `${n} ${ROLE_PHRASES[role]}`).join(", ")}.`;
+  return `You are signing ${changes(included.length)}${across}: ${parts.map(([role, n]) => `${n} ${ROLE_PHRASES[role]}`).join(", ")}.`;
 }
 
 export type Outcome = { readonly text: string; readonly tone: "ok" | "wait" | "none" };
@@ -380,6 +406,7 @@ export function outcomeSentence(
 }
 
 export interface StaleEntry {
+  readonly repo: RepoKey;
   readonly pr: number;
   readonly signed: string;
   readonly current: string;
@@ -401,17 +428,21 @@ export type Readiness =
   | { readonly state: "pending"; readonly pr: number | null }
   | { readonly state: "not-enrolled" };
 
-/** My key is enrolled and active (locked or not): what I am asked for is a nod. */
-export function canSignWith(signer: SignerState | null): boolean {
-  const state = readiness(signer).state;
+/** My key is enrolled and active (locked or not) in the repo: what I am asked for is a nod. */
+export function canSignWith(signer: SignerState | null, enrolment: Enrolment | null): boolean {
+  const state = readiness(signer, enrolment).state;
   return signer !== null && (state === "locked" || state === "unlocked");
 }
 
-/** Whether I can sign now, must unlock first, or cannot sign at all (and why). */
-export function readiness(signer: SignerState | null): Readiness {
+/**
+ * Whether I can sign now, must unlock first, or cannot sign at all (and
+ * why), with my key's enrolment in the repo (or the worst of a batch's
+ * repos). A key whose enrolment is not known yet reads as enrolled.
+ */
+export function readiness(signer: SignerState | null, enrolment: Enrolment | null): Readiness {
   if (!signer) return { state: "locked" };
   if (signer.state === "no-key") return { state: "no-key" };
-  const enrolment = signer.key.enrolment;
+  if (!enrolment) return { state: signer.state };
   if (enrolment.state === "pending") return { state: "pending", pr: enrolment.pr?.number ?? null };
   if (enrolment.state === "not-enrolled") return { state: "not-enrolled" };
   return { state: signer.state };
@@ -496,14 +527,17 @@ export type BatchEvent =
 
 export const INITIAL_BATCH: BatchState = { step: "review" };
 
+const sameRef = (a: { repo: RepoKey; pr: number }, b: { repo: RepoKey; pr: number }) =>
+  a.pr === b.pr && a.repo.toLowerCase() === b.repo.toLowerCase();
+
 /** Posted adds up across a retry; failed is what the last attempt could not post. */
 export function mergeResults(prior: SignResult | null, next: SignResult): SignResult {
   if (!prior) return next;
   const posted = [
     ...prior.posted,
-    ...next.posted.filter((p) => !prior.posted.some((q) => q.pr === p.pr)),
+    ...next.posted.filter((p) => !prior.posted.some((q) => sameRef(p, q))),
   ];
-  return { payload: next.payload, posted, failed: next.failed };
+  return { payloads: [...prior.payloads, ...next.payloads], posted, failed: next.failed };
 }
 
 /** The same for approvals: approved adds up across a retry. */
@@ -512,7 +546,7 @@ export function mergeApprovals(prior: ApproveResult | null, next: ApproveResult)
   return {
     posted: [
       ...prior.posted,
-      ...next.posted.filter((p) => !prior.posted.some((q) => q.pr === p.pr)),
+      ...next.posted.filter((p) => !prior.posted.some((q) => sameRef(p, q))),
     ],
     failed: next.failed,
   };

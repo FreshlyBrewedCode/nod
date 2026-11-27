@@ -18,9 +18,11 @@ import type * as React from "react";
 
 import { shortName } from "../../shared/attention";
 import type { Ask, JourneyEvent, PrView } from "../../shared/protocol";
+import { idOf } from "../../shared/repo-key";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { isWidePanel } from "@/lib/panel";
+import { repoOf } from "@/lib/repos";
 import { formatRoute } from "@/lib/route";
 import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -41,7 +43,7 @@ import {
   thenText,
   whoOf,
 } from "@/lib/wording";
-import { Avatar, Kbd, RiskBars, Tag } from "./bits";
+import { Avatar, Kbd, RepoChip, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import { DiffIndicator } from "./diff-indicator";
 
@@ -59,10 +61,12 @@ export function DetailPanel({
   width: number;
   onClose: () => void;
 }) {
-  const { snapshot, github } = useDashboard();
+  const { githubOf, repos, chips } = useDashboard();
+  const github = pr ? githubOf(pr) : null;
   return (
     <aside className="bg-panel h-full overflow-auto" aria-label="Details">
       <div className="bg-panel border-line sticky top-0 z-10 flex items-center gap-2 border-b py-3 pr-4 pl-6">
+        {pr && <RepoChip repo={pr.repo} chips={chips} />}
         <span className="text-tx3 truncate text-[12.5px]">
           {pr ? `#${pr.number}${pr.topic ? ` · ${pr.topic}` : ""}` : "Details"}
         </span>
@@ -73,16 +77,18 @@ export function DetailPanel({
               href={pr.url}
               target="_blank"
               rel="noreferrer"
+              title={pr.url}
               className="text-tx3 hover:text-tx2 inline-flex items-center gap-1 text-[12.5px]"
             >
-              GitHub <ExternalLink className="size-3" />
+              {github && github.host !== "github.com" ? github.host : "GitHub"}{" "}
+              <ExternalLink className="size-3" />
             </a>
             <a
               className="border-line text-tx2 hover:text-tx grid size-7 place-items-center rounded-[7px] border"
               href={formatRoute({
                 view: "pr",
-                host: github.host,
-                repo: snapshot.repo,
+                host: github!.host,
+                repo: repoOf(repos, pr.repo)?.name ?? pr.repo,
                 number: pr.number,
               })}
               title="Link to this pull request"
@@ -102,7 +108,7 @@ export function DetailPanel({
         </button>
       </div>
       {pr ? (
-        <PanelBody key={pr.number} pr={pr} wide={isWidePanel(width)} />
+        <PanelBody key={idOf(pr)} pr={pr} wide={isWidePanel(width)} />
       ) : (
         <p className="text-tx3 px-6 py-5">
           Focus a row (<Kbd>j</Kbd> <Kbd>k</Kbd>) to see its details here.
@@ -113,13 +119,14 @@ export function DetailPanel({
 }
 
 function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
-  const { people, me, openBatch, selection, toggleSelected, signing } = useDashboard();
+  const { people, me, openBatch, selection, toggleSelected, signingIn, chips } = useDashboard();
   const now = useNow(MINUTE);
   const checks = checksTag(pr);
-  const selected = selection.includes(pr.number);
+  const id = idOf(pr);
+  const selected = selection.includes(id);
   const need = localNeed(pr, people, me);
   const local = pr.classifiedBy === "local";
-  const own = need ? null : ownPrHint(pr, signing);
+  const own = need ? null : ownPrHint(pr, signingIn(pr));
   return (
     <div className="px-6 pt-5 pb-10">
       <h1 className="m-0 mb-1.5 text-[19px] leading-[1.3] font-bold tracking-[-0.01em]">
@@ -152,11 +159,7 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
             </div>
           </div>
           <div className="ml-auto flex gap-2">
-            <button
-              type="button"
-              className={cn(BUTTON, PRIMARY)}
-              onClick={() => openBatch([pr.number])}
-            >
+            <button type="button" className={cn(BUTTON, PRIMARY)} onClick={() => openBatch([id])}>
               {pr.ask.kind === "approve" ? (
                 "Approve"
               ) : (
@@ -167,7 +170,7 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
               )}{" "}
               <Kbd className="border-[#0003] bg-[#0002] text-on-need">s</Kbd>
             </button>
-            <button type="button" className={BUTTON} onClick={() => toggleSelected(pr.number)}>
+            <button type="button" className={BUTTON} onClick={() => toggleSelected(id)}>
               {selected ? "In the batch" : "Add to batch"} <Kbd>x</Kbd>
             </button>
           </div>
@@ -191,7 +194,9 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
         </div>
       )}
 
-      {own && <OwnPrNote text={own} className="mt-[18px]" />}
+      {own && (
+        <OwnPrNote text={own} repo={chips.size ? pr.repo : undefined} className="mt-[18px]" />
+      )}
 
       {pr.brief ? (
         <dl className="mt-[22px] mb-0 grid grid-cols-[64px_1fr] gap-x-3.5 gap-y-2.5 text-[14px] leading-[1.5]">
@@ -286,7 +291,16 @@ export function ApproveDetail({ pr, ask }: { pr: Pick<PrView, "classifiedBy" | "
 }
 
 /** My own PR without a key: GitHub does not let me approve it; signing does (quiet, r3's dashed note). */
-export function OwnPrNote({ text, className }: { text: string; className?: string }) {
+export function OwnPrNote({
+  text,
+  repo,
+  className,
+}: {
+  text: string;
+  /** The PR's repo, when there are several: signing is set up per repo. */
+  repo?: string | undefined;
+  className?: string;
+}) {
   return (
     <p
       role="note"
@@ -297,7 +311,7 @@ export function OwnPrNote({ text, className }: { text: string; className?: strin
     >
       {text}{" "}
       <a
-        href={formatRoute({ view: "setup", step: "signing" })}
+        href={formatRoute({ view: "setup", ...(repo && { repo }), step: "signing" })}
         className="hover:text-tx underline underline-offset-2"
       >
         Set up signing

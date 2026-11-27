@@ -115,7 +115,9 @@ export const LEDGER_SEEDS: ReadonlyArray<Seed> = [
     patch: "7ae0c533",
     opened: 60,
     act: [55, "checks turned green"],
-    reasons: [["module-tier", "ledger/reports is a leaf module", "needs prompter self-attest", true]],
+    reasons: [
+      ["module-tier", "ledger/reports is a leaf module", "needs prompter self-attest", true],
+    ],
     policy: "leaf-module-change",
     req: "Prompter self-attest",
     slots: [{ role: "prompter", label: "Prompter", who: "mara", state: "missing" }],

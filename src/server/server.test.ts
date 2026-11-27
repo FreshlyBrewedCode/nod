@@ -320,7 +320,11 @@ describe("--allow-host: one named host behind a TLS proxy (ADR 0005)", () => {
     try {
       await until(() => [desk, phone].every((c) => c.state.snapshot !== null));
       const entries = [
-        { repo: "tallyho/fieldbook", pr: 482, head_sha: desk.state.snapshot!.prs.find((p) => p.number === 482)!.headSha },
+        {
+          repo: "tallyho/fieldbook",
+          pr: 482,
+          head_sha: desk.state.snapshot!.prs.find((p) => p.number === 482)!.headSha,
+        },
       ];
       await desk.request("unlock", { passphrase: "pass" });
       await until(() => desk.state.signer?.state === "unlocked");

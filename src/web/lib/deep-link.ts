@@ -6,7 +6,8 @@
  */
 
 import { GITHUB_COM, githubHost } from "../../kit/host.ts";
-import type { GitHubInfo, PrView, Snapshot, UnclassifiedPr, Welcome } from "../../shared/protocol";
+import type { PrView, RepoInfo, Snapshot, UnclassifiedPr } from "../../shared/protocol";
+import { repoKey, sameRepo } from "../../shared/repo-key";
 import { linkNumbers, type LinkRoute } from "./route";
 import { duration } from "./time";
 import { namesOf, statusText, type People } from "./wording";
@@ -21,18 +22,21 @@ export interface LinkTarget {
 
 export type Landing =
   /**
-   * The link is for another repo than the one `nod serve` reads, or for one
-   * of the same name on another host. `repo` and `here` name the host when
-   * it is not github.com; `webUrl` is the web UI of the link's host.
+   * The link is for a repo `nod serve` does not read, or for one of the same
+   * name on another host. `repo` and `here` (every repo it reads, by key)
+   * name the host when it is not github.com; `webUrl` is the web UI of the
+   * link's host.
    */
   | {
       readonly kind: "other-repo";
       readonly repo: string;
-      readonly here: string;
+      readonly here: ReadonlyArray<string>;
       readonly webUrl: string;
     }
   | {
       readonly kind: "found";
+      /** The repo the link is for, as the server reads it. */
+      readonly repo: RepoInfo;
       readonly targets: ReadonlyArray<LinkTarget>;
       /** Named by the link, open, but not classified by the verifier yet. */
       readonly unclassified: ReadonlyArray<UnclassifiedPr>;
@@ -42,20 +46,12 @@ export type Landing =
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-/** github.com, for a server that does not say its host (older than the field). */
-const GITHUB_DOT_COM: GitHubInfo = { host: GITHUB_COM, webUrl: githubHost(GITHUB_COM).webUrl };
-
-/** The GitHub host the connected `nod serve` reads; github.com before the welcome. */
-export function githubOf(welcome: Pick<Welcome, "github"> | null | undefined): GitHubInfo {
-  return welcome?.github ?? GITHUB_DOT_COM;
-}
-
 /** A host's web UI, e.g. `https://acme.ghe.com`. */
 export function webUrlOf(host: string): string {
   try {
     return githubHost(host).webUrl;
   } catch {
-    return GITHUB_DOT_COM.webUrl;
+    return githubHost(GITHUB_COM).webUrl;
   }
 }
 
@@ -69,9 +65,9 @@ export function githubPullsUrl(webUrl: string, repo: string): string {
   return `${webUrl}/${repo}/pulls`;
 }
 
-/** How a link's repo is named on screen: `owner/name`, or `host/owner/name` off github.com. */
+/** How a link's repo is named on screen: its repo key, `owner/name`, or `host/owner/name` off github.com. */
 export function repoLabel(host: string, repo: string): string {
-  return host === GITHUB_COM ? repo : `${host}/${repo}`;
+  return repoKey(host, repo);
 }
 
 /**
@@ -109,35 +105,37 @@ export function whyNotNeeded(pr: PrView, people: People, now: number): string | 
 }
 
 /**
- * What a link lands on. `github` is the host `nod serve` reads: a link for
- * another host is another repository, even when `owner/name` match.
+ * What a link lands on: the repo it names among those `nod serve` reads
+ * (host and `owner/name`: a link for another host is another repository,
+ * even when `owner/name` match), and its PRs there.
  */
 export function landingOf(
   route: LinkRoute,
   snapshot: Snapshot,
   now: number,
-  github: GitHubInfo,
+  repos: ReadonlyArray<RepoInfo>,
 ): Landing {
-  if (!same(route.host, github.host) || !same(route.repo, snapshot.repo))
+  const repo = repos.find((r) => same(r.github.host, route.host) && same(r.name, route.repo));
+  if (!repo)
     return {
       kind: "other-repo",
       repo: repoLabel(route.host, route.repo),
-      here: repoLabel(github.host, snapshot.repo),
+      here: repos.map((r) => r.key),
       webUrl: webUrlOf(route.host),
     };
   const targets: LinkTarget[] = [];
   const unclassified: UnclassifiedPr[] = [];
   const missing: number[] = [];
   for (const n of linkNumbers(route)) {
-    const pr = snapshot.prs.find((p) => p.number === n);
-    const waiting = snapshot.unclassified.find((u) => u.number === n);
+    const pr = snapshot.prs.find((p) => sameRepo(p.repo, repo.key) && p.number === n);
+    const waiting = snapshot.unclassified.find((u) => sameRepo(u.repo, repo.key) && u.number === n);
     if (pr) {
       const why = whyNotNeeded(pr, snapshot.people, now);
       targets.push({ pr, needsMe: why === null, why });
     } else if (waiting) unclassified.push(waiting);
     else missing.push(n);
   }
-  return { kind: "found", targets, unclassified, missing };
+  return { kind: "found", repo, targets, unclassified, missing };
 }
 
 /**

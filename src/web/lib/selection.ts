@@ -1,17 +1,20 @@
 /**
  * The PRs ticked for signing (checkbox, `x`, "Add to batch"), in the order
- * they were ticked. Only PRs that need me can be in it (tiers 1–2): `keep`
- * drops the ones that stopped needing me after a snapshot.
+ * they were ticked, by PR id (`<repo key>#<n>`: a selection may span repos).
+ * Only PRs that need me can be in it (tiers 1–2): `keep` drops the ones that
+ * stopped needing me after a snapshot.
  */
 
-export type Selection = ReadonlyArray<number>;
+import type { PrId } from "../../shared/protocol";
+
+export type Selection = ReadonlyArray<PrId>;
 
 export type SelectionAction =
-  | { readonly t: "toggle"; readonly pr: number }
-  | { readonly t: "add"; readonly prs: ReadonlyArray<number> }
+  | { readonly t: "toggle"; readonly pr: PrId }
+  | { readonly t: "add"; readonly prs: ReadonlyArray<PrId> }
   | { readonly t: "clear" }
   /** Keep only these (the PRs that may still be selected). */
-  | { readonly t: "keep"; readonly prs: ReadonlyArray<number> };
+  | { readonly t: "keep"; readonly prs: ReadonlyArray<PrId> };
 
 export function selectionReducer(state: Selection, action: SelectionAction): Selection {
   switch (action.t) {

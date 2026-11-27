@@ -191,16 +191,14 @@ export class Session {
     const { source, signer } = this.options;
     const status = signer.status();
     return Promise.all(
-      source.repos().map(
-        async (repo): Promise<RepoInfo> => ({
-          key: repo.key,
-          name: repo.name,
-          github: repo.github,
-          setup: await source.setup(repo.key),
-          enrolment:
-            status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
-        }),
-      ),
+      source.repos().map(async (repo): Promise<RepoInfo> => ({
+        key: repo.key,
+        name: repo.name,
+        github: repo.github,
+        setup: await source.setup(repo.key),
+        enrolment:
+          status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
+      })),
     );
   }
 
@@ -226,7 +224,7 @@ export class Session {
   }
 
   private async welcome(side: Side): Promise<Welcome> {
-    const { source, version, fake } = this.options;
+    const { version, fake } = this.options;
     return {
       t: "welcome",
       protocol: PROTOCOL_VERSION,
@@ -297,8 +295,7 @@ export class Session {
         const targets: SignTarget[] = [];
         for (const entry of entries) {
           const target = await source.signTarget(repo.key, entry.pr);
-          if (!target)
-            throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo.key}.`);
+          if (!target) throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo.key}.`);
           if (target.state !== "open")
             throw new RequestFailure(
               "not-open",
@@ -468,7 +465,10 @@ export class Session {
         const key = needRepo(repo).key;
         const status = signer.status();
         return {
-          pr: await source.openSetupPr(key, status.state === "no-key" ? null : status.key.publicKey),
+          pr: await source.openSetupPr(
+            key,
+            status.state === "no-key" ? null : status.key.publicKey,
+          ),
         };
       },
       "create-key": async ({ passphrase, path }) => {
