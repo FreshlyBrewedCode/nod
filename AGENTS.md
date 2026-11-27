@@ -17,12 +17,29 @@ nod
   `.nod/classifiers/`, `.nod/verify.ts`, `allowed_signers`, the kit pin and
   `.github/workflows/nod.yml`. They are shipped in the npm package, typechecked, linted and run
   in `src/init/templates.test.ts` (`@frebreco/nod/kit` maps to `src/kit/` via `tsconfig.json`);
-  the workflow follows finding 01's hygiene rules, enforced by `setup-files.test.ts`
+  the workflow follows finding 01's hygiene rules, enforced by `setup-files.test.ts`;
+  `templates/inbox/` is what `nod inbox init` writes into `$XDG_CONFIG_HOME/nod/inbox/` (left out
+  of `nod init`'s setup; its `tsconfig.json` is stored as `tsconfig.editor.json`, since a
+  `tsconfig.json` in the package steers bun's resolution), tested in `src/server/inbox/cli.test.ts`
 - the sandbox `FreshlyBrewedCode/nod-sandbox` (public) runs the real setup; findings 01 and 02
   describe its state
 - kit: zero dependencies; nod format, patch-id and file list via `git`, SSHSIG via `ssh-keygen`
   (argument arrays, never a shell), classifiers, policy, check summary, sticky comment, REST helpers;
   everything exported has a doc comment; tests use real `git`/`ssh-keygen` in temp dirs, never `~/.ssh`
+- my own inbox, the personal layer (ADR 0009, its "The runner" section): the kit's half is
+  `src/kit/inbox/` (`@frebreco/nod/kit/inbox`: `defineInbox`, attention classifiers, analyzers,
+  typed insight blocks with validators; every module pure but `git-io.ts`, so the web app imports
+  its types by path, through `protocol.ts`'s type-only re-exports); the runner is
+  `src/server/inbox/`: `child.ts` (the subprocess: loads `inbox.ts` or the defaults, rewrites the
+  kit's specifiers to nod's own kit), `wire.ts` (JSON lines), `process.ts` (one child, one job,
+  kill on timeout), `runner.ts` (two children, status, reload on save via `watch.ts`, crash
+  backoff), `env.ts` (the allow-listed environment: no token, nothing of nod's), `service.ts`
+  (rounds after each `prs` change, the cache by analyzer and patch-id, `open-insights`,
+  `decorate`), `setup.ts` (what `start.ts` calls), `cli.ts` (`nod inbox init|test|path`). The git
+  I/O runs in the server (`PatchIds.inbox` in `github/clone.ts`, `Source.inboxSubject`): the
+  token never enters the subprocess. It never changes risk or the requirement: `attention.ts`
+  applies `PrView.personal` to tiers (`adjustTier`). Tests spawn real children over temp folders
+  with `inboxEnv` of a temp `HOME`; `start()` takes `inbox: null` where a test counts pushes
 
 - stack (sibling: `../canvas`)
   - bun, TypeScript, React 19, Vite, tailwind v4, shadcn-style primitives; design system in
@@ -32,12 +49,16 @@ nod
 - working in this repo
   - `bun run check` = format:check + lint + typecheck + test; CI runs it plus `bun run build`
   - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
-    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos|dir]
-      [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
+    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos|dir|
+      insights|insights-error] [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
       link. Fake passphrase: anything but `wrong`. `repos`: three repos at three ladder steps,
       one on `acme.ghe.com` (`fake-repos.ts`, where the team are managed users and I am
       `mara_acme`: logins are per host); `fresh`: an empty repo list; `dir`: `team` as a
-      fixed list (`--dir`); every other scenario reads one repo. The fake's list is managed:
+      fixed list (`--dir`); `insights`: `team` with my own inbox's fixture
+      (`src/server/inbox/fixture/`: every block type, a running, a failed and a timed-out
+      analyzer, +1 with a tag, a mute), `insights-error` its copy that breaks once the first
+      results are in (the load error); every other fake scenario runs the inbox's defaults over
+      canned diffs (`inbox/fake-subjects.ts`); every other scenario reads one repo. The fake's list is managed:
       add (a name with `missing` is not found, `private` forbidden), remove, suggestions
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
