@@ -10,9 +10,11 @@
  * - not paired: a calm full page; for a deep link, its landing that says
  *   what to do and keeps the link across the pairing, or offers to open it
  *   on the remembered named host;
- * - `gh` not logged in, or no repo picked yet (the fake's `fresh` only): a
- *   calm page each (`components/onboarding.tsx`). Nothing else gates (ADR
- *   0006): no setup, no key;
+ * - `gh` not logged in, or an empty repo list: a calm page each
+ *   (`components/onboarding.tsx`, `components/add-repo.tsx`). Nothing else
+ *   gates (ADR 0006): no setup, no key;
+ * - the settings page at `#/settings` and `#/settings/<section>`
+ *   (`components/settings.tsx`), an empty list too;
  * - the setup page at `#/setup` and `#/setup/<step>`: the ladder, where the
  *   steps the dashboard offers are done; with several repos, of the repo
  *   in the route (`#/setup/<repo>/<step>`), else of the first with an offer;
@@ -35,7 +37,10 @@ import { Dashboard } from "./components/dashboard";
 import { ForwardConfirm } from "./components/forward";
 import { ConnectionPage, FramedPage, FullPage, type Unpaired } from "./components/full-page";
 import { UnpairedLanding } from "./components/link-landing";
-import { PickRepoPage, SetupPage, SignInPage } from "./components/onboarding";
+import { AddRepoPage } from "./components/add-repo";
+import { SetupPage, SignInPage } from "./components/onboarding";
+import { SettingsPage } from "./components/settings";
+import { sectionOf } from "@/lib/settings";
 
 export function App() {
   // Never inside another page: not paired, nothing remembered, no passphrase field.
@@ -95,8 +100,23 @@ function Gate() {
   if (welcome && repos) {
     const landing = landingOf({ me: welcome.me, repos });
     if (landing === "sign-in") return <SignInPage github={githubOfRepo(repos, repos[0]?.key)} />;
-    if (landing === "pick-repo" && welcome.me)
-      return <PickRepoPage me={welcome.me} actions={actions} />;
+    if (route.view === "settings")
+      return (
+        <SettingsPage
+          section={sectionOf(route.section)}
+          me={welcome.me}
+          repos={repos}
+          repoList={welcome.repoList}
+          signer={signer}
+          actions={actions}
+          onSection={(section) => go({ view: "settings", section }, { replace: true })}
+          onSetup={(repo, step) =>
+            go({ view: "setup", ...(repos.length > 1 && { repo }), ...(step && { step }) })
+          }
+          onLeave={repos.length > 0 ? () => go({ view: "list" }) : null}
+        />
+      );
+    if (landing === "add-repo") return <AddRepoPage actions={actions} />;
   }
   if (welcome && repos && signer && route.view === "setup") {
     const ladder = setupRepoOf(
@@ -115,7 +135,7 @@ function Gate() {
           actions={actions}
           step={setupRungOf(ladder, route.step ?? null)}
           onStep={(step) => go({ view: "setup", ...asked, step }, { replace: true })}
-          onRepo={(repo) => go({ view: "setup", repo }, { replace: true })}
+          onRepos={() => go({ view: "settings", section: "repositories" })}
           onLeave={snapshot ? () => go({ view: "list" }) : null}
         />
       );

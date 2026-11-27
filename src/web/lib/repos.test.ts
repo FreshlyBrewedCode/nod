@@ -3,7 +3,14 @@ import { describe, expect, test } from "bun:test";
 import type { Enrolment, RepoInfo } from "../../shared/protocol";
 import { repoKey } from "../../shared/repo-key";
 import { setupStatus } from "../../server/fake-source";
-import { bestEnrolment, chipsOf, githubOfRepo, repoOf, worstEnrolment } from "./repos";
+import {
+  bestEnrolment,
+  chipsOf,
+  githubOfRepo,
+  readRepoFilter,
+  repoOf,
+  worstEnrolment,
+} from "./repos";
 
 const repo = (name: string, enrolment: Enrolment | null, host = "github.com"): RepoInfo => ({
   key: repoKey(host, name),
@@ -45,5 +52,21 @@ describe("the repos (ADR 0007)", () => {
     expect(worstEnrolment(all, [fieldbook.key, ledger.key])).toEqual(pending);
     expect(worstEnrolment(all, [fieldbook.key])).toEqual(active);
     expect(worstEnrolment([repo("a/b", null)], ["a/b"])).toBeNull();
+  });
+});
+
+describe("the remembered repo filter", () => {
+  const a = repo("tallyho/fieldbook", null);
+  const b = repo("finance/ledger", null, "acme.ghe.com");
+  test("a repo of the list, as the list spells it", () => {
+    expect(readRepoFilter("ACME.ghe.com/Finance/Ledger", [a, b])).toBe(
+      "acme.ghe.com/finance/ledger",
+    );
+  });
+  test("all: a repo the list no longer has, one repo only, anything else", () => {
+    expect(readRepoFilter("tallyho/gone", [a, b])).toBeNull();
+    expect(readRepoFilter("tallyho/fieldbook", [a])).toBeNull();
+    expect(readRepoFilter(null, [a, b])).toBeNull();
+    expect(readRepoFilter(7, [a, b])).toBeNull();
   });
 });

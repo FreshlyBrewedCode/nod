@@ -27,7 +27,8 @@
  *
  * `bun scripts/check-phone.ts --shots <dir>` writes a 390×844 screenshot
  * (device scale factor 2) of every route and state instead, for the design
- * docs; the list is shot in its full height.
+ * docs; the list is shot in its full height. `--width 360` shoots at that
+ * width; `--only 29` only the shots whose name starts with `29`.
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -47,6 +48,7 @@ export const SCENARIOS = [
   "inbox",
   "shared",
   "repos",
+  "dir",
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -63,6 +65,7 @@ const ROUTES = [
   "#/",
   "#/chrono",
   "#/board",
+  "#/settings",
   "#/setup",
   "#/setup/inbox",
   "#/setup/enforced",
@@ -875,13 +878,31 @@ const OFFER_STATES: ReadonlyArray<State> = [
     shot: "26h-sign-in",
   },
   {
-    name: "no repository picked",
+    name: "an empty repo list",
     route: "#/",
     scenarios: ["fresh"],
     act: async (page) => {
-      await page.getByRole("heading", { name: "Pick a repository" }).waitFor();
+      await page.getByRole("heading", { name: "Add a repository" }).waitFor();
+      await page.getByRole("button", { name: "Add tallyho/fieldbook", exact: true }).waitFor();
     },
-    shot: "26i-pick-repo",
+    shot: "29g-add-a-repository",
+    full: true,
+  },
+  {
+    name: "adding the first repo leads to the dashboard",
+    route: "#/",
+    scenarios: ["fresh"],
+    fresh: true,
+    act: async (page) => {
+      await page.getByRole("button", { name: "Add tallyho/fieldbook", exact: true }).click();
+      await page.getByRole("region", { name: "Needs you" }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("heading", { name: "Add a repository" }).isHidden(),
+        "the empty page is still shown",
+      );
+    },
   },
 ];
 
@@ -1148,17 +1169,136 @@ const REPOS_STATES: ReadonlyArray<State> = [
     act: async () => {},
     assert: async (page) => {
       await must(
-        page.getByRole("navigation", { name: "Repositories" }).isVisible(),
-        "the setup page does not list the repos",
+        page.getByRole("button", { name: "‹ All repositories" }).isVisible(),
+        "the setup page does not lead back to the repositories",
       );
     },
     shot: "28e-setup-repo",
   },
 ];
 
+/** Settings → Repositories, the repo filter (#49). */
+const SETTINGS_STATES: ReadonlyArray<State> = [
+  {
+    name: "settings, repositories",
+    route: "#/settings",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.getByRole("button", { name: "Add tallyho/infra", exact: true }).waitFor();
+    },
+    assert: async (page) => {
+      const rows = page.getByRole("list", { name: "Repositories nod reads" }).getByRole("listitem");
+      await must(
+        rows.count().then((n) => n === 3),
+        "Repositories does not list the three repos",
+      );
+      await must(
+        page.getByText("acme.ghe.com · Shared policy · your key signs here").isVisible(),
+        "a row does not say its host, step and key",
+      );
+    },
+    shot: "29a-settings-repositories",
+    full: true,
+  },
+  {
+    name: "settings, remove asks first",
+    route: "#/settings",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.getByRole("button", { name: "Remove tallyho/field-app" }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("button", { name: "Remove field-app" }).isVisible(),
+        "Remove does not ask again",
+      );
+    },
+    shot: "29b-settings-remove",
+  },
+  {
+    name: "settings, a suggestion added",
+    route: "#/settings",
+    scenarios: ["repos"],
+    fresh: true,
+    act: async (page) => {
+      await page.getByRole("button", { name: `Add acme.ghe.com/finance/payroll` }).click();
+      await page.getByText(/^✓ Added/).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("list", { name: "Repositories nod reads" })
+          .getByText("acme.ghe.com/finance/payroll")
+          .isVisible(),
+        "the added repo is not in the list",
+      );
+    },
+    shot: "29i-settings-add-suggestion",
+    full: true,
+  },
+  {
+    name: "settings, a fixed list",
+    route: "#/settings",
+    scenarios: ["dir"],
+    act: async (page) => {
+      await page.getByText("This list is fixed.").waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("button", { name: /^Remove/ })
+          .count()
+          .then((n) => n === 0),
+        "a fixed list offers Remove",
+      );
+    },
+    shot: "29c-settings-fixed-list",
+  },
+  {
+    name: "the avatar menu leads to settings",
+    route: "#/",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /: menu$/ }).click();
+      await page.getByRole("button", { name: /^Settings/ }).click();
+      await page.getByRole("heading", { name: "Repositories" }).waitFor();
+    },
+  },
+  {
+    name: "the repo filter's menu",
+    route: "#/",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /^Repository: / }).click();
+    },
+    shot: "29d-repo-filter-menu",
+  },
+  {
+    name: "the repo filter on one repo",
+    route: "#/",
+    scenarios: ["repos"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /^Repository: / }).click();
+      await page.getByRole("menuitemradio", { name: /ledger/ }).click();
+    },
+    assert: async (page) => {
+      const chips = await page
+        .locator("[data-key^='pr:']")
+        .evaluateAll((rows) => rows.map((r) => r.getAttribute("data-key") ?? ""));
+      await must(
+        Promise.resolve(chips.length > 0 && chips.every((k) => k.startsWith(`pr:${LEDGER}#`))),
+        `the list shows other repos' rows: ${chips.join(", ")}`,
+      );
+    },
+    shot: "29e-repo-filter-on",
+    full: true,
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
   ...FORWARD_STATES,
   ...REPOS_STATES,
+  ...SETTINGS_STATES,
   ...OFFER_STATES,
   ...INBOX_STATES,
   ...APPROVE_STATES,
@@ -1859,7 +1999,10 @@ async function main() {
     if (shotsAt) {
       mkdirSync(shotsAt, { recursive: true });
       const width = Number(argAfter("--width") ?? 390);
+      const only = argAfter("--only");
       for (const target of all) {
+        if (only && !(SHOT_NAMES[target.label] ?? target.state?.shot ?? "").startsWith(only))
+          continue;
         // A fresh context per page, as in the check: its own storage.
         const context = await browser.newContext(phone({ width, height: 844 }, 2));
         const { page, done } = await open(context, target, own);

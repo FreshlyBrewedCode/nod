@@ -1,17 +1,19 @@
 /**
  * The setup page (`#/setup`, `#/setup/<step>`): the opt-in ladder (ADR
  * 0006), each step mostly a list of checks (r3 `12`–`16`). Nothing here
- * gates: the dashboard shows as soon as `gh` is logged in and a repo is
- * picked; the steps are offered (`offer.tsx`, the avatar menu) and done here.
- * Only the two pages before a dashboard are left: not signed in to GitHub,
- * and no repo picked yet.
+ * gates: the dashboard shows as soon as `gh` is logged in and the list has a
+ * repo; the steps are offered (`offer.tsx`, the avatar menu, each repo's row
+ * in Settings → Repositories) and done here. The page before a dashboard
+ * that is left here: not signed in to GitHub (an empty list has its own,
+ * `add-repo.tsx`).
  *
  * Every step takes one repo (its setup, its host and my key's enrolment
  * there) and my signer as props; with many repos (ADR 0007, 11) the page is
- * about one of them, named in the top bar, and switches between them
- * (`#/setup/<repo>/<step>`). Where each step stands comes from the server's
- * state alone (`lib/onboarding.ts`). Every action is one protocol request
- * naming the repo; the state it changes arrives as a push.
+ * about one of them (`#/setup/<repo>/<step>`), named in the top bar, and
+ * Settings → Repositories is where another one is picked. Where each step
+ * stands comes from the server's state alone (`lib/onboarding.ts`). Every
+ * action is one protocol request naming the repo; the state it changes
+ * arrives as a push.
  *
  * Passphrases live only in their inputs and the one request that sends
  * them: read on submit, the inputs cleared at once and when the step goes
@@ -28,16 +30,13 @@ import {
   type GitHubInfo,
   type Person,
   type PrLink,
-  type RepoChoice,
   type RepoInfo,
-  type RepoKey,
   type SetupCheck,
   type SetupStatus,
   type SignerState,
   type TestSignatureResult,
 } from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
-import { MINUTE, useNow } from "@/hooks/use-clock";
 import type { Failure } from "@/lib/batch";
 import {
   CHECK_PURPOSE,
@@ -59,7 +58,6 @@ import {
 } from "@/lib/onboarding";
 import { formatRoute } from "@/lib/route";
 import { GITHUB_COM, ghLoginCommand } from "../../kit/host.ts";
-import { duration } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { FullPage } from "./full-page";
 import { Logo, TopBarShell } from "./top-bar";
@@ -185,7 +183,7 @@ export function Footer({
 }
 
 /** r3's dashed note box (`.noteb`). */
-function NoteBox({ children, className }: { children: ReactNode; className?: string }) {
+export function NoteBox({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
       className={cn(
@@ -198,7 +196,7 @@ function NoteBox({ children, className }: { children: ReactNode; className?: str
   );
 }
 
-function ErrorNote({ failure, lead }: { failure: Failure | null; lead: string }) {
+export function ErrorNote({ failure, lead }: { failure: Failure | null; lead: string }) {
   if (!failure) return null;
   return (
     <p
@@ -219,7 +217,7 @@ function PrAnchor({ pr, children }: { pr: PrLink; children?: ReactNode }) {
 }
 
 /** A request with its busy state and failure, for the steps' buttons. */
-function useRequest() {
+export function useRequest() {
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const run = async (what: string, request: () => Promise<unknown>): Promise<boolean> => {
@@ -264,16 +262,6 @@ export function SignInPage({ github }: { github: GitHubInfo }) {
   );
 }
 
-/** No repo picked yet (only `nod serve --fake --scenario fresh`: the GitHub source reads its clone's). */
-export function PickRepoPage(props: { me: Account; actions: Actions }) {
-  return (
-    <FullPage title="Pick a repository">
-      <p>nod shows the pull requests of your repositories. Nothing in them changes by looking.</p>
-      <RepoPicker {...props} current={null} />
-    </FullPage>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // the setup page
 
@@ -281,7 +269,7 @@ export interface SetupPageProps {
   readonly me: Account | null;
   /** The repo the page is about: its host, its setup and ladder step, my key's enrolment there. */
   readonly repo: RepoInfo;
-  /** Every repo `nod serve` reads: with more than one, the page switches between them. */
+  /** Every repo `nod serve` reads (the inbox step lists them). */
   readonly repos: ReadonlyArray<RepoInfo>;
   /** My key (one for every repo) and its lock. */
   readonly signer: SignerState;
@@ -290,8 +278,8 @@ export interface SetupPageProps {
   /** The step shown (`setupRungOf`). */
   readonly step: Rung;
   readonly onStep: (step: Rung) => void;
-  /** Another repo's ladder, on the step its next offer is. */
-  readonly onRepo: (repo: RepoKey) => void;
+  /** Settings → Repositories: every repo, and another one's ladder. */
+  readonly onRepos: () => void;
   /** Back to the dashboard; null while there is none to go to (no snapshot yet). */
   readonly onLeave: (() => void) | null;
 }
@@ -308,7 +296,7 @@ type StepProps = SetupPageProps & {
 };
 
 export function SetupPage(props: SetupPageProps) {
-  const { me, repo, repos, signer, step, onStep, onRepo, onLeave } = props;
+  const { me, repo, repos, signer, step, onStep, onRepos, onLeave } = props;
   const state = { me, repo, signer };
   const progress = progressOf(state);
   const rungs = rungsOf(state);
@@ -341,7 +329,7 @@ export function SetupPage(props: SetupPageProps) {
       </TopBarShell>
       <div className="mx-auto my-12 grid w-full max-w-[940px] grid-cols-[230px_1fr] gap-11 px-6 phone:my-4 phone:grid-cols-1 phone:gap-4 phone:px-4">
         <div className="min-w-0 phone:contents">
-          {repos.length > 1 && <RepoSwitch repos={repos} repo={repo} onRepo={onRepo} />}
+          {repos.length > 1 && <RepoBack repo={repo} onRepos={onRepos} />}
           <Ladder
             rungs={rungs}
             step={step}
@@ -371,49 +359,24 @@ export function SetupPage(props: SetupPageProps) {
 }
 
 /**
- * With many repos: which repo's ladder this is, and the others to switch to,
- * each with its step. #49 moves this into the settings page.
+ * With many repos: which repo's ladder this is, and the way to the others
+ * (Settings → Repositories, where each repo's row leads to its ladder).
  */
-function RepoSwitch({
-  repos,
-  repo,
-  onRepo,
-}: {
-  repos: ReadonlyArray<RepoInfo>;
-  repo: RepoInfo;
-  onRepo: (repo: RepoKey) => void;
-}) {
+function RepoBack({ repo, onRepos }: { repo: RepoInfo; onRepos: () => void }) {
   return (
-    <nav aria-label="Repositories" className="mb-6 phone:mb-0">
+    <div className="mb-6 phone:mb-0">
       <h2 className="text-tx3 m-0 mt-1.5 mb-1 text-[11px] font-semibold tracking-[0.08em] uppercase">
         Repository
       </h2>
-      <ul className="m-0 list-none p-0">
-        {repos.map((r) => {
-          const on = r.key === repo.key;
-          return (
-            <li key={r.key}>
-              <button
-                type="button"
-                aria-current={on ? "page" : undefined}
-                onClick={() => onRepo(r.key)}
-                className={cn(
-                  "hover:text-tx w-full py-1.5 text-left phone:min-h-11",
-                  on ? "text-tx font-semibold" : "text-tx3",
-                )}
-              >
-                <span className="block min-w-0 text-[13.5px] [overflow-wrap:anywhere]">
-                  {r.key}
-                </span>
-                <span className="text-tx3 block fs-note font-normal">
-                  {RUNG_NAMES[r.setup.step]}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+      <p className="m-0 text-[13.5px] font-semibold [overflow-wrap:anywhere]">{repo.key}</p>
+      <button
+        type="button"
+        onClick={onRepos}
+        className="text-tx3 hover:text-tx2 fs-note py-1 text-left phone:min-h-11"
+      >
+        ‹ All repositories
+      </button>
+    </div>
   );
 }
 
@@ -546,7 +509,7 @@ function NextButton({ to, onStep }: { to: Rung; onStep: (step: Rung) => void }) 
 // ---------------------------------------------------------------------------
 // 0 · Inbox: GitHub and the repository (r3 `12`)
 
-function InboxStep({ me, github, repo, repos, actions, onStep }: StepProps) {
+function InboxStep({ me, github, repos, onStep, onRepos }: StepProps) {
   const onGitHubCom = github.host === GITHUB_COM;
   const scopes = me?.scopes ?? [];
   return (
@@ -583,139 +546,33 @@ function InboxStep({ me, github, repo, repos, actions, onStep }: StepProps) {
             <Mono>nod serve</Mono>.
           </Check>
         )}
+        {me && (
+          <Check
+            mark="ok"
+            title={
+              repos.length === 1 ? (
+                <>
+                  Reads <Mono>{repos[0]!.key}</Mono>
+                </>
+              ) : (
+                `Reads ${repos.length} repositories`
+              )
+            }
+          >
+            {repos.length === 1
+              ? "its pull requests, into your inbox"
+              : `${repos.map((r) => r.key).join(", ")}, each at its own step of the ladder`}
+          </Check>
+        )}
       </Checks>
-      {me && repos.length > 1 ? (
-        <>
-          <Checks>
-            <Check mark="ok" title={`Reads ${repos.length} repositories`}>
-              {repos.map((r) => r.key).join(", ")}
-            </Check>
-          </Checks>
-          <Footer note="Each repository has its own step of the ladder.">
-            <NextButton to="shared-policy" onStep={onStep} />
-          </Footer>
-        </>
-      ) : me ? (
-        <RepoPicker
-          me={me}
-          current={repo}
-          actions={actions}
-          then={() => onStep("shared-policy")}
-          label="Next: shared policy"
-        />
-      ) : null}
-    </>
-  );
-}
-
-/** The repos to pick from (`list-repos`), the current folder's first; one per `nod serve`. */
-function RepoPicker({
-  me,
-  current: picked,
-  actions,
-  then,
-  label = "Continue",
-}: {
-  me: Account;
-  /** The repo `nod serve` reads already; null before the first is picked. */
-  current: RepoInfo | null;
-  actions: Actions;
-  /** After the pick: the next step, or nothing (the app moves on by itself). */
-  then?: () => void;
-  label?: string;
-}) {
-  const now = useNow(MINUTE);
-  const [repos, setRepos] = useState<ReadonlyArray<RepoChoice> | null>(null);
-  const list = useRequest();
-  const pick = useRequest();
-  const [chosen, setChosen] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    void list.run("list", async () => {
-      const r = await actions.request("list-repos", {});
-      if (live) setRepos(r.repos);
-    });
-    return () => {
-      live = false;
-    };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per account
-  }, [me.login, actions]);
-
-  const current = repos?.find((r) => r.current) ?? repos?.[0] ?? null;
-  const selected = chosen ?? picked?.name ?? current?.repo ?? null;
-  const sorted = repos ? [...repos].sort((a, b) => Number(b.current) - Number(a.current)) : [];
-
-  const onContinue = async () => {
-    if (!selected) return;
-    if (picked?.name.toLowerCase() === selected.toLowerCase()) return then?.();
-    if (await pick.run("pick", () => actions.request("pick-repo", { repo: selected }))) then?.();
-  };
-
-  return (
-    <>
-      <fieldset className="m-0 mt-5 border-0 p-0">
-        <legend className="text-tx3 mb-2 p-0 fs-note">Repository</legend>
-        {!repos && !list.failure && <p className="text-tx3 m-0 text-[13px]">Reading…</p>}
-        {sorted.map((r) => {
-          const on = r.repo === selected;
-          const sub = r.current
-            ? [
-                "the repo of your current folder",
-                r.canWrite ? "you have write access" : "you can read it, not push to it",
-                picked?.setup.state === "ready" &&
-                picked.name.toLowerCase() === r.repo.toLowerCase()
-                  ? "its policy is shared already"
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            : r.pushedAt
-              ? `last pushed ${duration(now - r.pushedAt)} ago`
-              : "";
-          return (
-            <label
-              key={r.repo}
-              className={cn(
-                "mb-2 grid w-full cursor-pointer grid-cols-[20px_1fr] gap-3 rounded-[10px] border px-4 py-3.5 text-left has-[:focus-visible]:ring-2",
-                on ? "border-need bg-need-bg" : "border-line hover:border-line2",
-              )}
-            >
-              <input
-                type="radio"
-                name="repo"
-                value={r.repo}
-                checked={on}
-                onChange={() => setChosen(r.repo)}
-                className="sr-only"
-              />
-              <span
-                aria-hidden
-                className={cn(
-                  "mt-0.5 size-4 rounded-full",
-                  on ? "border-need border-[5px]" : "border-line2 border-[1.5px]",
-                )}
-              />
-              <span className="min-w-0 [overflow-wrap:anywhere]">
-                {on ? <b>{r.repo}</b> : r.repo}
-                <span className="text-tx3 block fs-note leading-[1.55]">{sub}</span>
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
-      <ErrorNote failure={list.failure} lead="Could not list repositories." />
-      <ErrorNote failure={pick.failure} lead="Could not use that repository." />
-      <Footer note="One repository per window in this version.">
-        <button
-          type="button"
-          className={PRIMARY}
-          disabled={!selected || pick.busy !== null}
-          onClick={() => void onContinue()}
-        >
-          {pick.busy ? "Reading the repository…" : label}
-        </button>
-      </Footer>
+      {me && (
+        <Footer note="Settings → Repositories adds and removes the repositories nod reads.">
+          <button type="button" className={GHOST} onClick={onRepos}>
+            Repositories
+          </button>
+          <NextButton to="shared-policy" onStep={onStep} />
+        </Footer>
+      )}
     </>
   );
 }

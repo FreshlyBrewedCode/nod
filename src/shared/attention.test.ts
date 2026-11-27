@@ -13,9 +13,11 @@ import {
   kindNames,
   tagWording,
   countByTier,
+  inRepo,
   lane,
   mergedOnTheirOwn,
   oldestWaitingSince,
+  repoBoardView,
   selectable,
   startOfDay,
   stateBoardView,
@@ -509,6 +511,43 @@ describe("board", () => {
   });
 });
 
+describe("many repos (ADR 0007): the filter and the board by repository", () => {
+  const A = "tallyho/fieldbook";
+  const B = "acme.ghe.com/finance/ledger";
+  const prs = [
+    pr({ number: 1, repo: A, needsMe: true, risk: 3, ask: null }),
+    pr({ number: 2, repo: B }),
+    pr({ number: 3, repo: B }),
+    pr({ number: 4, repo: B, state: "merged", mergedAt: NOW - HOUR }),
+    pr({ number: 5, repo: "ACME.GHE.com/Finance/Ledger" }),
+  ];
+
+  test("the filter keeps one repo's PRs, any spelling of its key; none keeps all", () => {
+    expect(inRepo(prs, B).map((p) => p.number)).toEqual([2, 3, 4, 5]);
+    expect(inRepo(prs, A).map((p) => p.number)).toEqual([1]);
+    expect(inRepo(prs, null)).toBe(prs);
+    expect(inRepo(prs, "tallyho/other")).toEqual([]);
+  });
+
+  test("a column per repo in the list's order, empty ones too; the folded ones at the end", () => {
+    const columns = repoBoardView(prs, [B, A, "tallyho/field-app"]);
+    expect(columns.map((c) => [c.repo, c.count, c.needsMe])).toEqual([
+      [B, 4, 0],
+      [A, 1, 1],
+      ["tallyho/field-app", 0, 0],
+    ]);
+    expect(columns[0]!.items).toHaveLength(1);
+    expect(columns[0]!.items[0]).toMatchObject({ kind: "cluster", id: `column:repo:${B}` });
+    expect(columns[1]!.items[0]).toMatchObject({ kind: "pr", tier: 1 });
+    expect(columns[2]!.items).toEqual([]);
+  });
+
+  test("a PR of a repo the list does not hold is in no column", () => {
+    const columns = repoBoardView(prs, [A]);
+    expect(columns.flatMap((c) => c.items)).toHaveLength(1);
+  });
+});
+
 describe("hints and summaries", () => {
   test("only tiers 1 and 2 with something to sign get a checkbox", () => {
     const ask = { kind: "peer", label: "Sign as peer", then: { outcome: "satisfied" } } as const;
@@ -576,6 +615,19 @@ describe("hints and summaries", () => {
           pr({ number: 4, state: "open" }),
           // The inbox step: a person merged it.
           pr({ number: 5, state: "merged", mergedAt: NOW - HOUR, classifiedBy: "local" }),
+          // The check is not required yet: a person merged it too.
+          pr({
+            number: 6,
+            state: "merged",
+            mergedAt: NOW - HOUR,
+            requirement: {
+              policy: "p",
+              label: "None",
+              slots: [],
+              satisfied: true,
+              enforced: false,
+            },
+          }),
         ],
         since,
       ),

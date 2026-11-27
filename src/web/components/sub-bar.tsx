@@ -1,7 +1,10 @@
 /**
- * Under the top bar (r3): "By attention | Chronological" and the Details toggle. On a
- * phone the switch is the full width and a tap on a row opens the details, so no toggle.
+ * Under the top bar (r3): "By attention | Chronological", the repo filter (with more than
+ * one repo) and the Details toggle. On a phone the switch is the full width, the filter
+ * under it, and a tap on a row opens the details, so no toggle.
  */
+
+import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 import { Segmented } from "./top-bar";
@@ -17,14 +20,17 @@ export function SubBar({
   onView,
   panelOpen,
   onTogglePanel,
+  filter = null,
 }: {
   view: "list" | "chrono";
   onView: (view: "list" | "chrono") => void;
   panelOpen: boolean;
   onTogglePanel: () => void;
+  /** The repo filter (`repo-filter.tsx`), when there is more than one repo. */
+  filter?: React.ReactNode;
 }) {
   return (
-    <div className="text-tx3 mx-auto flex max-w-[1000px] items-center gap-3.5 px-6 pt-[22px] text-[13px] phone:px-3 phone:pt-2.5">
+    <div className="text-tx3 mx-auto flex max-w-[1000px] items-center gap-3.5 px-6 pt-[22px] text-[13px] phone:flex-wrap phone:gap-y-1.5 phone:px-3 phone:pt-2.5">
       <Segmented
         fill
         label="Order"
@@ -35,6 +41,7 @@ export function SubBar({
         ]}
         onChange={onView}
       />
+      {filter}
       <span className="flex-1 phone:hidden" />
       <button
         type="button"
