@@ -5,6 +5,7 @@
  * is not covered.
  */
 
+import { idOf } from "../../shared/repo-key";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { actWord } from "@/lib/wording";
 import { Kbd } from "./bits";
@@ -13,7 +14,7 @@ export function SelectionBar() {
   const { selection, clearSelection, openBatch, snapshot } = useDashboard();
   if (selection.length === 0) return null;
   // Without an active key the selected rows ask for GitHub approvals (ADR 0006).
-  const verb = actWord(snapshot.prs.filter((p) => selection.includes(p.number)));
+  const verb = actWord(snapshot.prs.filter((p) => selection.includes(idOf(p))));
   return (
     <section
       aria-label="Selection"

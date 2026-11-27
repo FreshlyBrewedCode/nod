@@ -37,6 +37,7 @@ const mockup = () => new FakeSource({ clock: new ManualClock(NOW) }).snapshot()!
 /** A PR view with defaults that make it tier 4; tests override what matters. */
 function pr(over: Partial<PrView> & { number: number }): PrView {
   return {
+    repo: "tallyho/fieldbook",
     title: `#${over.number}`,
     url: "",
     state: "open",
@@ -197,7 +198,7 @@ describe("the mockup's data", () => {
     ]);
     expect(show(columns[0]!.items)).toEqual(["476/1", "485/1", "482/1", "490/2", "488/2", "491/2"]);
     // #485 waits on me first, then on Jonas: "also #485, after you"
-    expect(columns[1]!.also).toEqual([485]);
+    expect(columns[1]!.also).toEqual(["tallyho/fieldbook#485"]);
     expect(show(columns[1]!.items)).toEqual(["492/4"]);
     expect(show(columns[3]!.items)).toEqual([
       "478/3",

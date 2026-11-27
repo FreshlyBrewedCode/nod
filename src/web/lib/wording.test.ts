@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { ManualClock } from "../../server/clock";
 import { FakeSource } from "../../server/fake-source";
 import { attentionView } from "../../shared/attention";
-import type { Enrolment as SignerKeyEnrolment, JourneyEvent, PrView } from "../../shared/protocol";
+import type { JourneyEvent, PrView } from "../../shared/protocol";
 import {
   actWord,
   askHeadline,
@@ -174,17 +174,16 @@ describe("the panel", () => {
 });
 
 describe("a key that cannot sign", () => {
-  const key = (enrolment: SignerKeyEnrolment) =>
-    ({
-      state: "locked",
-      key: { fingerprint: "", publicKey: "", location: "", enrolment },
-    }) as const;
+  const locked = {
+    state: "locked",
+    key: { fingerprint: "", publicKey: "", location: "" },
+  } as const;
   test("keyNoteOf: the muted note on the board's You column", () => {
-    expect(keyNoteOf(null)).toBeNull();
-    expect(keyNoteOf({ state: "no-key" })).toBe("no key yet");
-    expect(keyNoteOf(key({ state: "active" }))).toBeNull();
-    expect(keyNoteOf(key({ state: "pending", pr: null }))).toBe("key pending");
-    expect(keyNoteOf(key({ state: "not-enrolled" }))).toBe("key not enrolled");
+    expect(keyNoteOf(null, null)).toBeNull();
+    expect(keyNoteOf({ state: "no-key" }, null)).toBe("no key yet");
+    expect(keyNoteOf(locked, { state: "active" })).toBeNull();
+    expect(keyNoteOf(locked, { state: "pending", pr: null })).toBe("key pending");
+    expect(keyNoteOf(locked, { state: "not-enrolled" })).toBe("key not enrolled");
   });
 
   test("statusText says it waits on me once the key is enrolled", () => {

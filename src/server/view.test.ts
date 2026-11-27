@@ -6,7 +6,7 @@ import { canFill, fillOf, toView, toViews, type PrFacts } from "./view";
 
 const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const ME = "mara-l";
-const ctx = { me: ME, now: NOW, people: Object.values(FAKE_PEOPLE) };
+const ctx = { repo: "tallyho/fieldbook", me: ME, now: NOW, people: Object.values(FAKE_PEOPLE) };
 const facts = (n: number): PrFacts =>
   seedFacts(
     SEEDS.find((s) => s.n === n)!,

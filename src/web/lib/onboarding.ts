@@ -9,8 +9,9 @@
  * Nothing gates: once `gh` is logged in and a repo is picked, the dashboard
  * shows. The ladder's steps, 0 inbox, 1 shared policy, 2 signing (per
  * person) and 3 enforced, are offered, one at a time, and done on the setup
- * page (`#/setup/<step>`). Everything here takes one repo's setup and my
- * signer, so many repos (epic C) can ask it once per repo.
+ * page (`#/setup/<step>`). Everything here takes one repo (its setup and
+ * my key's enrolment there) and my signer; with many repos (ADR 0007, 11) it
+ * is asked once per repo, and the card is the first repo's next step.
  */
 
 import { shortName } from "../../shared/attention";
@@ -20,11 +21,13 @@ import {
   type Enrolment,
   type Person,
   type PrLink,
+  type RepoInfo,
+  type RepoKey,
   type SetupCheck,
   type SetupStatus,
   type SignerState,
-  ladderStepOf,
 } from "../../shared/protocol";
+import { sameRepo } from "../../shared/repo-key";
 import type { Failure } from "./batch";
 import { SETUP_STEPS, type SetupStep } from "./route";
 
@@ -33,17 +36,17 @@ export const MAX_PASSPHRASE_LENGTH = 1024;
 
 export type KeyState = "none" | "not-enrolled" | "pending" | "active";
 
+/** One repo's ladder, as the server says it: the `gh` account, the repo, my key. */
 export interface ServerState {
   readonly me: Account | null;
-  readonly setup: SetupStatus;
+  readonly repo: RepoInfo;
   readonly signer: SignerState;
 }
 
-export function keyStateOf(signer: SignerState): KeyState {
+/** My key in a repo: none, not enrolled there, pending there or active there. */
+export function keyStateOf(signer: SignerState, enrolment: Enrolment | null): KeyState {
   if (signer.state === "no-key") return "none";
-  return signer.key.enrolment.state === "not-enrolled"
-    ? "not-enrolled"
-    : signer.key.enrolment.state;
+  return enrolment?.state ?? "not-enrolled";
 }
 
 export interface Progress {
@@ -62,13 +65,14 @@ export interface Progress {
   readonly enrolVia: "setup-pr" | "enrol-pr";
 }
 
-export function progressOf({ me, setup, signer }: ServerState): Progress {
+export function progressOf({ me, repo, signer }: ServerState): Progress {
+  const { setup } = repo;
   return {
     signedIn: me !== null,
-    repoPicked: setup.state !== "none",
+    repoPicked: true,
     setup: setup.state,
-    key: keyStateOf(signer),
-    enrolment: signer.state === "no-key" ? null : signer.key.enrolment,
+    key: keyStateOf(signer, repo.enrolment),
+    enrolment: signer.state === "no-key" ? null : repo.enrolment,
     enrolVia: setup.state === "ready" ? "enrol-pr" : "setup-pr",
   };
 }
@@ -84,9 +88,15 @@ export function progressOf({ me, setup, signer }: ServerState): Progress {
  */
 export type Landing = "sign-in" | "pick-repo" | "dashboard";
 
-export function landingOf({ me, setup }: Pick<ServerState, "me" | "setup">): Landing {
+export function landingOf({
+  me,
+  repos,
+}: {
+  readonly me: Account | null;
+  readonly repos: ReadonlyArray<RepoInfo>;
+}): Landing {
   if (me === null) return "sign-in";
-  if (setup.state === "none") return "pick-repo";
+  if (repos.length === 0) return "pick-repo";
   return "dashboard";
 }
 
@@ -123,13 +133,14 @@ export const RUNG_WHO: Readonly<Record<Rung, "you" | "the repository">> = {
  */
 export type RungState = "done" | "waiting" | "open" | "later" | "not-yours";
 
-export function rungsOf({ me, setup, signer }: ServerState): Readonly<Record<Rung, RungState>> {
-  const step = ladderStepOf(setup);
-  const key = keyStateOf(signer);
-  const permission = setup.permission ?? null;
+export function rungsOf({ me, repo, signer }: ServerState): Readonly<Record<Rung, RungState>> {
+  const { setup } = repo;
+  const step = setup.step;
+  const key = keyStateOf(signer, repo.enrolment);
+  const permission = setup.permission;
   const setUp = setup.state === "ready";
   return {
-    inbox: me !== null && setup.state !== "none" ? "done" : "open",
+    inbox: me !== null ? "done" : "open",
     "shared-policy": setUp
       ? "done"
       : setup.state === "pending"
@@ -178,9 +189,10 @@ export interface Offer {
  * offer covers it.
  */
 export function offersOf(state: ServerState): ReadonlyArray<Offer> {
-  if (landingOf(state) !== "dashboard") return [];
+  if (state.me === null) return [];
   const rungs = rungsOf(state);
-  const { setup, signer } = state;
+  const { signer } = state;
+  const { setup, enrolment } = state.repo;
   const out: Offer[] = [];
   if (rungs["shared-policy"] === "open")
     out.push({ rung: "shared-policy", phase: "offer", pr: null });
@@ -189,8 +201,8 @@ export function offersOf(state: ServerState): ReadonlyArray<Offer> {
   if (setup.state === "ready") {
     if (rungs.signing === "open") out.push({ rung: "signing", phase: "offer", pr: null });
     if (rungs.signing === "waiting" && signer.state !== "no-key") {
-      const e = signer.key.enrolment;
-      out.push({ rung: "signing", phase: "waiting", pr: e.state === "pending" ? e.pr : null });
+      const e = enrolment;
+      out.push({ rung: "signing", phase: "waiting", pr: e?.state === "pending" ? e.pr : null });
     }
   }
   if (rungs.enforced === "open" && setup.permission === "admin")
@@ -199,25 +211,46 @@ export function offersOf(state: ServerState): ReadonlyArray<Offer> {
 }
 
 /**
- * The card above the list: the next step of the ladder for this repo and me,
- * one at a time. A dismissed card stays away and does not make room for the
- * next one: the ladder waits; the avatar menu and the setup page still have
- * every step. A step that moves on (the offer taken, its PR open) is a new
- * card.
+ * The card above the list: the next step of the ladder, one at a time. With
+ * many repos it is the next step of the first repo (in the server's order)
+ * that has one. A dismissed card stays away and does not make room for the
+ * next one, not even another repo's: the ladder waits; the avatar menu and
+ * the setup page still have every step. A step that moves on (the offer
+ * taken, its PR open) is a new card.
  */
 export function cardOf(
-  state: ServerState,
+  states: ReadonlyArray<ServerState>,
   dismissed: ReadonlyArray<string>,
-  host: string,
-): Offer | null {
-  const next = offersOf(state)[0];
-  if (!next || !state.setup.repo) return null;
-  return dismissed.includes(offerKey(host, state.setup.repo, next)) ? null : next;
+): { readonly repo: RepoInfo; readonly offer: Offer } | null {
+  for (const state of states) {
+    const next = offersOf(state)[0];
+    if (!next) continue;
+    return dismissed.includes(offerKeyOf(state.repo, next))
+      ? null
+      : { repo: state.repo, offer: next };
+  }
+  return null;
 }
 
 /** What a dismissal remembers: the host, the repo, the step and its phase. */
 export function offerKey(host: string, repo: string, offer: Offer): string {
   return `${host.toLowerCase()}/${repo.toLowerCase()}:${offer.rung}:${offer.phase}`;
+}
+
+/** `offerKey` of a repo the server lists. */
+export const offerKeyOf = (repo: RepoInfo, offer: Offer) =>
+  offerKey(repo.github.host, repo.name, offer);
+
+/**
+ * The repo the setup page is about: the one the route names, else the first
+ * with an offer (the card's, unless it was put away), else the first repo.
+ */
+export function setupRepoOf(
+  states: ReadonlyArray<ServerState>,
+  asked: RepoKey | null,
+): ServerState | null {
+  const named = asked ? states.find((s) => sameRepo(s.repo.key, asked)) : undefined;
+  return named ?? states.find((s) => offersOf(s).length > 0) ?? states[0] ?? null;
 }
 
 /** How many dismissals are remembered; the oldest are dropped beyond it. */

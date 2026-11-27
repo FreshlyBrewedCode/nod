@@ -13,7 +13,8 @@ import { ChevronLeft, ChevronRight, ExternalLink, Lock } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { selectable } from "../../shared/attention";
-import type { PrView } from "../../shared/protocol";
+import type { PrId, PrView } from "../../shared/protocol";
+import { idOf, parsePrId } from "../../shared/repo-key";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { nextNeedingYou, positionAmong } from "@/lib/next";
@@ -35,7 +36,7 @@ import {
   thenText,
   whoOf,
 } from "@/lib/wording";
-import { Avatar, RiskBars, Tag } from "./bits";
+import { Avatar, RepoChip, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import {
   ApproveDetail,
@@ -52,6 +53,14 @@ import { DiffIndicator } from "./diff-indicator";
 const BUTTON =
   "border-line2 bg-panel2 text-tx inline-flex h-[46px] min-w-0 items-center justify-center gap-2 rounded-[11px] border px-4 text-[15px] font-semibold whitespace-nowrap";
 
+/** "#485", or "ledger #57" when there are several repos. */
+function nextName(id: PrId, chips: ReadonlyMap<string, string>): string {
+  const ref = parsePrId(id);
+  if (!ref) return id;
+  const chip = chips.get(ref.repo);
+  return `${chip ? `${chip} ` : ""}#${ref.number}`;
+}
+
 export function DetailPage({
   pr,
   order,
@@ -60,26 +69,29 @@ export function DetailPage({
 }: {
   pr: PrView;
   /** The PRs that need me, in list order (`lib/next.ts`). */
-  order: ReadonlyArray<number>;
+  order: ReadonlyArray<PrId>;
   onClose: () => void;
   /** Show another PR in the page (`Next ›`). */
-  onOpen: (pr: number) => void;
+  onOpen: (pr: PrId) => void;
 }) {
-  const { people, me, openBatch, selection, toggleSelected, ackFyi, signing } = useDashboard();
+  const { people, me, openBatch, selection, toggleSelected, ackFyi, signingIn, chips, githubOf } =
+    useDashboard();
+  const host = githubOf(pr).host;
   const now = useNow(MINUTE);
   const offset = useUtcOffset();
   const page = useRef<HTMLElement>(null);
-  useEffect(() => page.current?.focus({ preventScroll: true }), [pr.number]);
+  const id = idOf(pr);
+  useEffect(() => page.current?.focus({ preventScroll: true }), [id]);
 
-  const position = positionAmong(order, pr.number);
-  const next = nextNeedingYou(order, pr.number);
-  const selected = selection.includes(pr.number);
+  const position = positionAmong(order, id);
+  const next = nextNeedingYou(order, id);
+  const selected = selection.includes(id);
   const tag = rowTag(pr);
   const checks = checksTag(pr);
   const who = whoOf(pr, people);
   const needed = neededFromYou(pr);
   const need = localNeed(pr, people, me);
-  const own = need ? null : ownPrHint(pr, signing);
+  const own = need ? null : ownPrHint(pr, signingIn(pr));
   const canBatch = selectable(pr);
   const hasBar = Boolean(pr.ask || need || pr.fyiForMe || canBatch || next !== null);
   const riskWord = pr.risk > 0 ? riskWords(pr.risk, pr.brief?.risk ?? null) : null;
@@ -100,6 +112,7 @@ export function DetailPage({
         >
           <ChevronLeft className="size-6" />
         </button>
+        <RepoChip repo={pr.repo} chips={chips} className="mr-1.5" />
         <span className="text-tx2 min-w-0 flex-1 truncate text-sm">
           {position
             ? `${position.index} of ${position.total} that need you`
@@ -107,10 +120,13 @@ export function DetailPage({
         </span>
         <a
           href={pr.url}
+          aria-label={host === "github.com" ? "GitHub" : `GitHub on ${host}`}
+          title={pr.url}
           target="_blank"
           rel="noreferrer"
           className="text-tx3 inline-flex min-h-11 flex-none items-center gap-1 px-3.5 text-[13px]"
         >
+          {/* The host is in the link's name; the header has no room to spell it. */}
           GitHub <ExternalLink className="size-3.5" />
         </a>
       </header>
@@ -168,7 +184,9 @@ export function DetailPage({
               )}
             </>
           )}
-          {own && <OwnPrNote text={own} className="mt-1 mb-3.5" />}
+          {own && (
+            <OwnPrNote text={own} repo={chips.size ? pr.repo : undefined} className="mt-1 mb-3.5" />
+          )}
         </div>
 
         <div className="mt-1">
@@ -221,7 +239,7 @@ export function DetailPage({
                 type="button"
                 aria-pressed={selected}
                 aria-label={selected ? "Take out of the batch" : "Add to batch"}
-                onClick={() => toggleSelected(pr.number)}
+                onClick={() => toggleSelected(id)}
                 className={cn(
                   BUTTON,
                   next !== null && "px-3.5",
@@ -240,7 +258,7 @@ export function DetailPage({
             {pr.ask ? (
               <button
                 type="button"
-                onClick={() => openBatch([pr.number])}
+                onClick={() => openBatch([id])}
                 className={cn(BUTTON, "bg-need border-need text-on-need flex-1 px-2")}
               >
                 {pr.ask.kind !== "approve" && <Lock className="size-4 flex-none" />}
@@ -259,7 +277,7 @@ export function DetailPage({
             ) : pr.fyiForMe ? (
               <button
                 type="button"
-                onClick={() => ackFyi(pr.number)}
+                onClick={() => ackFyi(pr)}
                 className={cn(BUTTON, "text-know flex-1 border-[#74a9ff55] bg-transparent")}
               >
                 Got it
@@ -271,7 +289,7 @@ export function DetailPage({
               <button
                 type="button"
                 onClick={() => onOpen(next)}
-                aria-label={`Next that needs you, #${next}`}
+                aria-label={`Next that needs you, ${nextName(next, chips)}`}
                 className={cn(BUTTON, "px-3.5")}
               >
                 Next <ChevronRight className="-mr-1 size-4" />

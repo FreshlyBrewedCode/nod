@@ -1,18 +1,21 @@
 /**
- * Keyboard focus across the visible rows: PR rows (`pr:482`) and cluster
+ * Keyboard focus across the visible rows: PR rows (`pr:<repo>#482`) and cluster
  * rows (`cluster:background`), in screen order, the rows of an expanded
  * cluster included. Focus is a key, not an index, so it survives snapshots.
  */
 
+import type { PrId, RepoKey } from "../../shared/protocol";
+import { prId } from "../../shared/repo-key";
+
 export type FocusKey = string;
 
-export const prKey = (n: number): FocusKey => `pr:${n}`;
+/** A PR row's key: `pr:<PR id>`, `pr:tallyho/fieldbook#482`. */
+export const prKey = (id: PrId): FocusKey => `pr:${id}`;
 export const clusterKey = (id: string): FocusKey => `cluster:${id}`;
 
-/** The PR number of a PR row's key, else null. */
-export function prOfKey(key: FocusKey | null): number | null {
-  const m = key?.match(/^pr:(\d+)$/);
-  return m ? Number(m[1]) : null;
+/** The PR id of a PR row's key, else null. */
+export function prOfKey(key: FocusKey | null): PrId | null {
+  return key?.startsWith("pr:") ? key.slice(3) : null;
 }
 
 /**
@@ -31,24 +34,26 @@ export function moveFocus(
   return keys[Math.max(0, Math.min(keys.length - 1, i + delta))]!;
 }
 
+type PrIdentity = { readonly repo: RepoKey; readonly number: number };
+
 /** The focusable rows of items in screen order: a cluster, then its PRs when it is open. */
 export function itemKeys(
   items: ReadonlyArray<
-    | { readonly kind: "pr"; readonly pr: { readonly number: number } }
+    | { readonly kind: "pr"; readonly pr: PrIdentity }
     | {
         readonly kind: "cluster";
         readonly id: string;
-        readonly prs: ReadonlyArray<{ readonly number: number }>;
+        readonly prs: ReadonlyArray<PrIdentity>;
       }
   >,
   expanded: ReadonlySet<string>,
 ): FocusKey[] {
   return items.flatMap((item) =>
     item.kind === "pr"
-      ? [prKey(item.pr.number)]
+      ? [prKey(prId(item.pr.repo, item.pr.number))]
       : [
           clusterKey(item.id),
-          ...(expanded.has(item.id) ? item.prs.map((p) => prKey(p.number)) : []),
+          ...(expanded.has(item.id) ? item.prs.map((p) => prKey(prId(p.repo, p.number))) : []),
         ],
   );
 }

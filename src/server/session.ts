@@ -2,13 +2,20 @@
  * The protocol's server side: every open tab is a client; requests go to the
  * source (GitHub, or the fake) and the signer; every change is pushed to all
  * tabs. The socket plumbing and the token live in `server.ts`.
+ *
+ * Many repos (ADR 0007): the source knows them; the session asks it per
+ * repo. A batch across repos is one payload and one signature per repo,
+ * signed in one go and all or nothing: every repo's enrolment and every
+ * entry's head are checked before anything is signed.
  */
 
 import type {
   Account,
   ClientToServer,
   ErrorCode,
-  KeyInfo,
+  PrRef,
+  RepoInfo,
+  RepoKey,
   RequestError,
   RequestResult,
   RequestType,
@@ -17,12 +24,19 @@ import type {
   SignerState,
   Welcome,
 } from "../shared/protocol";
-import { ghLoginCommand } from "../kit/host.ts";
+import { GITHUB_COM, ghLoginCommand } from "../kit/host.ts";
 import { PROTOCOL_VERSION } from "../shared/protocol";
+import { parseRepoKey, sameRepo } from "../shared/repo-key";
 import type { Clock } from "./clock";
 import { commentBody, humanLine, payloadLine } from "./payload";
-import { SignerError, type Side, type Signer, type SignerKey } from "./signer";
-import { SourceError, type NodPayload, type SignTarget, type Source } from "./source";
+import { SignerError, type Side, type Signer } from "./signer";
+import {
+  SourceError,
+  type NodPayload,
+  type SignTarget,
+  type Source,
+  type SourceRepo,
+} from "./source";
 import { sameLogin } from "./view";
 
 /**
@@ -55,7 +69,7 @@ export class RequestFailure extends Error {
   }
 }
 
-/** The most PRs one nod (or one batch of approvals) may cover. */
+/** The most PRs one batch of nods (or of approvals) may cover, across its repos. */
 export const MAX_BATCH = 100;
 
 type Handlers = {
@@ -78,8 +92,7 @@ export class Session {
     this.unsubscribe = [
       source.subscribe((change) => {
         if (change === "prs") this.pushSnapshot();
-        else if (change === "setup") void this.pushSetup();
-        else this.pushSigner();
+        else void this.pushRepos();
       }),
       signer.subscribe(() => this.pushSigner()),
     ];
@@ -169,8 +182,24 @@ export class Session {
     if (snapshot) this.broadcast({ t: "snapshot", ...snapshot });
   }
 
-  private async pushSetup() {
-    this.broadcast({ t: "setup", setup: await this.options.source.setup() });
+  private async pushRepos() {
+    this.broadcast({ t: "repos", repos: await this.repoInfos() });
+  }
+
+  /** Every repo the source reads, with its setup and my key's enrolment there. */
+  private async repoInfos(): Promise<RepoInfo[]> {
+    const { source, signer } = this.options;
+    const status = signer.status();
+    return Promise.all(
+      source.repos().map(async (repo): Promise<RepoInfo> => ({
+        key: repo.key,
+        name: repo.name,
+        github: repo.github,
+        setup: await source.setup(repo.key),
+        enrolment:
+          status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
+      })),
+    );
   }
 
   /** Every tab hears its own side's lock state. */
@@ -195,44 +224,52 @@ export class Session {
   }
 
   private async welcome(side: Side): Promise<Welcome> {
-    const { source, version, fake } = this.options;
+    const { version, fake } = this.options;
     return {
       t: "welcome",
       protocol: PROTOCOL_VERSION,
       version,
       fake,
       me: await this.me(),
-      repo: source.repo(),
-      github: source.github(),
-      setup: await source.setup(),
+      repos: await this.repoInfos(),
       signer: this.signerState(side),
     };
   }
 
-  /** The signer's state on `side`, with the enrolment the repo decides. */
+  /** The signer's state on `side`: the key and its lock; enrolment is per repo (`repos`). */
   signerState(side: Side): SignerState {
-    const status = this.options.signer.status(side);
-    if (status.state === "no-key") return status;
-    return { ...status, key: this.keyInfo(status.key) };
-  }
-
-  private keyInfo(key: SignerKey): KeyInfo {
-    return { ...key, enrolment: this.options.source.enrolment(key.publicKey) };
+    return this.options.signer.status(side);
   }
 
   // -- requests ---------------------------------------------------------------
 
   private makeHandlers(): Handlers {
     const { source, signer, clock } = this.options;
-    const needRepo = () => {
-      const repo = source.repo();
-      if (!repo) throw new RequestFailure("no-repo", "Pick a repository first.");
+    /** The repo a request names, as the source reads it. */
+    const needRepo = (key: RepoKey): SourceRepo => {
+      const repo = source.repos().find((r) => sameRepo(r.key, key));
+      if (!repo) {
+        if (source.repos().length === 0)
+          throw new RequestFailure("no-repo", "Pick a repository first.");
+        throw new RequestFailure("not-found", `nod serve does not read ${key}.`);
+      }
       return repo;
+    };
+    /** The entries by repo, in the order their repos first appear. */
+    const byRepo = <E extends PrRef>(entries: ReadonlyArray<E>) => {
+      const groups = new Map<RepoKey, { repo: SourceRepo; entries: E[] }>();
+      for (const entry of entries) {
+        const repo = needRepo(entry.repo);
+        const group = groups.get(repo.key) ?? { repo, entries: [] };
+        group.entries.push(entry);
+        groups.set(repo.key, group);
+      }
+      return [...groups.values()];
     };
     const needMe = async () => {
       const me = await this.me();
       if (!me) {
-        const { host } = source.github();
+        const host = source.repos()[0]?.github.host ?? GITHUB_COM;
         throw new RequestFailure(
           "github",
           `\`gh\` is not logged in to ${host}. Run \`${ghLoginCommand(host)}\`.`,
@@ -246,34 +283,44 @@ export class Session {
      * makes it `stale`, listing every such entry, and nothing is done.
      */
     const atHeads = async (
-      repo: string,
-      entries: ReadonlyArray<SignEntry>,
+      groups: ReadonlyArray<{ repo: SourceRepo; entries: ReadonlyArray<SignEntry> }>,
       verb: "nodded" | "approved",
       done: "signed" | "approved",
-    ): Promise<SignTarget[]> => {
-      const stale: { pr: number; signed: string; current: string }[] = [];
-      const targets: SignTarget[] = [];
-      for (const entry of entries) {
-        const target = await source.signTarget(entry.pr);
-        if (!target) throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo}.`);
-        if (target.state !== "open")
-          throw new RequestFailure(
-            "not-open",
-            `#${entry.pr} is ${target.state === "draft" ? "a draft" : target.state}; only open PRs can be ${verb}.`,
-          );
-        if (target.headSha !== entry.head_sha) {
-          stale.push({ pr: entry.pr, signed: entry.head_sha, current: target.headSha });
-          continue;
+    ): Promise<Array<{ repo: SourceRepo; targets: SignTarget[] }>> => {
+      const stale: { repo: RepoKey; pr: number; signed: string; current: string }[] = [];
+      const out: Array<{ repo: SourceRepo; targets: SignTarget[] }> = [];
+      const many = groups.length > 1;
+      const name = (repo: SourceRepo, pr: number) => (many ? `${repo.key}#${pr}` : `#${pr}`);
+      for (const { repo, entries } of groups) {
+        const targets: SignTarget[] = [];
+        for (const entry of entries) {
+          const target = await source.signTarget(repo.key, entry.pr);
+          if (!target) throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo.key}.`);
+          if (target.state !== "open")
+            throw new RequestFailure(
+              "not-open",
+              `${name(repo, entry.pr)} is ${target.state === "draft" ? "a draft" : target.state}; only open PRs can be ${verb}.`,
+            );
+          if (target.headSha !== entry.head_sha) {
+            stale.push({
+              repo: repo.key,
+              pr: entry.pr,
+              signed: entry.head_sha,
+              current: target.headSha,
+            });
+            continue;
+          }
+          targets.push(target);
         }
-        targets.push(target);
+        out.push({ repo, targets });
       }
       if (stale.length)
         throw new RequestFailure(
           "stale",
-          `${stale.map((s) => `#${s.pr}`).join(", ")} changed since you looked. Nothing was ${done}.`,
+          `${stale.map((s) => (many ? `${s.repo}#${s.pr}` : `#${s.pr}`)).join(", ")} changed since you looked. Nothing was ${done}.`,
           { stale },
         );
-      return targets;
+      return out;
     };
     const needKey = (side: Side = "loopback") => {
       const status = signer.status(side);
@@ -297,84 +344,108 @@ export class Session {
         return {};
       },
       sign: async ({ entries, verdict, note }, { side }) => {
-        const repo = needRepo();
+        const groups = byRepo(entries);
         const me = await needMe();
         const status = needKey(side);
-        const enrolment = source.enrolment(status.key.publicKey);
-        if (enrolment.state === "pending")
-          throw new RequestFailure(
-            "key-pending",
-            `Your key is pending${enrolment.pr ? ` until #${enrolment.pr.number} merges` : ""}; it cannot sign yet.`,
-          );
-        if (enrolment.state === "not-enrolled")
-          throw new RequestFailure(
-            "key-pending",
-            `Your key is not enrolled in ${repo}; it cannot sign yet.`,
-          );
+        // Every repo of the batch must trust my key: each is its own trust root.
+        for (const { repo } of groups) {
+          const enrolment = source.enrolment(repo.key, status.key.publicKey);
+          if (enrolment.state === "pending")
+            throw new RequestFailure(
+              "key-pending",
+              `Your key is pending in ${repo.key}${enrolment.pr ? ` until #${enrolment.pr.number} merges` : ""}; it cannot sign there yet.`,
+            );
+          if (enrolment.state === "not-enrolled")
+            throw new RequestFailure(
+              "key-pending",
+              `Your key is not enrolled in ${repo.key}; it cannot sign there yet.`,
+            );
+        }
         if (status.state !== "unlocked")
           throw new RequestFailure("locked", "Unlock signing first.");
 
-        const targets = await atHeads(repo, entries, "nodded", "signed");
-        const built: NodPayload["entries"][number][] = targets.map((target) => {
-          if (!target.patchId)
-            throw new RequestFailure(
-              "no-patch-id",
-              `The patch-id of #${target.pr} is not known yet; try again in a moment.`,
-            );
-          return {
-            pr: target.pr,
-            base: target.base,
-            head_sha: target.headSha,
-            patch_id: target.patchId,
+        const checked = await atHeads(groups, "nodded", "signed");
+        const signedAt = new Date(clock.now()).toISOString();
+        // One payload per repo (ADR 0001 names one repo; ADR 0007, 10).
+        const payloads = checked.map(({ repo, targets }) => {
+          const built: NodPayload["entries"][number][] = targets.map((target) => {
+            if (!target.patchId)
+              throw new RequestFailure(
+                "no-patch-id",
+                `The patch-id of #${target.pr} is not known yet; try again in a moment.`,
+              );
+            return {
+              pr: target.pr,
+              base: target.base,
+              head_sha: target.headSha,
+              patch_id: target.patchId,
+            };
+          });
+          const payload: NodPayload = {
+            v: 1,
+            repo: repo.name,
+            entries: built,
+            verdict,
+            level: "review",
+            reviewer: me.login,
+            signed_at: signedAt,
           };
+          return { repo, payload, line: payloadLine(payload) };
         });
-
-        const payload: NodPayload = {
-          v: 1,
-          repo,
-          entries: built,
-          verdict,
-          level: "review",
-          reviewer: me.login,
-          signed_at: new Date(clock.now()).toISOString(),
-        };
-        const line = payloadLine(payload);
-        const signature = await signer.sign(line, side);
-        const body = commentBody(line, signature, humanLine(payload, note));
-        const results = await source.postNod({ payload, line, signature, body });
+        const signatures = await signer.signLines(
+          payloads.map((p) => p.line),
+          side,
+        );
+        const posted: Array<PrRef & { url: string }> = [];
+        const failed: Array<PrRef & { message: string }> = [];
+        for (const [i, { repo, payload, line }] of payloads.entries()) {
+          const signature = signatures[i]!;
+          const body = commentBody(line, signature, humanLine(payload, note));
+          const results = await source.postNod({ repo: repo.key, payload, line, signature, body });
+          for (const r of results)
+            if (r.ok) posted.push({ repo: repo.key, pr: r.pr, url: r.url ?? "" });
+            else
+              failed.push({
+                repo: repo.key,
+                pr: r.pr,
+                message: r.message ?? "Posting the comment failed.",
+              });
+        }
         return {
-          payload: line,
-          posted: results.filter((r) => r.ok).map((r) => ({ pr: r.pr, url: r.url ?? "" })),
-          failed: results
-            .filter((r) => !r.ok)
-            .map((r) => ({ pr: r.pr, message: r.message ?? "Posting the comment failed." })),
+          payloads: payloads.map((p) => ({ repo: p.repo.key, payload: p.line })),
+          posted,
+          failed,
         };
       },
       approve: async ({ entries, note }) => {
-        const repo = needRepo();
+        const groups = byRepo(entries);
         const me = await needMe();
-        const targets = await atHeads(repo, entries, "approved", "approved");
-        const own = targets.find((t) => sameLogin(t.author, me.login));
-        if (own)
-          throw new RequestFailure(
-            "forbidden",
-            `#${own.pr} is your own pull request; GitHub does not let you approve it. Nothing was approved.`,
-          );
-        const results = await source.postApprovals({
-          repo,
-          entries: targets.map((t) => ({ pr: t.pr, headSha: t.headSha })),
-          body: note?.trim() ? note.trim() : null,
-        });
-        return {
-          posted: results.filter((r) => r.ok).map((r) => ({ pr: r.pr, url: r.url ?? "" })),
-          failed: results
-            .filter((r) => !r.ok)
-            .map((r) => ({ pr: r.pr, message: r.message ?? "Approving failed." })),
-        };
+        const checked = await atHeads(groups, "approved", "approved");
+        for (const { targets } of checked) {
+          const own = targets.find((t) => sameLogin(t.author, me.login));
+          if (own)
+            throw new RequestFailure(
+              "forbidden",
+              `#${own.pr} is your own pull request; GitHub does not let you approve it. Nothing was approved.`,
+            );
+        }
+        const posted: Array<PrRef & { url: string }> = [];
+        const failed: Array<PrRef & { message: string }> = [];
+        for (const { repo, targets } of checked) {
+          const results = await source.postApprovals({
+            repo: repo.key,
+            entries: targets.map((t) => ({ pr: t.pr, headSha: t.headSha })),
+            body: note?.trim() ? note.trim() : null,
+          });
+          for (const r of results)
+            if (r.ok) posted.push({ repo: repo.key, pr: r.pr, url: r.url ?? "" });
+            else
+              failed.push({ repo: repo.key, pr: r.pr, message: r.message ?? "Approving failed." });
+        }
+        return { posted, failed };
       },
-      "ack-fyi": async ({ pr }) => {
-        needRepo();
-        await source.ackFyi(pr);
+      "ack-fyi": async ({ repo, pr }) => {
+        await source.ackFyi(needRepo(repo).key, pr);
         return {};
       },
       ping: async () => ({}),
@@ -385,29 +456,33 @@ export class Session {
       "list-repos": async () => ({ account: await needMe(), repos: await source.listRepos() }),
       "pick-repo": async ({ repo }) => {
         await source.pickRepo(repo);
-        return { setup: await source.setup() };
+        const picked = source.repos().find((r) => sameLogin(r.name, repo)) ?? source.repos()[0];
+        if (!picked) throw new RequestFailure("not-found", `No repository ${repo}.`);
+        return { setup: await source.setup(picked.key) };
       },
-      "check-setup": async () => {
-        needRepo();
-        return { setup: await source.setup() };
-      },
-      "open-setup-pr": async () => {
-        needRepo();
+      "check-setup": async ({ repo }) => ({ setup: await source.setup(needRepo(repo).key) }),
+      "open-setup-pr": async ({ repo }) => {
+        const key = needRepo(repo).key;
         const status = signer.status();
         return {
-          pr: await source.openSetupPr(status.state === "no-key" ? null : status.key.publicKey),
+          pr: await source.openSetupPr(
+            key,
+            status.state === "no-key" ? null : status.key.publicKey,
+          ),
         };
       },
       "create-key": async ({ passphrase, path }) => {
         const key = await signer.createKey(passphrase, path);
         source.keyCreated(key.publicKey);
         this.pushSigner();
-        return { key: this.keyInfo(key) };
+        // My enrolment in every repo is new: it had none without a key.
+        void this.pushRepos();
+        return { key };
       },
-      "open-enrol-pr": async () => {
-        needRepo();
+      "open-enrol-pr": async ({ repo }) => {
+        const key = needRepo(repo).key;
         const status = needKey();
-        return { pr: await source.openEnrolPr(status.key.publicKey) };
+        return { pr: await source.openEnrolPr(key, status.key.publicKey) };
       },
       "test-signature": async (_, { side }) => {
         const status = needKey(side);
@@ -417,12 +492,7 @@ export class Session {
         // Deliberately not a nod payload: it can never count on a PR.
         const line = `nod test signature · ${me?.login ?? "unknown"} · ${new Date(clock.now()).toISOString()}`;
         const signature = await signer.sign(line, side);
-        return {
-          payload: line,
-          signature,
-          verified: await signer.verify(line, signature),
-          enrolment: source.enrolment(status.key.publicKey),
-        };
+        return { payload: line, signature, verified: await signer.verify(line, signature) };
       },
     };
   }
@@ -479,19 +549,29 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   "test-signature": true,
 };
 
-/** A batch's entries: 1 to MAX_BATCH distinct PRs, each at a hex head SHA. */
+/** A repo key: `owner/name`, or `host/owner/name` off github.com (ADR 0007). */
+function repoOf(m: Json, what = "repo"): RepoKey {
+  const v = m.repo;
+  if (typeof v !== "string" || v.length > 300 || !parseRepoKey(v))
+    return fail(`${what} must be a repo key (owner/name or host/owner/name)`);
+  return v;
+}
+
+/** A batch's entries: 1 to MAX_BATCH distinct PRs, each a repo, a number and a hex head SHA. */
 function parseEntries(m: Json, what: string): SignEntry[] {
   if (!Array.isArray(m.entries) || m.entries.length === 0)
     return fail("entries must be a non-empty list");
   if (m.entries.length > MAX_BATCH) fail(`at most ${MAX_BATCH} PRs per ${what}`);
   const entries: SignEntry[] = m.entries.map((e: unknown) => {
     const entry = (typeof e === "object" && e !== null ? e : {}) as Json;
+    const repo = repoOf(entry, "each entry's repo");
     if (!isInt(entry.pr)) fail("each entry needs a pr number");
     if (typeof entry.head_sha !== "string" || !/^[0-9a-f]{7,64}$/.test(entry.head_sha))
       fail("each entry needs a head_sha");
-    return { pr: entry.pr as number, head_sha: entry.head_sha as string };
+    return { repo, pr: entry.pr as number, head_sha: entry.head_sha as string };
   });
-  if (new Set(entries.map((e) => e.pr)).size !== entries.length) fail("a PR is listed twice");
+  const ids = new Set(entries.map((e) => `${e.repo.toLowerCase()}#${e.pr}`));
+  if (ids.size !== entries.length) fail("a PR is listed twice");
   return entries;
 }
 
@@ -535,9 +615,15 @@ export function parseRequest(data: string): ClientToServer {
       const note = str(m, "note", true);
       return { t: "approve", id, entries, ...(note !== undefined && { note }) };
     }
-    case "ack-fyi":
+    case "ack-fyi": {
+      const repo = repoOf(m);
       if (!isInt(m.pr)) fail("pr must be a number");
-      return { t: "ack-fyi", id, pr: m.pr as number };
+      return { t: "ack-fyi", id, repo, pr: m.pr as number };
+    }
+    case "check-setup":
+    case "open-setup-pr":
+    case "open-enrol-pr":
+      return { t: t as "check-setup", id, repo: repoOf(m) };
     case "pick-repo":
       return { t: "pick-repo", id, repo: str(m, "repo")! };
     case "create-key": {
@@ -549,9 +635,6 @@ export function parseRequest(data: string): ClientToServer {
     case "ping":
     case "refresh":
     case "list-repos":
-    case "check-setup":
-    case "open-setup-pr":
-    case "open-enrol-pr":
     case "test-signature":
       return { t: t as "lock", id };
   }

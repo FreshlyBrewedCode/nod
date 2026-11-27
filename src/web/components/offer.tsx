@@ -5,11 +5,12 @@
  * step to take leads to the setup page, a step that waits on its pull
  * request links to it. "Not now" puts it away for this browser.
  *
- * It takes one repo's setup and my signer, not the app's state, so a page
- * for many repos (epic C) can show one per repo.
+ * It takes one repo (its setup and my key's enrolment there) and my signer,
+ * not the app's state. With many repos (ADR 0007, 11) it names the repo it
+ * is about.
  */
 
-import type { SetupStatus, SignerState } from "../../shared/protocol";
+import type { RepoInfo, SignerState } from "../../shared/protocol";
 import { keyStateOf, offerWords, type Offer } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 import { CommandBox, ENFORCE_COMMAND } from "./onboarding";
@@ -25,25 +26,28 @@ const Mono = ({ children }: { children: React.ReactNode }) => (
 
 export function OfferCard({
   offer,
-  setup,
+  repo: info,
+  named = false,
   signer,
   onTake,
   onDismiss,
   className,
 }: {
   offer: Offer;
-  /** The repo's setup. */
-  setup: SetupStatus;
-  /** My key and its enrolment in the repo. */
+  /** The repo the offer is about: its setup, my key's enrolment there. */
+  repo: RepoInfo;
+  /** Name the repo (there are several). */
+  named?: boolean;
+  /** My key. */
   signer: SignerState;
   /** Opens the setup page on the offer's step. */
   onTake: () => void;
   onDismiss: () => void;
   className?: string;
 }) {
-  const key = keyStateOf(signer);
+  const key = keyStateOf(signer, info.enrolment);
   const words = offerWords(offer, key);
-  const repo = setup.repo ?? "this repository";
+  const repo = info.key;
   const pr = offer.pr;
   // My key rides in the setup PR when I opened it with one.
   const adds =
@@ -103,6 +107,12 @@ export function OfferCard({
     >
       <p className="text-tx3 m-0 mb-1 text-[11px] font-semibold tracking-[0.08em] uppercase">
         {offer.phase === "waiting" ? "On its way" : "Next step · optional"}
+        {named && (
+          <span className="font-mono font-normal tracking-normal normal-case [overflow-wrap:anywhere]">
+            {" "}
+            · {repo}
+          </span>
+        )}
       </p>
       <h3 className="m-0 mb-1 text-[15px] font-bold">{words.title}</h3>
       <p className="text-tx2 m-0 text-[13px] leading-[1.55]">{body}</p>

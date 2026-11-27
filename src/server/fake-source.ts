@@ -13,13 +13,17 @@
  *   locally and "needs me" from review requests, `fake-inbox.ts`), `shared`
  *   (the ladder's step 1 with my key active: a set-up repo whose `nod` check
  *   is not required yet, and I am an admin, so enforcing is what is offered).
- * - Who I am in the repo: an admin everywhere but in `join`, where a
+ *   Each of these reads one repo. `repos` reads three (ADR 0007,
+ *   `fake-repos.ts`): the mockup's enforced repo, one at the inbox step, and
+ *   one with the shared policy on a fictional GHE.com host.
+ * - Who I am in a repo: an admin everywhere but in `join`, where a
  *   teammate with write access joins.
  * - Only an enforced repo merges on its own: at `inbox` and `shared` a
  *   person merges, the fake leaves the PRs open.
- * - Without an active key (`fresh`, `join`, `inbox`) the asks are GitHub
- *   approvals (ADR 0006); approving answers the review request and fills a
- *   slot that takes approvals. In `join` Ines approved #485 already.
+ * - Without an active key in a repo (`fresh`, `join`, `inbox`, the inbox
+ *   repo of `repos`) the asks there are GitHub approvals (ADR 0006);
+ *   approving answers the review request and fills a slot that takes
+ *   approvals. In `join` Ines approved #485 already.
  */
 
 import type {
@@ -29,6 +33,7 @@ import type {
   JourneyEvent,
   PrLink,
   RepoChoice,
+  RepoKey,
   RepoName,
   LadderStep,
   RepoPermission,
@@ -36,9 +41,12 @@ import type {
   SetupStatus,
   Signature,
   Snapshot,
+  UnclassifiedPr,
 } from "../shared/protocol";
 import { GITHUB_COM, githubHost } from "../kit/host.ts";
+import { repoKey, sameRepo } from "../shared/repo-key";
 import { inboxFacts } from "./fake-inbox";
+import { FIELD_APP, LEDGER, LEDGER_HOST, LEDGER_SEEDS } from "./fake-repos";
 import type { Clock, Timer } from "./clock";
 import { FAKE_KEY } from "./signer";
 import { publicKeyId } from "./signer/ssh-wire";
@@ -60,6 +68,7 @@ import {
   type SignTarget,
   type Source,
   type SourceChange,
+  type SourceRepo,
 } from "./source";
 import { canFill, sameLogin, toViews, type PrFacts } from "./view";
 
@@ -71,6 +80,7 @@ export const FAKE_SCENARIOS = [
   "join",
   "inbox",
   "shared",
+  "repos",
 ] as const;
 export type FakeScenario = (typeof FAKE_SCENARIOS)[number];
 
@@ -82,7 +92,7 @@ export function scenarioHasKey(scenario: FakeScenario): boolean {
 export interface FakeSourceOptions {
   readonly clock: Clock;
   readonly scenario?: FakeScenario;
-  /** Show the data set under another repo name. */
+  /** Show the data set under another repo name (a one-repo scenario). */
   readonly repo?: RepoName;
   /** Let checks finish and PRs merge on their own. Off in tests. */
   readonly live?: boolean;
@@ -106,27 +116,62 @@ export const FAKE_ACCOUNT: Account = {
 
 type SetupState = SetupStatus["state"];
 
+const hostInfo = (host: string): GitHubInfo => {
+  const { name, webUrl } = githubHost(host);
+  return { host: name, webUrl };
+};
+
+/** One repo of the fake: its PRs, its setup and the keys it trusts. */
+class FakeRepo {
+  readonly key: RepoKey;
+  readonly github: GitHubInfo;
+  facts: PrFacts[] = [];
+  unclassified: Omit<UnclassifiedPr, "repo">[] = [];
+  setupPr: PrLink | null = null;
+  /** By `publicKeyId`: the key, not its comment. */
+  readonly enrolments = new Map<string, Enrolment>();
+
+  constructor(
+    readonly name: RepoName,
+    host: string,
+    public setupState: SetupState,
+    /** A set-up repo's step: `enforced` or `shared-policy`. */
+    readonly setUpStep: LadderStep,
+    readonly permission: RepoPermission,
+  ) {
+    this.github = hostInfo(host);
+    this.key = repoKey(this.github.host, name);
+  }
+
+  get ref(): SourceRepo {
+    return { key: this.key, name: this.name, github: this.github };
+  }
+
+  url(n: number) {
+    return prUrl(this.name, n, this.github.webUrl);
+  }
+
+  enrolment(publicKey: string): Enrolment {
+    return this.enrolments.get(publicKeyId(publicKey)) ?? { state: "not-enrolled" };
+  }
+
+  index(pr: number) {
+    return this.facts.findIndex((f) => f.number === pr);
+  }
+}
+
 export class FakeSource implements Source {
   private readonly clock: Clock;
   private readonly mergeDelayMs: number;
   private readonly started: number;
-  private facts: PrFacts[] = [];
-  private unclassified: Snapshot["unclassified"] = [];
-  private repoName: RepoName | null;
-  private setupState: SetupState;
-  private setupPr: PrLink | null = null;
-  /** A set-up repo's step: `enforced` but in `shared`. */
-  private readonly setUpStep: LadderStep;
-  private readonly permission: RepoPermission;
-  /** By `publicKeyId`: the key, not its comment. */
-  private readonly enrolments = new Map<string, Enrolment>();
+  private list: FakeRepo[] = [];
   private readonly listeners = new Set<(change: SourceChange) => void>();
   private readonly timers: Timer[] = [];
   private syncAt: number;
   private comments = 0;
   /** The `publicKeyId` of the key the scenario treats as mine. */
   private readonly myKey: string;
-  /** Resolves once the scenario's PRs are in (the `inbox` scenario classifies them first). */
+  /** Resolves once the scenario's PRs are in (the inbox step classifies them first). */
   readonly ready: Promise<void>;
 
   constructor(options: FakeSourceOptions) {
@@ -135,54 +180,82 @@ export class FakeSource implements Source {
     this.mergeDelayMs = options.mergeDelayMs ?? 4 * SECOND;
     this.started = this.clock.now();
     this.syncAt = this.started;
-    const repo = options.repo ?? FAKE_REPO;
-    this.repoName = scenario === "fresh" ? (options.repo ?? null) : repo;
-    this.setupState =
-      scenario === "fresh"
-        ? options.repo
-          ? "missing"
-          : "none"
-        : scenario === "inbox"
-          ? "missing"
-          : "ready";
-    this.setUpStep = scenario === "shared" ? "shared-policy" : "enforced";
-    this.permission = scenario === "join" ? "write" : "admin";
-    this.ready =
-      scenario === "inbox"
-        ? inboxFacts(this.started, repo).then((facts) => {
-            if (this.repoName !== repo) return;
-            this.facts = facts;
-            this.emit("prs");
-          })
-        : Promise.resolve();
+    this.myKey = publicKeyId(options.myKey ?? FAKE_KEY.publicKey);
+    const name = options.repo ?? FAKE_REPO;
+    const pending: Promise<void>[] = [];
 
-    if (scenario === "team" || scenario === "clear" || scenario === "join" || scenario === "shared")
-      this.facts = SEEDS.map((s) => seedFacts(s, this.started, repo));
-    const myKey = publicKeyId(options.myKey ?? FAKE_KEY.publicKey);
-    this.myKey = myKey;
-    // A teammate who joins without a key sees a slot a GitHub approval filled (ADR 0006).
-    if (scenario === "join")
-      this.facts = this.facts.map((f) =>
-        f.number === JOIN_APPROVED
-          ? this.withApproval(f, FAKE_PEOPLE.ines.login, f.headSha, this.started - 2 * 60 * SECOND)
-          : f,
+    if (scenario === "repos") {
+      const fieldbook = this.team(name, GITHUB_COM, "enforced", "admin");
+      fieldbook.enrolments.set(this.myKey, { state: "active" });
+      const app = this.inbox(FIELD_APP, pending);
+      const ledger = new FakeRepo(LEDGER, LEDGER_HOST, "ready", "shared-policy", "admin");
+      ledger.facts = LEDGER_SEEDS.map((s) =>
+        seedFacts(s, this.started, LEDGER, ledger.github.webUrl),
       );
-    if (scenario === "team" || scenario === "clear" || scenario === "shared")
-      this.enrolments.set(myKey, { state: "active" });
-    if (scenario === "clear") this.facts = this.facts.map((f) => this.alreadyDone(f));
-    if (scenario === "first-run") {
-      this.setupState = "pending";
-      this.setupPr = { number: SETUP_PR, url: prUrl(repo, SETUP_PR) };
-      this.enrolments.set(myKey, { state: "pending", pr: this.setupPr });
-      this.unclassified = UNCLASSIFIED_TITLES.map((title, i) => {
+      ledger.enrolments.set(this.myKey, { state: "active" });
+      this.list = [fieldbook, app, ledger];
+    } else if (scenario === "fresh") {
+      if (options.repo)
+        this.list = [new FakeRepo(name, GITHUB_COM, "missing", "enforced", "admin")];
+    } else if (scenario === "inbox") {
+      this.list = [this.inbox(name, pending)];
+    } else if (scenario === "first-run") {
+      const repo = new FakeRepo(name, GITHUB_COM, "pending", "enforced", "admin");
+      repo.setupPr = { number: SETUP_PR, url: repo.url(SETUP_PR) };
+      repo.enrolments.set(this.myKey, { state: "pending", pr: repo.setupPr });
+      repo.unclassified = UNCLASSIFIED_TITLES.map((title, i) => {
         const number = SEEDS.filter((s) => s.state === "open")[i]?.n ?? 470 + i;
-        return { number, title, url: prUrl(repo, number) };
+        return { number, title, url: repo.url(number) };
       });
+      this.list = [repo];
+    } else {
+      const repo = this.team(
+        name,
+        GITHUB_COM,
+        scenario === "shared" ? "shared-policy" : "enforced",
+        scenario === "join" ? "write" : "admin",
+      );
+      // A teammate who joins without a key sees a slot a GitHub approval filled (ADR 0006).
+      if (scenario === "join")
+        repo.facts = repo.facts.map((f) =>
+          f.number === JOIN_APPROVED
+            ? this.withApproval(
+                f,
+                FAKE_PEOPLE.ines.login,
+                f.headSha,
+                this.started - 2 * 60 * SECOND,
+              )
+            : f,
+        );
+      else repo.enrolments.set(this.myKey, { state: "active" });
+      if (scenario === "clear") repo.facts = repo.facts.map((f) => this.alreadyDone(f));
+      this.list = [repo];
     }
+    this.ready = Promise.all(pending).then(() => {});
 
-    if (options.live) this.startLife();
+    if (options.live && this.list[0]) this.startLife(this.list[0]);
     // Time-dependent fields (stuck after 12 h) move without anything happening.
     this.timers.push(this.clock.every(60 * SECOND, () => this.emit("prs")));
+  }
+
+  /** The mockup's repo, set up. */
+  private team(name: RepoName, host: string, step: LadderStep, permission: RepoPermission) {
+    const repo = new FakeRepo(name, host, "ready", step, permission);
+    repo.facts = SEEDS.map((s) => seedFacts(s, this.started, name, repo.github.webUrl));
+    return repo;
+  }
+
+  /** A repo at the inbox step: its PRs are classified first (`ready`). */
+  private inbox(name: RepoName, pending: Promise<void>[]) {
+    const repo = new FakeRepo(name, GITHUB_COM, "missing", "enforced", "admin");
+    pending.push(
+      inboxFacts(this.started, name).then((facts) => {
+        if (!this.list.includes(repo)) return;
+        repo.facts = facts;
+        this.emit("prs");
+      }),
+    );
+    return repo;
   }
 
   // -- Source ---------------------------------------------------------------
@@ -195,7 +268,7 @@ export class FakeSource implements Source {
     const now = this.clock.now();
     return [
       {
-        repo: this.repoName ?? FAKE_REPO,
+        repo: this.list[0]?.name ?? FAKE_REPO,
         current: true,
         canWrite: true,
         pushedAt: now - 10 * 60 * SECOND,
@@ -209,44 +282,42 @@ export class FakeSource implements Source {
     ];
   }
 
-  repo(): RepoName | null {
-    return this.repoName;
-  }
-
-  github(): GitHubInfo {
-    const { name, webUrl } = githubHost(GITHUB_COM);
-    return { host: name, webUrl };
+  repos(): ReadonlyArray<SourceRepo> {
+    return this.list.map((r) => r.ref);
   }
 
   async pickRepo(repo: RepoName): Promise<void> {
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo))
       throw new SourceError("not-found", `No repository ${repo}.`);
-    if (sameLogin(repo, this.repoName)) return;
+    if (this.list.some((r) => r.github.host === GITHUB_COM && sameLogin(r.name, repo))) return;
+    if (this.list.length > 1)
+      throw new SourceError("forbidden", "nod serve reads several repositories already.");
     // Another repo than the data set's: not set up, nothing to show.
-    this.repoName = repo;
-    this.facts = [];
-    this.unclassified = [];
-    this.setupState = "missing";
-    this.setupPr = null;
+    this.list = [new FakeRepo(repo, GITHUB_COM, "missing", "enforced", "admin")];
     this.emit("setup");
     this.emit("prs");
   }
 
   snapshot(): Snapshot | null {
-    if (!this.repoName) return null;
+    if (this.list.length === 0) return null;
     const people = Object.values(FAKE_PEOPLE);
+    const now = this.clock.now();
     return {
-      repo: this.repoName,
       me: FAKE_ME,
       people,
-      prs: toViews(this.facts, {
-        me: FAKE_ME,
-        now: this.clock.now(),
-        people,
-        // My key signs only once it is enrolled; until then the asks are approvals.
-        signing: this.enrolments.get(this.myKey)?.state === "active",
-      }),
-      unclassified: this.unclassified,
+      prs: this.list.flatMap((repo) =>
+        toViews(repo.facts, {
+          repo: repo.key,
+          me: FAKE_ME,
+          now,
+          people,
+          // My key signs only once it is enrolled; until then the asks are approvals.
+          signing: repo.enrolments.get(this.myKey)?.state === "active",
+        }),
+      ),
+      unclassified: this.list.flatMap((repo) =>
+        repo.unclassified.map((u) => ({ repo: repo.key, ...u })),
+      ),
       sync: { at: this.syncAt, error: null },
     };
   }
@@ -256,10 +327,12 @@ export class FakeSource implements Source {
     this.emit("prs");
   }
 
-  async signTarget(pr: number): Promise<SignTarget | null> {
-    const f = this.facts.find((x) => x.number === pr);
+  async signTarget(key: RepoKey, pr: number): Promise<SignTarget | null> {
+    const repo = this.repo(key);
+    const f = repo.facts.find((x) => x.number === pr);
     return f
       ? {
+          repo: repo.key,
           pr,
           state: f.state,
           author: f.author,
@@ -272,58 +345,61 @@ export class FakeSource implements Source {
 
   async postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>> {
     const { payload } = input;
+    const repo = this.repo(input.repo);
     const results: PostResult[] = [];
     for (const entry of payload.entries) {
-      const index = this.facts.findIndex((f) => f.number === entry.pr);
-      if (index < 0 || !sameLogin(payload.repo, this.repoName)) {
+      const index = repo.index(entry.pr);
+      if (index < 0 || !sameLogin(payload.repo, repo.name)) {
         results.push({
           pr: entry.pr,
           ok: false,
           url: null,
-          message: `#${entry.pr} is not in ${this.repoName}.`,
+          message: `#${entry.pr} is not in ${repo.key}.`,
         });
         continue;
       }
-      const f = this.facts[index]!;
+      const f = repo.facts[index]!;
       const url = `${f.url}#issuecomment-${9_000_000 + ++this.comments}`;
-      this.facts[index] = this.withNod(f, payload.reviewer, entry, payload.entries.length, url);
+      repo.facts[index] = this.withNod(f, payload.reviewer, entry, payload.entries.length, url);
       results.push({ pr: entry.pr, ok: true, url, message: null });
-      this.whenReady(entry.pr);
+      this.whenReady(repo, entry.pr);
     }
     this.emit("prs");
     return results;
   }
 
   async postApprovals(input: PostApprovalsInput): Promise<ReadonlyArray<PostResult>> {
+    const repo = this.repo(input.repo);
     const results: PostResult[] = [];
     for (const entry of input.entries) {
-      const index = this.facts.findIndex((f) => f.number === entry.pr);
-      if (index < 0 || !sameLogin(input.repo, this.repoName)) {
+      const index = repo.index(entry.pr);
+      if (index < 0) {
         results.push({
           pr: entry.pr,
           ok: false,
           url: null,
-          message: `#${entry.pr} is not in ${this.repoName}.`,
+          message: `#${entry.pr} is not in ${repo.key}.`,
         });
         continue;
       }
-      const f = this.facts[index]!;
+      const f = repo.facts[index]!;
       const url = `${f.url}#pullrequestreview-${8_000_000 + ++this.comments}`;
-      this.facts[index] = this.withApproval(f, FAKE_ME, entry.headSha);
+      repo.facts[index] = this.withApproval(f, FAKE_ME, entry.headSha);
       results.push({ pr: entry.pr, ok: true, url, message: null });
-      this.whenReady(entry.pr);
+      this.whenReady(repo, entry.pr);
     }
     this.emit("prs");
     return results;
   }
 
-  async ackFyi(pr: number): Promise<void> {
-    const index = this.facts.findIndex((f) => f.number === pr);
-    const f = this.facts[index];
+  async ackFyi(key: RepoKey, pr: number): Promise<void> {
+    const repo = this.repo(key);
+    const index = repo.index(pr);
+    const f = repo.facts[index];
     if (!f?.fyi) throw new SourceError("not-found", `#${pr} has no FYI.`);
     if (!f.fyi.pending.some((l) => sameLogin(l, FAKE_ME))) return;
     const at = this.clock.now();
-    this.facts[index] = {
+    repo.facts[index] = {
       ...f,
       fyi: {
         ...f.fyi,
@@ -335,50 +411,49 @@ export class FakeSource implements Source {
     this.emit("prs");
   }
 
-  async setup(): Promise<SetupStatus> {
-    return setupStatus(this.repoName, this.setupState, this.setupPr, {
-      step: this.setUpStep,
-      permission: this.permission,
+  async setup(key: RepoKey): Promise<SetupStatus> {
+    const repo = this.repo(key);
+    return setupStatus(repo.setupState, repo.setupPr, {
+      step: repo.setUpStep,
+      permission: repo.permission,
     });
   }
 
-  async openSetupPr(publicKey: string | null): Promise<PrLink> {
-    if (!this.repoName || this.setupState === "none")
-      throw new SourceError("no-repo", "Pick a repository first.");
-    if (this.setupState === "ready")
-      throw new SourceError("already-set-up", `${this.repoName} is set up already.`);
-    if (this.setupPr) return this.setupPr;
+  async openSetupPr(key: RepoKey, publicKey: string | null): Promise<PrLink> {
+    const repo = this.repo(key);
+    if (repo.setupState === "ready")
+      throw new SourceError("already-set-up", `${repo.key} is set up already.`);
+    if (repo.setupPr) return repo.setupPr;
     // As `nod init`: my key is the first signer if I have one; else nobody is (ADR 0006).
-    this.setupPr = { number: SETUP_PR, url: prUrl(this.repoName, SETUP_PR) };
-    this.setupState = "pending";
-    if (publicKey && this.enrolment(publicKey).state === "not-enrolled")
-      this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr: this.setupPr });
+    repo.setupPr = { number: SETUP_PR, url: repo.url(SETUP_PR) };
+    repo.setupState = "pending";
+    if (publicKey && repo.enrolment(publicKey).state === "not-enrolled")
+      repo.enrolments.set(publicKeyId(publicKey), { state: "pending", pr: repo.setupPr });
     this.emit("setup");
     this.emit("enrolment");
-    return this.setupPr;
+    return repo.setupPr;
   }
 
-  async openEnrolPr(publicKey: string): Promise<PrLink> {
-    if (!this.repoName || this.setupState === "none")
-      throw new SourceError("no-repo", "Pick a repository first.");
-    const current = this.enrolment(publicKey);
+  async openEnrolPr(key: RepoKey, publicKey: string): Promise<PrLink> {
+    const repo = this.repo(key);
+    const current = repo.enrolment(publicKey);
     if (current.state === "active")
       throw new SourceError("already-enrolled", "Your key is enrolled already.");
     if (current.state === "pending" && current.pr) return current.pr;
     // As the GitHub source: an open setup PR is not changed; the key gets its PR after the merge.
-    if (this.setupState !== "ready")
+    if (repo.setupState !== "ready")
       throw new SourceError(
         "github",
-        `${this.repoName} is not set up yet: the setup PR enrols the first key.`,
+        `${repo.key} is not set up yet: the setup PR enrols the first key.`,
       );
-    const pr = { number: ENROL_PR, url: prUrl(this.repoName, ENROL_PR) };
-    this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr });
+    const pr = { number: ENROL_PR, url: repo.url(ENROL_PR) };
+    repo.enrolments.set(publicKeyId(publicKey), { state: "pending", pr });
     this.emit("enrolment");
     return pr;
   }
 
-  enrolment(publicKey: string): Enrolment {
-    return this.enrolments.get(publicKeyId(publicKey)) ?? { state: "not-enrolled" };
+  enrolment(key: RepoKey, publicKey: string): Enrolment {
+    return this.repo(key).enrolment(publicKey);
   }
 
   /**
@@ -400,14 +475,20 @@ export class FakeSource implements Source {
 
   // -- the simulation -------------------------------------------------------
 
+  private repo(key: RepoKey): FakeRepo {
+    const repo = this.list.find((r) => sameRepo(r.key, key));
+    if (!repo) throw new SourceError("not-found", `nod serve does not read ${key}.`);
+    return repo;
+  }
+
   private emit(change: SourceChange) {
     for (const listener of this.listeners) listener(change);
   }
 
-  private update(pr: number, change: (f: PrFacts) => PrFacts) {
-    const index = this.facts.findIndex((f) => f.number === pr);
+  private update(repo: FakeRepo, pr: number, change: (f: PrFacts) => PrFacts) {
+    const index = repo.index(pr);
     if (index < 0) return;
-    this.facts[index] = change(this.facts[index]!);
+    repo.facts[index] = change(repo.facts[index]!);
     this.emit("prs");
   }
 
@@ -510,20 +591,20 @@ export class FakeSource implements Source {
     };
   }
 
-  /** Merge once the requirement is met and the checks are green. */
-  private whenReady(pr: number) {
-    const f = this.facts.find((x) => x.number === pr);
+  /** Merge once the requirement is met and the checks are green, in an enforced repo. */
+  private whenReady(repo: FakeRepo, pr: number) {
+    const f = repo.facts.find((x) => x.number === pr);
     // Before the check is required a person merges, not the agent: nothing happens on its own.
     if (!f || f.state !== "open" || f.classifiedBy === "local") return;
-    if (this.setupState !== "ready" || this.setUpStep !== "enforced") return;
+    if (repo.setupState !== "ready" || repo.setUpStep !== "enforced") return;
     if (f.requirement.slots.some((s) => s.state !== "ok")) return;
     if (f.checks.state === "pending" || f.checks.state === "failing") return;
-    this.timers.push(this.clock.after(this.mergeDelayMs, () => this.merge(pr)));
+    this.timers.push(this.clock.after(this.mergeDelayMs, () => this.merge(repo, pr)));
   }
 
-  private merge(pr: number) {
+  private merge(repo: FakeRepo, pr: number) {
     const at = this.clock.now();
-    this.update(pr, (f) =>
+    this.update(repo, pr, (f) =>
       f.state !== "open"
         ? f
         : {
@@ -536,9 +617,9 @@ export class FakeSource implements Source {
     );
   }
 
-  private checksDone(pr: number, text = "checks turned green") {
+  private checksDone(repo: FakeRepo, pr: number, text = "checks turned green") {
     const at = this.clock.now();
-    this.update(pr, (f) =>
+    this.update(repo, pr, (f) =>
       f.state !== "open"
         ? f
         : {
@@ -548,24 +629,25 @@ export class FakeSource implements Source {
             lastActivity: { at, text },
           },
     );
-    this.whenReady(pr);
+    this.whenReady(repo, pr);
   }
 
-  private startLife() {
+  /** The mockup's repo comes alive: checks finish, a fix is pushed. */
+  private startLife(repo: FakeRepo) {
     const at = (s: number, fn: () => void) => this.timers.push(this.clock.after(s * SECOND, fn));
-    at(20, () => this.checksDone(481));
-    at(30, () => this.checksDone(483));
-    at(45, () => this.checksDone(478));
+    at(20, () => this.checksDone(repo, 481));
+    at(30, () => this.checksDone(repo, 483));
+    at(45, () => this.checksDone(repo, 478));
     at(90, () => {
       const now = this.clock.now();
-      this.update(493, (f) => ({
+      this.update(repo, 493, (f) => ({
         ...f,
         checks: { ...f.checks, state: "pending", passed: 9, failing: [] },
         journey: [...f.journey, event("pushed", "Fix pushed", now, "by the agent")],
         lastActivity: { at: now, text: "another fix pushed" },
       }));
     });
-    at(120, () => this.checksDone(493));
+    at(120, () => this.checksDone(repo, 493));
   }
 
   /** The `clear` scenario: everything that needed me was nodded an hour ago. */
@@ -627,7 +709,6 @@ function event(
  * says otherwise.
  */
 export function setupStatus(
-  repo: RepoName | null,
   state: SetupState,
   setupPr: PrLink | null,
   options: { readonly step?: LadderStep; readonly permission?: RepoPermission | null } = {},
@@ -648,9 +729,7 @@ export function setupStatus(
         ? "ok"
         : state === "pending" && adds
           ? "pending"
-          : state === "none"
-            ? "unknown"
-            : "missing",
+          : "missing",
     note:
       state === "ready"
         ? adds || enforced
@@ -663,7 +742,6 @@ export function setupStatus(
             : "missing",
   });
   return {
-    repo,
     state,
     checks: [
       check("policy", "Policy file", ".nod/policy.ts", true),

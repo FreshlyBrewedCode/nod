@@ -7,6 +7,7 @@
 import type * as React from "react";
 
 import type { Bucket, Item, Lane, LaneView } from "../../shared/attention";
+import { idOf } from "../../shared/repo-key";
 import { cn } from "@/lib/utils";
 import { ClusterRow, PrRow } from "./pr-row";
 
@@ -37,7 +38,7 @@ export function ItemRows({
     <Rows label={label}>
       {items.map((item) =>
         item.kind === "pr" ? (
-          <PrRow key={item.pr.number} item={item} chrono={chrono} />
+          <PrRow key={idOf(item.pr)} item={item} chrono={chrono} />
         ) : (
           <ClusterRow key={item.id} cluster={item} chrono={chrono} />
         ),

@@ -113,3 +113,32 @@ export function Tag({ tag, className }: { tag: TagText; className?: string }) {
     </span>
   );
 }
+
+/**
+ * The repo chip (ADR 0007, 1): which repo a row is of, once there is more
+ * than one. Outlined, so it never reads as a classifier's tag; the whole
+ * repo key on hover. Nothing with one repo (`chips` is empty then).
+ */
+export function RepoChip({
+  repo,
+  chips,
+  className,
+}: {
+  repo: string;
+  chips: ReadonlyMap<string, string>;
+  className?: string;
+}) {
+  const label = chips.get(repo);
+  if (!label) return null;
+  return (
+    <span
+      title={repo}
+      className={cn(
+        "border-line2 text-tx3 inline-flex h-[19px] max-w-[160px] min-w-0 flex-none items-center truncate rounded-[5px] border px-[6px] font-mono text-[11px] whitespace-nowrap",
+        className,
+      )}
+    >
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}

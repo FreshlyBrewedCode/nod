@@ -113,7 +113,11 @@ describe("polling", () => {
     t.source.start();
     await settle();
     const snap = t.source.snapshot()!;
-    expect(snap).toMatchObject({ repo: REPO, me: ALICE, sync: { at: T0, error: null } });
+    expect(snap).toMatchObject({ me: ALICE, sync: { at: T0, error: null } });
+    expect(t.source.repos()).toEqual([
+      { key: REPO, name: REPO, github: { host: "github.com", webUrl: "https://github.com" } },
+    ]);
+    expect(snap.prs.every((p) => p.repo === REPO)).toBe(true);
     expect(snap.prs.map((p) => [p.number, p.category, p.needsMe, p.ask?.kind ?? null])).toEqual([
       [26, "decide", true, "peer"],
       [27, "decide", true, "self"],
@@ -266,6 +270,7 @@ describe("polling", () => {
     });
     expect(t.source.snapshot()!.unclassified).toEqual([
       {
+        repo: REPO,
         number: 36,
         title: "change 36",
         url: `https://github.com/${REPO}/pull/36`,
@@ -334,7 +339,7 @@ describe("the inbox step: a repo without nod's setup", () => {
     expect(t.gh.queries("Poll")[0]!.body).toMatchObject({
       requested: `repo:${REPO} is:pr is:open review-requested:@me`,
     });
-    expect((await t.source.setup()).step).toBe("inbox");
+    expect((await t.source.setup(t.source.key())).step).toBe("inbox");
   });
 
   test("a key changes nothing: there is nothing to sign, a review request asks for an approval", async () => {
@@ -431,7 +436,7 @@ describe("the inbox step: a repo without nod's setup", () => {
     ]);
     expect(snap.unclassified.map((u) => u.number)).toEqual([30, 31, 32]);
     // The fake's branch rules require the `nod` check.
-    expect((await t.source.setup()).step).toBe("enforced");
+    expect((await t.source.setup(t.source.key())).step).toBe("enforced");
   });
 });
 
@@ -440,12 +445,12 @@ describe("my key", () => {
     const t = setup();
     t.source.start();
     await settle();
-    expect(t.source.enrolment(FAKE_KEY.publicKey)).toEqual({ state: "active" });
+    expect(t.source.enrolment(t.source.key(), FAKE_KEY.publicKey)).toEqual({ state: "active" });
     expect(t.pr(26).needsMe).toBe(true);
 
     const other = publicKeyLine(ed25519PublicKeyBlob(new Uint8Array(32).fill(7)));
     t.setKey(other);
-    expect(t.source.enrolment(other)).toEqual({ state: "not-enrolled" });
+    expect(t.source.enrolment(t.source.key(), other)).toEqual({ state: "not-enrolled" });
     // Not enrolled: a teammate's peer slot asks for a GitHub approval instead (ADR 0006).
     expect(t.pr(26)).toMatchObject({ needsMe: true, ask: APPROVE, waitingOn: [{ kind: "me" }] });
 
@@ -466,15 +471,17 @@ describe("my key", () => {
     t.gh.headSigners.set(enrol.headRefOid, `${t.gh.signers}${ALICE} namespaces="nod" ${mine}\n`);
     t.source.start();
     await settle();
-    expect(t.source.enrolment(mine)).toEqual({
+    expect(t.source.enrolment(t.source.key(), mine)).toEqual({
       state: "pending",
       pr: { number: 50, url: `https://github.com/${REPO}/pull/50` },
     });
     // the same key under another login is not mine
     t.gh.headSigners.clear();
-    expect(t.source.enrolment(FAKE_KEY.publicKey.replace("nod-fake", "x"))).toEqual({
-      state: "active",
-    });
+    expect(t.source.enrolment(t.source.key(), FAKE_KEY.publicKey.replace("nod-fake", "x"))).toEqual(
+      {
+        state: "active",
+      },
+    );
   });
 
   test("a merged enrolment turns the key active and the asks appear", async () => {
@@ -485,7 +492,7 @@ describe("my key", () => {
     expect(t.pr(27).needsMe).toBe(false);
     t.gh.signers = `${t.gh.signers}${ALICE} namespaces="nod" ${mine}\n`;
     await t.advance(60 * SECOND);
-    expect(t.source.enrolment(mine)).toEqual({ state: "active" });
+    expect(t.source.enrolment(t.source.key(), mine)).toEqual({ state: "active" });
     expect(t.pr(27).needsMe).toBe(true);
     expect(t.changes).toContain("enrolment");
   });
@@ -519,15 +526,15 @@ describe("signing through the session", () => {
     const reply = await ask("sign", {
       verdict: "approve",
       entries: [
-        { pr: 26, head_sha: sha("head-26") },
-        { pr: 27, head_sha: sha("head-27") },
+        { repo: REPO, pr: 26, head_sha: sha("head-26") },
+        { repo: REPO, pr: 27, head_sha: sha("head-27") },
       ],
     });
     expect(reply.ok).toBe(true);
     const result = (reply as Extract<Reply, { ok: true; to: "sign" }>).result;
     expect(result.posted.map((p) => p.pr)).toEqual([26, 27]);
     expect(result.failed).toEqual([]);
-    const payload = JSON.parse(result.payload);
+    const payload = JSON.parse(result.payloads[0]!.payload);
     expect(payload).toMatchObject({
       repo: REPO,
       reviewer: ALICE,
@@ -548,7 +555,7 @@ describe("signing through the session", () => {
     ]);
     const bodies = posts.map((p) => (p.body as { body: string }).body);
     expect(bodies[0]).toBe(bodies[1]!);
-    expect(bodies[0]).toContain(result.payload);
+    expect(bodies[0]).toContain(result.payloads[0]!.payload);
     expect(bodies[0]).toContain("by `alice` · #26 #27");
     // and it polls fast to show the green check soon
     const before = t.gh.queries("Poll").length;
@@ -569,13 +576,13 @@ describe("signing through the session", () => {
     const reply = (await ask("sign", {
       verdict: "approve",
       entries: [
-        { pr: 26, head_sha: sha("head-26") },
-        { pr: 27, head_sha: sha("head-27") },
+        { repo: REPO, pr: 26, head_sha: sha("head-26") },
+        { repo: REPO, pr: 27, head_sha: sha("head-27") },
       ],
     })) as Extract<Reply, { ok: true; to: "sign" }>;
     expect(reply.result.posted.map((p) => p.pr)).toEqual([26]);
     expect(reply.result.failed).toEqual([
-      { pr: 27, message: expect.stringContaining("Retrying posts the same comment") },
+      { repo: REPO, pr: 27, message: expect.stringContaining("Retrying posts the same comment") },
     ]);
   });
 
@@ -586,7 +593,7 @@ describe("signing through the session", () => {
     const { ask } = session(t);
     const reply = await ask("sign", {
       verdict: "approve",
-      entries: [{ pr: 27, head_sha: sha("head-27") }],
+      entries: [{ repo: REPO, pr: 27, head_sha: sha("head-27") }],
     });
     expect(reply).toMatchObject({ ok: false, error: { code: "locked" } });
     expect(t.gh.rests().filter((c) => c.method === "POST")).toEqual([]);
@@ -601,7 +608,7 @@ describe("signing through the session", () => {
     t.gh.open[1] = rawPr({ number: 27, head: sha("pushed-27"), nodRun: { id: 5027 } });
     const reply = await ask("sign", {
       verdict: "approve",
-      entries: [{ pr: 27, head_sha: sha("head-27") }],
+      entries: [{ repo: REPO, pr: 27, head_sha: sha("head-27") }],
     });
     expect(reply).toMatchObject({ ok: false, error: { code: "stale" } });
     expect(t.gh.rests().filter((c) => c.method === "POST")).toEqual([]);
@@ -616,7 +623,7 @@ describe("signing through the session", () => {
     await ask("unlock", { passphrase: "anything" });
     const reply = await ask("sign", {
       verdict: "approve",
-      entries: [{ pr: 27, head_sha: sha("head-27") }],
+      entries: [{ repo: REPO, pr: 27, head_sha: sha("head-27") }],
     });
     expect(reply).toMatchObject({ ok: false, error: { code: "key-pending" } });
   });
@@ -630,7 +637,7 @@ describe("FYI acks", () => {
     t.source.start();
     await settle();
     expect(t.pr(60).fyiForMe).toBe(true);
-    await t.source.ackFyi(60);
+    await t.source.ackFyi(t.source.key(), 60);
     expect(t.gh.rests().at(-1)).toEqual({
       method: "POST",
       path: `/repos/${REPO}/issues/60/reactions`,
@@ -639,7 +646,7 @@ describe("FYI acks", () => {
     expect(t.pr(60).fyiForMe).toBe(false);
     expect(t.pr(60).fyi?.acked).toEqual([ALICE]);
     expect(t.pr(60).journey.some((e) => e.text === "You got it")).toBe(true);
-    await expect(t.source.ackFyi(61)).rejects.toMatchObject({ code: "not-found" });
+    await expect(t.source.ackFyi(t.source.key(), 61)).rejects.toMatchObject({ code: "not-found" });
   });
 
   test("acks by others come from the reactions on the next poll", async () => {
@@ -657,7 +664,7 @@ describe("setup and enrolment", () => {
   test("a set-up repo: every check ok", async () => {
     const t = setup();
     t.source.start();
-    const status = await t.source.setup();
+    const status = await t.source.setup(t.source.key());
     expect(status.state).toBe("ready");
     expect(status.checks.map((c) => [c.id, c.state])).toEqual([
       ["policy", "ok"],
@@ -677,7 +684,7 @@ describe("setup and enrolment", () => {
       message: "Upgrade to GitHub Pro or make this repository public to enable this feature.",
     };
     t.source.start();
-    const status = await t.source.setup();
+    const status = await t.source.setup(t.source.key());
     expect(status.checks.find((c) => c.id === "required-check")).toMatchObject({
       state: "missing",
       note: "needs a paid plan",
@@ -692,7 +699,7 @@ describe("setup and enrolment", () => {
     t.gh.autoMergeAllowed = false;
     t.gh.open.push(rawPr({ number: 14, headRef: "nod/setup" }));
     t.source.start();
-    const status = await t.source.setup();
+    const status = await t.source.setup(t.source.key());
     expect(status).toMatchObject({ state: "pending", setupPr: { number: 14 } });
     expect(status.checks.map((c) => [c.id, c.state, c.note])).toEqual([
       ["policy", "pending", "in #14"],
@@ -702,7 +709,7 @@ describe("setup and enrolment", () => {
       ["required-check", "missing", "after merge"],
       ["auto-merge", "missing", "after merge"],
     ]);
-    expect(await t.source.openSetupPr("ssh-ed25519 AAAA")).toEqual({
+    expect(await t.source.openSetupPr(t.source.key(), "ssh-ed25519 AAAA")).toEqual({
       number: 14,
       url: expect.any(String),
     });
@@ -726,19 +733,21 @@ describe("setup and enrolment", () => {
     });
     source.start();
     // No key: the setup PR opens with an empty allowed_signers (ADR 0006).
-    expect(await source.openSetupPr(null)).toEqual({
+    expect(await source.openSetupPr(source.key(), null)).toEqual({
       number: 14,
       url: `https://github.com/${REPO}/pull/14`,
     });
     expect(opened).toEqual([{ login: ALICE, publicKey: null }]);
     // Opened once: a key created later is not added to it.
-    expect((await source.openSetupPr("ssh-ed25519 KEY")).number).toBe(14);
+    expect((await source.openSetupPr(source.key(), "ssh-ed25519 KEY")).number).toBe(14);
     expect(opened).toHaveLength(1);
-    expect((await source.setup()).state).toBe("pending");
+    expect((await source.setup(source.key())).state).toBe("pending");
     source.stop();
     const done = setup();
     done.source.start();
-    await expect(done.source.openSetupPr("x")).rejects.toMatchObject({ code: "already-set-up" });
+    await expect(done.source.openSetupPr(done.source.key(), "x")).rejects.toMatchObject({
+      code: "already-set-up",
+    });
   });
 
   test("the enrolment PR: one line on nod/enrol-<login>, through the contents API", async () => {
@@ -757,7 +766,7 @@ describe("setup and enrolment", () => {
     });
     source.start();
     await settle();
-    const pr = await source.openEnrolPr(mine);
+    const pr = await source.openEnrolPr(source.key(), mine);
     expect(pr).toEqual({ number: 77, url: `https://github.com/${REPO}/pull/77` });
     const rest = t.gh.rests().map((c) => `${c.method} ${c.path.split("?")[0]}`);
     expect(rest.filter((r) => !r.includes("/rules/"))).toEqual([
@@ -792,12 +801,12 @@ describe("setup and enrolment", () => {
     });
     expect(create.body).toContain("`.nod/**`");
     expect(create.body).toContain("peer");
-    expect(source.enrolment(mine)).toEqual({ state: "pending", pr });
-    expect(await source.openEnrolPr(mine)).toEqual(pr); // twice: the same PR, nothing new
+    expect(source.enrolment(source.key(), mine)).toEqual({ state: "pending", pr });
+    expect(await source.openEnrolPr(source.key(), mine)).toEqual(pr); // twice: the same PR, nothing new
     expect(
       t.gh.rests().filter((c) => c.method === "POST" && c.path.endsWith("/pulls")),
     ).toHaveLength(1);
-    await expect(source.openEnrolPr(FAKE_KEY.publicKey)).rejects.toMatchObject({
+    await expect(source.openEnrolPr(source.key(), FAKE_KEY.publicKey)).rejects.toMatchObject({
       code: "already-enrolled",
     });
     source.stop();
@@ -829,7 +838,9 @@ describe("setup and enrolment", () => {
     source.start();
     expect(await source.account()).toBeNull();
     expect(source.snapshot()).toBeNull();
-    expect((await source.setup()).checks.every((c) => c.state === "unknown")).toBe(true);
+    expect((await source.setup(source.key())).checks.every((c) => c.state === "unknown")).toBe(
+      true,
+    );
   });
 });
 
@@ -899,6 +910,11 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
     test(`${kind}: reads, signs, approves and posts through ${host}'s API only`, async () => {
       const { gh, source, clock } = await enterprise(origin, host);
       expect(source.github()).toEqual({ host, webUrl });
+      // Off github.com the repo key names the host (ADR 0007): another repo than github.com's acme/widgets.
+      const KEY = `${host}/${REPO}`;
+      expect(source.key()).toBe(KEY);
+      expect(source.snapshot()!.prs.every((p) => p.repo === KEY)).toBe(true);
+      await expect(source.setup(REPO)).rejects.toMatchObject({ code: "not-found" });
       expect(source.snapshot()!.prs.map((p) => p.number)).toEqual([26, 27, 28]);
       expect(await source.account()).toMatchObject({ login: ALICE });
       // Signing goes through the same API: the comment lands on this host.
@@ -916,7 +932,7 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
           t: "sign",
           id: "s",
           verdict: "approve",
-          entries: [{ pr: 26, head_sha: sha("head-26") }],
+          entries: [{ repo: KEY, pr: 26, head_sha: sha("head-26") }],
         }),
       );
       const reply = messages.find((m) => m.t === "reply" && m.id === "s") as Extract<
@@ -928,7 +944,11 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       // So does a GitHub approval: the review lands on this host.
       await s.handle(
         client,
-        JSON.stringify({ t: "approve", id: "a", entries: [{ pr: 26, head_sha: sha("head-26") }] }),
+        JSON.stringify({
+          t: "approve",
+          id: "a",
+          entries: [{ repo: KEY, pr: 26, head_sha: sha("head-26") }],
+        }),
       );
       const approved = messages.find((m) => m.t === "reply" && m.id === "a") as Extract<
         Reply,
@@ -941,7 +961,9 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       // The welcome tells the web app the host.
       await s.attach(client);
       const welcome = messages.find((m) => m.t === "welcome");
-      expect(welcome).toMatchObject({ github: { host, webUrl } });
+      expect(welcome).toMatchObject({
+        repos: [{ key: KEY, name: REPO, github: { host, webUrl } }],
+      });
       expect(gh.queries("Poll").length).toBeGreaterThan(0);
       expect(gh.misdirected).toEqual([]);
       s.stop();
@@ -957,7 +979,7 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       "`gh` is not logged in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com`",
     );
     expect(source.snapshot()).toBeNull();
-    const setup = await source.setup();
+    const setup = await source.setup(source.key());
     expect(setup.checks.every((c) => c.state === "unknown")).toBe(true);
     expect(await source.account()).toBeNull();
   });

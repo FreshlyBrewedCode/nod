@@ -243,14 +243,15 @@ async function runServe(flags: ServeFlags): Promise<number> {
     return 1;
   }
 
-  const { host } = started.source.github();
+  const repos = started.source.repos();
+  const host = repos[0]?.github.host ?? "github.com";
   const what = flags.fake
     ? `fake data (scenario ${flags.scenario})`
     : host === "github.com"
       ? "GitHub"
       : `GitHub on ${host}`;
   console.log(
-    `nod serve on ${started.wsUrl} · ${what} · ${started.source.repo() ?? "no repo yet"}`,
+    `nod serve on ${started.wsUrl} · ${what} · ${repos.map((r) => r.key).join(", ") || "no repo yet"}`,
   );
   console.log(`\n  open the dashboard:\n  ${started.link}\n`);
   if (started.deviceLink) {

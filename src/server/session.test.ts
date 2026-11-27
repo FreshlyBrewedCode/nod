@@ -8,6 +8,7 @@ import { FakeSigner, fakeSignature, type Side } from "./signer";
 
 const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const SECOND = 1000;
+const R = "tallyho/fieldbook";
 
 function setup(scenario: FakeScenario = "team") {
   const clock = new ManualClock(NOW);
@@ -51,14 +52,22 @@ describe("connecting", () => {
     expect(t.messages.map((m) => m.t)).toEqual(["welcome", "snapshot"]);
     const welcome = t.messages[0] as Extract<ServerToClient, { t: "welcome" }>;
     expect(welcome).toMatchObject({
-      protocol: 1,
+      protocol: 2,
       version: null,
       fake: true,
       me: { login: "mara-l" },
-      repo: "tallyho/fieldbook",
-      setup: { state: "ready" },
-      signer: { state: "locked", key: { enrolment: { state: "active" } } },
+      repos: [
+        {
+          key: R,
+          name: R,
+          github: { host: "github.com", webUrl: "https://github.com" },
+          setup: { state: "ready", step: "enforced" },
+          enrolment: { state: "active" },
+        },
+      ],
+      signer: { state: "locked" },
     });
+    expect(welcome.signer).not.toHaveProperty("key.enrolment");
     expect(t.snapshot()!.prs).toHaveLength(18);
   });
 
@@ -68,10 +77,10 @@ describe("connecting", () => {
     await source.ready;
     await session.attach(t.client);
     expect(t.last("welcome")).toMatchObject({
-      repo: "tallyho/fieldbook",
-      setup: { state: "missing", step: "inbox" },
+      repos: [{ key: R, setup: { state: "missing", step: "inbox" }, enrolment: null }],
       signer: { state: "no-key" },
     });
+    expect(t.snapshot()!.prs.every((p) => p.repo === R)).toBe(true);
     const prs = t.snapshot()!.prs;
     expect(prs.length).toBeGreaterThan(8);
     expect(prs.every((p) => p.classifiedBy === "local")).toBe(true);
@@ -87,11 +96,7 @@ describe("connecting", () => {
     const t = tab();
     await session.attach(t.client);
     expect(t.messages.map((m) => m.t)).toEqual(["welcome"]);
-    expect(t.last("welcome")).toMatchObject({
-      repo: null,
-      setup: { state: "none" },
-      signer: { state: "no-key" },
-    });
+    expect(t.last("welcome")).toMatchObject({ repos: [], signer: { state: "no-key" } });
   });
 
   test("every tab gets every push; a closed tab gets nothing", async () => {
@@ -117,7 +122,7 @@ describe("a side each (ADR 0005)", () => {
     const desk2 = tab("loopback");
     const phone = tab("named-host");
     for (const t of [desk, desk2, phone]) await session.attach(t.client);
-    const entries = [{ pr: 482, head_sha: desk.pr(482).headSha }];
+    const entries = [{ repo: R, pr: 482, head_sha: desk.pr(482).headSha }];
 
     ok(await desk.ask("unlock", { passphrase: "pass" }));
     // Tabs of one side share its window; the other side is told it is locked.
@@ -164,15 +169,20 @@ describe("unlock, sign, ack", () => {
     const result = ok(
       await t.ask("sign", {
         entries: [
-          { pr: 482, head_sha: before.headSha },
-          { pr: 488, head_sha: t.pr(488).headSha },
+          { repo: R, pr: 482, head_sha: before.headSha },
+          { repo: R, pr: 488, head_sha: t.pr(488).headSha },
         ],
         verdict: "approve",
         note: "Billing looks right.",
       }),
-    ) as { payload: string; posted: { pr: number; url: string }[]; failed: unknown[] };
+    ) as {
+      payloads: { repo: string; payload: string }[];
+      posted: { repo: string; pr: number; url: string }[];
+      failed: unknown[];
+    };
 
-    const payload = JSON.parse(result.payload);
+    expect(result.payloads.map((p) => p.repo)).toEqual([R]);
+    const payload = JSON.parse(result.payloads[0]!.payload);
     expect(payload).toEqual({
       v: 1,
       repo: "tallyho/fieldbook",
@@ -185,7 +195,10 @@ describe("unlock, sign, ack", () => {
       reviewer: "mara-l",
       signed_at: new Date(NOW).toISOString(),
     });
-    expect(result.posted.map((p) => p.pr)).toEqual([482, 488]);
+    expect(result.posted.map((p) => [p.repo, p.pr])).toEqual([
+      [R, 482],
+      [R, 488],
+    ]);
     expect(result.failed).toEqual([]);
 
     const after = t.pr(482);
@@ -218,7 +231,7 @@ describe("unlock, sign, ack", () => {
     await t.ask("unlock", { passphrase: "pass" });
     ok(
       await t.ask("sign", {
-        entries: [{ pr: 485, head_sha: t.pr(485).headSha }],
+        entries: [{ repo: R, pr: 485, head_sha: t.pr(485).headSha }],
         verdict: "approve",
       }),
     );
@@ -236,7 +249,7 @@ describe("unlock, sign, ack", () => {
     expect(t.pr(491).ask?.kind).toBe("re-attest");
     ok(
       await t.ask("sign", {
-        entries: [{ pr: 491, head_sha: t.pr(491).headSha }],
+        entries: [{ repo: R, pr: 491, head_sha: t.pr(491).headSha }],
         verdict: "approve",
       }),
     );
@@ -252,8 +265,8 @@ describe("unlock, sign, ack", () => {
     await t.ask("unlock", { passphrase: "pass" });
     const reply = await t.ask("sign", {
       entries: [
-        { pr: 482, head_sha: t.pr(482).headSha },
-        { pr: 485, head_sha: "41aa9e7" + "0".repeat(33) },
+        { repo: R, pr: 482, head_sha: t.pr(482).headSha },
+        { repo: R, pr: 485, head_sha: "41aa9e7" + "0".repeat(33) },
       ],
       verdict: "approve",
     });
@@ -261,7 +274,7 @@ describe("unlock, sign, ack", () => {
     if (reply.ok) return;
     expect(reply.error.code).toBe("stale");
     expect(reply.error.details?.stale).toEqual([
-      { pr: 485, signed: "41aa9e7" + "0".repeat(33), current: t.pr(485).headSha },
+      { repo: R, pr: 485, signed: "41aa9e7" + "0".repeat(33), current: t.pr(485).headSha },
     ]);
     expect(t.pr(482).needsMe).toBe(true);
   });
@@ -272,23 +285,23 @@ describe("unlock, sign, ack", () => {
     await session.attach(t.client);
     const sign = (entries: unknown, extra: Record<string, unknown> = {}) =>
       t.ask("sign", { entries, verdict: "approve", ...extra });
-    expect(err(await sign([{ pr: 482, head_sha: t.pr(482).headSha }]))).toBe("locked");
+    expect(err(await sign([{ repo: R, pr: 482, head_sha: t.pr(482).headSha }]))).toBe("locked");
     await t.ask("unlock", { passphrase: "pass" });
-    expect(err(await sign([{ pr: 489, head_sha: t.pr(489).headSha }]))).toBe("not-open");
-    expect(err(await sign([{ pr: 1, head_sha: "a".repeat(40) }]))).toBe("not-found");
+    expect(err(await sign([{ repo: R, pr: 489, head_sha: t.pr(489).headSha }]))).toBe("not-open");
+    expect(err(await sign([{ repo: R, pr: 1, head_sha: "a".repeat(40) }]))).toBe("not-found");
     expect(err(await sign([]))).toBe("bad-request");
-    expect(err(await sign([{ pr: 482, head_sha: "nope" }]))).toBe("bad-request");
+    expect(err(await sign([{ repo: R, pr: 482, head_sha: "nope" }]))).toBe("bad-request");
     expect(
       err(
         await sign([
-          { pr: 482, head_sha: "a".repeat(40) },
-          { pr: 482, head_sha: "a".repeat(40) },
+          { repo: R, pr: 482, head_sha: "a".repeat(40) },
+          { repo: R, pr: 482, head_sha: "a".repeat(40) },
         ]),
       ),
     ).toBe("bad-request");
-    expect(err(await sign([{ pr: 482, head_sha: t.pr(482).headSha }], { verdict: "reject" }))).toBe(
-      "bad-request",
-    );
+    expect(
+      err(await sign([{ repo: R, pr: 482, head_sha: t.pr(482).headSha }], { verdict: "reject" })),
+    ).toBe("bad-request");
     expect(err(await t.ask("nope"))).toBe("bad-request");
     expect(t.pr(482).needsMe).toBe(true);
   });
@@ -300,7 +313,7 @@ describe("unlock, sign, ack", () => {
     await t.ask("unlock", { passphrase: "pass", once: true });
     ok(
       await t.ask("sign", {
-        entries: [{ pr: 482, head_sha: t.pr(482).headSha }],
+        entries: [{ repo: R, pr: 482, head_sha: t.pr(482).headSha }],
         verdict: "approve",
       }),
     );
@@ -322,25 +335,26 @@ describe("unlock, sign, ack", () => {
     const t = tab();
     await session.attach(t.client);
     expect(t.pr(478).fyiForMe).toBe(true);
-    ok(await t.ask("ack-fyi", { pr: 478 }));
+    ok(await t.ask("ack-fyi", { repo: R, pr: 478 }));
     expect(t.pr(478).fyiForMe).toBe(false);
     expect(t.pr(478).fyi?.acked).toContain("mara-l");
-    expect(err(await t.ask("ack-fyi", { pr: 482 }))).toBe("not-found");
+    expect(err(await t.ask("ack-fyi", { repo: R, pr: 482 }))).toBe("not-found");
   });
 
   test("a pending key reads everything and signs nothing", async () => {
     const { session, tab } = setup("first-run");
     const t = tab();
     await session.attach(t.client);
-    expect(t.last("welcome")?.signer).toMatchObject({
-      key: { enrolment: { state: "pending", pr: { number: 494 } } },
+    expect(t.last("welcome")?.repos[0]?.enrolment).toEqual({
+      state: "pending",
+      pr: { number: 494, url: "https://github.com/tallyho/fieldbook/pull/494" },
     });
     expect(t.snapshot()).toMatchObject({ prs: [], unclassified: { length: 7 } });
     await t.ask("unlock", { passphrase: "pass" });
     expect(
       err(
         await t.ask("sign", {
-          entries: [{ pr: 482, head_sha: "a".repeat(40) }],
+          entries: [{ repo: R, pr: 482, head_sha: "a".repeat(40) }],
           verdict: "approve",
         }),
       ),
@@ -357,8 +371,8 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
     const result = ok(
       await t.ask("approve", {
         entries: [
-          { pr: 512, head_sha: t.pr(512).headSha },
-          { pr: 515, head_sha: t.pr(515).headSha },
+          { repo: R, pr: 512, head_sha: t.pr(512).headSha },
+          { repo: R, pr: 515, head_sha: t.pr(515).headSha },
         ],
       }),
     ) as { posted: { pr: number; url: string }[]; failed: unknown[] };
@@ -388,7 +402,7 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
       signature: null,
     });
     expect([t.pr(485).needsMe, t.pr(485).ask]).toEqual([false, null]);
-    ok(await t.ask("approve", { entries: [{ pr: 482, head_sha: t.pr(482).headSha }] }));
+    ok(await t.ask("approve", { entries: [{ repo: R, pr: 482, head_sha: t.pr(482).headSha }] }));
     expect(t.pr(482).requirement).toMatchObject({ satisfied: true });
     expect(t.pr(482).requirement.slots[0]).toMatchObject({ state: "ok", approval: "mara-l" });
     expect(t.pr(482).needsMe).toBe(false);
@@ -404,15 +418,15 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
     const moved = "41aa9e7" + "0".repeat(33);
     const reply = await t.ask("approve", {
       entries: [
-        { pr: 512, head_sha: t.pr(512).headSha },
-        { pr: 515, head_sha: moved },
+        { repo: R, pr: 512, head_sha: t.pr(512).headSha },
+        { repo: R, pr: 515, head_sha: moved },
       ],
     });
     expect(err(reply)).toBe("stale");
     if (reply.ok) return;
     expect(reply.error.message).toMatch(/Nothing was approved/);
     expect(reply.error.details?.stale).toEqual([
-      { pr: 515, signed: moved, current: t.pr(515).headSha },
+      { repo: R, pr: 515, signed: moved, current: t.pr(515).headSha },
     ]);
     expect([t.pr(512).needsMe, t.pr(515).needsMe]).toEqual([true, true]);
   });
@@ -424,18 +438,22 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
     await session.attach(t.client);
     const approve = (entries: unknown) => t.ask("approve", { entries });
     const own = await approve([
-      { pr: 512, head_sha: t.pr(512).headSha },
-      { pr: 519, head_sha: t.pr(519).headSha },
+      { repo: R, pr: 512, head_sha: t.pr(512).headSha },
+      { repo: R, pr: 519, head_sha: t.pr(519).headSha },
     ]);
     expect(err(own)).toBe("forbidden");
     if (!own.ok) expect(own.error.message).toMatch(/#519 is your own pull request/);
     // Nothing was approved, not even the other one.
     expect(t.pr(512).needsMe).toBe(true);
-    expect(err(await approve([{ pr: 518, head_sha: t.pr(518).headSha }]))).toBe("not-open");
-    expect(err(await approve([{ pr: 506, head_sha: t.pr(506).headSha }]))).toBe("not-open");
-    expect(err(await approve([{ pr: 1, head_sha: "a".repeat(40) }]))).toBe("not-found");
+    expect(err(await approve([{ repo: R, pr: 518, head_sha: t.pr(518).headSha }]))).toBe(
+      "not-open",
+    );
+    expect(err(await approve([{ repo: R, pr: 506, head_sha: t.pr(506).headSha }]))).toBe(
+      "not-open",
+    );
+    expect(err(await approve([{ repo: R, pr: 1, head_sha: "a".repeat(40) }]))).toBe("not-found");
     expect(err(await approve([]))).toBe("bad-request");
-    expect(err(await approve([{ pr: 512, head_sha: "nope" }]))).toBe("bad-request");
+    expect(err(await approve([{ repo: R, pr: 512, head_sha: "nope" }]))).toBe("bad-request");
   });
 });
 
@@ -450,27 +468,27 @@ describe("onboarding", () => {
     };
     expect(repos.account.login).toBe("mara-l");
     expect(repos.repos[0]).toMatchObject({ repo: "tallyho/fieldbook", current: true });
-    expect(err(await t.ask("check-setup"))).toBe("no-repo");
+    expect(err(await t.ask("check-setup", { repo: R }))).toBe("no-repo");
 
     const picked = ok(await t.ask("pick-repo", { repo: "tallyho/fieldbook" })) as {
       setup: { state: string };
     };
     expect(picked.setup.state).toBe("missing");
-    expect(t.last("setup")?.setup.state).toBe("missing");
+    expect(t.last("repos")?.repos[0]).toMatchObject({ key: R, setup: { state: "missing" } });
 
     expect(err(await t.ask("create-key", { passphrase: "short" }))).toBe("weak-passphrase");
     ok(await t.ask("create-key", { passphrase: "a long passphrase" }));
-    expect(t.last("signer")?.signer).toMatchObject({
-      state: "locked",
-      key: { enrolment: { state: "not-enrolled" } },
-    });
+    expect(t.last("signer")?.signer).toMatchObject({ state: "locked" });
+    await Promise.resolve();
+    expect(t.last("repos")?.repos[0]?.enrolment).toEqual({ state: "not-enrolled" });
 
-    const { pr } = ok(await t.ask("open-setup-pr")) as { pr: { number: number } };
+    const { pr } = ok(await t.ask("open-setup-pr", { repo: R })) as { pr: { number: number } };
     expect(pr.number).toBe(494);
-    expect(t.last("setup")?.setup).toMatchObject({ state: "pending", setupPr: { number: 494 } });
+    await Promise.resolve();
     // the first key rides in the setup PR
-    expect(t.last("signer")?.signer).toMatchObject({
-      key: { enrolment: { state: "pending", pr: { number: 494 } } },
+    expect(t.last("repos")?.repos[0]).toMatchObject({
+      setup: { state: "pending", setupPr: { number: 494 } },
+      enrolment: { state: "pending", pr: { number: 494 } },
     });
 
     expect(err(await t.ask("test-signature"))).toBe("locked");
@@ -494,29 +512,34 @@ describe("onboarding", () => {
       if (scenario === "fresh") ok(await t.ask("pick-repo", { repo: "tallyho/fieldbook" }));
       expect(t.last("signer")?.signer ?? { state: "no-key" }).toEqual({ state: "no-key" });
 
-      const { pr } = ok(await t.ask("open-setup-pr")) as { pr: { number: number } };
+      const { pr } = ok(await t.ask("open-setup-pr", { repo: R })) as { pr: { number: number } };
       expect(pr.number).toBe(494);
-      expect(t.last("setup")?.setup).toMatchObject({ state: "pending", setupPr: { number: 494 } });
+      await Promise.resolve();
+      expect(t.last("repos")?.repos[0]?.setup).toMatchObject({
+        state: "pending",
+        setupPr: { number: 494 },
+      });
 
       // As on GitHub: the open setup PR is not changed; the key waits for its own PR.
       ok(await t.ask("create-key", { passphrase: "a long passphrase" }));
-      expect(t.last("signer")?.signer).toMatchObject({
-        key: { enrolment: { state: "not-enrolled" } },
-      });
-      expect(err(await t.ask("open-enrol-pr"))).toBe("github");
+      await Promise.resolve();
+      expect(t.last("repos")?.repos[0]?.enrolment).toEqual({ state: "not-enrolled" });
+      expect(err(await t.ask("open-enrol-pr", { repo: R }))).toBe("github");
     });
 
   test("join: a set-up repo, a new key, the enrolment PR", async () => {
     const { session, tab } = setup("join");
     const t = tab();
     await session.attach(t.client);
-    expect(err(await t.ask("open-enrol-pr"))).toBe("no-key");
+    expect(err(await t.ask("open-enrol-pr", { repo: R }))).toBe("no-key");
     ok(await t.ask("create-key", { passphrase: "a long passphrase" }));
-    expect(err(await t.ask("open-setup-pr"))).toBe("already-set-up");
-    const { pr } = ok(await t.ask("open-enrol-pr")) as { pr: { number: number } };
+    expect(err(await t.ask("open-setup-pr", { repo: R }))).toBe("already-set-up");
+    const { pr } = ok(await t.ask("open-enrol-pr", { repo: R })) as { pr: { number: number } };
     expect(pr.number).toBe(501);
-    expect(t.last("signer")?.signer).toMatchObject({
-      key: { enrolment: { state: "pending", pr: { number: 501 } } },
+    await Promise.resolve();
+    expect(t.last("repos")?.repos[0]?.enrolment).toMatchObject({
+      state: "pending",
+      pr: { number: 501 },
     });
   });
 
@@ -524,7 +547,7 @@ describe("onboarding", () => {
     const { session, tab } = setup();
     const t = tab();
     await session.attach(t.client);
-    expect(err(await t.ask("open-enrol-pr"))).toBe("already-enrolled");
+    expect(err(await t.ask("open-enrol-pr", { repo: R }))).toBe("already-enrolled");
     expect(err(await t.ask("create-key", { passphrase: "a long passphrase" }))).toBe("key-exists");
   });
 
@@ -551,15 +574,200 @@ test("parseRequest keeps only what the protocol defines", () => {
   });
   expect(() => parseRequest("{")).toThrow();
   expect(() => parseRequest(JSON.stringify({ t: "unlock", id: "1" }))).toThrow();
-  expect(() => parseRequest(JSON.stringify({ t: "ack-fyi", id: "1", pr: "482" }))).toThrow();
+  expect(() =>
+    parseRequest(JSON.stringify({ t: "ack-fyi", id: "1", repo: R, pr: "482" })),
+  ).toThrow();
+  expect(() => parseRequest(JSON.stringify({ t: "ack-fyi", id: "1", pr: 482 }))).toThrow();
+  expect(() =>
+    parseRequest(JSON.stringify({ t: "check-setup", id: "1", repo: "not a repo" })),
+  ).toThrow();
+  expect(
+    parseRequest(JSON.stringify({ t: "check-setup", id: "1", repo: "acme.ghe.com/a/b" })),
+  ).toEqual({ t: "check-setup", id: "1", repo: "acme.ghe.com/a/b" });
   expect(() => parseRequest(JSON.stringify({ t: "lock" }))).toThrow();
   const head = "a".repeat(40);
   expect(
     parseRequest(
-      JSON.stringify({ t: "approve", id: "2", entries: [{ pr: 7, head_sha: head }], verdict: "x" }),
+      JSON.stringify({
+        t: "approve",
+        id: "2",
+        entries: [{ repo: R, pr: 7, head_sha: head }],
+        verdict: "x",
+      }),
     ),
-  ).toEqual({ t: "approve", id: "2", entries: [{ pr: 7, head_sha: head }] });
+  ).toEqual({ t: "approve", id: "2", entries: [{ repo: R, pr: 7, head_sha: head }] });
   expect(() =>
     parseRequest(JSON.stringify({ t: "approve", id: "2", entries: [{ pr: 7 }] })),
   ).toThrow();
+});
+
+describe("many repos (ADR 0007)", () => {
+  const APP = "tallyho/field-app";
+  const LEDGER = "acme.ghe.com/finance/ledger";
+
+  const repos = async () => {
+    const s = setup("repos");
+    await s.source.ready;
+    const t = s.tab();
+    await s.session.attach(t.client);
+    const at = (repo: string, n: number) =>
+      t.snapshot()!.prs.find((p) => p.repo === repo && p.number === n)!;
+    return { ...s, t, at };
+  };
+
+  test("welcome lists every repo with its host, its ladder step and my enrolment there", async () => {
+    const { t } = await repos();
+    expect(t.last("welcome")?.repos).toMatchObject([
+      { key: R, name: R, setup: { step: "enforced" }, enrolment: { state: "active" } },
+      {
+        key: APP,
+        setup: { state: "missing", step: "inbox" },
+        enrolment: { state: "not-enrolled" },
+      },
+      {
+        key: LEDGER,
+        name: "finance/ledger",
+        github: { host: "acme.ghe.com", webUrl: "https://acme.ghe.com" },
+        setup: { state: "ready", step: "shared-policy" },
+        enrolment: { state: "active" },
+      },
+    ]);
+    const prs = t.snapshot()!.prs;
+    expect(new Set(prs.map((p) => p.repo))).toEqual(new Set([R, APP, LEDGER]));
+    const ledger = prs.filter((p) => p.repo === LEDGER);
+    expect(ledger.every((p) => p.url.startsWith("https://acme.ghe.com/finance/ledger/pull/"))).toBe(
+      true,
+    );
+    // Per repo, what my key can do: a nod where it is enrolled, an approval at the inbox step.
+    expect(ledger.find((p) => p.number === 57)?.ask?.kind).toBe("peer");
+    expect(prs.find((p) => p.repo === APP && p.number === 512)?.ask?.kind).toBe("approve");
+  });
+
+  test("a nod batch across two repos: one payload and one signature per repo, one unlock", async () => {
+    const { t, at } = await repos();
+    ok(await t.ask("unlock", { passphrase: "pass", once: true }));
+    const result = ok(
+      await t.ask("sign", {
+        entries: [
+          { repo: R, pr: 482, head_sha: at(R, 482).headSha },
+          { repo: LEDGER, pr: 57, head_sha: at(LEDGER, 57).headSha },
+          { repo: R, pr: 488, head_sha: at(R, 488).headSha },
+        ],
+        verdict: "approve",
+      }),
+    ) as {
+      payloads: { repo: string; payload: string }[];
+      posted: { repo: string; pr: number; url: string }[];
+    };
+    expect(result.payloads.map((p) => p.repo)).toEqual([R, LEDGER]);
+    const [fieldbook, ledger] = result.payloads.map((p) => JSON.parse(p.payload));
+    // The payload names owner/name (ADR 0001), the host is not in it.
+    expect(fieldbook).toMatchObject({ repo: R, entries: [{ pr: 482 }, { pr: 488 }] });
+    expect(ledger).toMatchObject({ repo: "finance/ledger", entries: [{ pr: 57 }] });
+    expect(result.posted.map((p) => `${p.repo}#${p.pr}`)).toEqual([
+      `${R}#482`,
+      `${R}#488`,
+      `${LEDGER}#57`,
+    ]);
+    expect(result.posted[2]!.url).toStartWith("https://acme.ghe.com/finance/ledger/pull/57#");
+    // "Just this once" covered the whole batch, and then locked.
+    expect(t.last("signer")?.signer.state).toBe("locked");
+    expect([at(R, 482).needsMe, at(LEDGER, 57).needsMe]).toEqual([false, false]);
+    expect(at(LEDGER, 57).signatures.at(-1)).toMatchObject({ byMe: true, batchSize: 1 });
+  });
+
+  test("all or nothing across repos: a moved head in one repo signs nothing in the other", async () => {
+    const { t, at } = await repos();
+    ok(await t.ask("unlock", { passphrase: "pass" }));
+    const reply = await t.ask("sign", {
+      entries: [
+        { repo: R, pr: 482, head_sha: at(R, 482).headSha },
+        { repo: LEDGER, pr: 57, head_sha: "a".repeat(40) },
+      ],
+      verdict: "approve",
+    });
+    expect(err(reply)).toBe("stale");
+    if (!reply.ok) {
+      expect(reply.error.details?.stale).toEqual([
+        { repo: LEDGER, pr: 57, signed: "a".repeat(40), current: at(LEDGER, 57).headSha },
+      ]);
+      expect(reply.error.message).toContain(`${LEDGER}#57`);
+    }
+    expect(at(R, 482).needsMe).toBe(true);
+  });
+
+  test("my key signs only where it is enrolled: a repo without it refuses the whole batch", async () => {
+    const { t, at } = await repos();
+    ok(await t.ask("unlock", { passphrase: "pass" }));
+    const reply = await t.ask("sign", {
+      entries: [
+        { repo: R, pr: 482, head_sha: at(R, 482).headSha },
+        { repo: APP, pr: 512, head_sha: at(APP, 512).headSha },
+      ],
+      verdict: "approve",
+    });
+    expect(err(reply)).toBe("key-pending");
+    if (!reply.ok) expect(reply.error.message).toContain(APP);
+    expect(at(R, 482).needsMe).toBe(true);
+  });
+
+  test("approvals across repos, each posted to its repo", async () => {
+    const { t, at } = await repos();
+    const result = ok(
+      await t.ask("approve", {
+        entries: [
+          { repo: APP, pr: 512, head_sha: at(APP, 512).headSha },
+          { repo: LEDGER, pr: 57, head_sha: at(LEDGER, 57).headSha },
+        ],
+      }),
+    ) as { posted: { repo: string; pr: number; url: string }[] };
+    expect(result.posted.map((p) => p.repo)).toEqual([APP, LEDGER]);
+    expect(result.posted[1]!.url).toStartWith("https://acme.ghe.com/");
+    expect(at(APP, 512).needsMe).toBe(false);
+  });
+
+  test("requests name the repo: ack, setup, enrolment; another repo is not found", async () => {
+    const { t, at } = await repos();
+    expect(at(LEDGER, 56).fyiForMe).toBe(true);
+    ok(await t.ask("ack-fyi", { repo: LEDGER, pr: 56 }));
+    expect(at(LEDGER, 56).fyiForMe).toBe(false);
+    expect(err(await t.ask("ack-fyi", { repo: "other/repo", pr: 56 }))).toBe("not-found");
+    expect(ok(await t.ask("check-setup", { repo: APP }))).toMatchObject({
+      setup: { step: "inbox" },
+    });
+    expect(err(await t.ask("open-setup-pr", { repo: LEDGER }))).toBe("already-set-up");
+    expect(err(await t.ask("open-enrol-pr", { repo: LEDGER }))).toBe("already-enrolled");
+    // The same owner/name on another host is another repo.
+    expect(err(await t.ask("check-setup", { repo: "finance/ledger" }))).toBe("not-found");
+    ok(await t.ask("open-setup-pr", { repo: APP }));
+    await Promise.resolve();
+    expect(t.last("repos")?.repos.map((r) => r.setup.state)).toEqual(["ready", "pending", "ready"]);
+  });
+
+  test("a PR is (repo, number): the same number in two repos is two entries", () => {
+    const head = "a".repeat(40);
+    const two = parseRequest(
+      JSON.stringify({
+        t: "approve",
+        id: "1",
+        entries: [
+          { repo: R, pr: 7, head_sha: head },
+          { repo: LEDGER, pr: 7, head_sha: head },
+        ],
+      }),
+    );
+    expect(two).toMatchObject({ entries: [{ repo: R }, { repo: LEDGER }] });
+    expect(() =>
+      parseRequest(
+        JSON.stringify({
+          t: "approve",
+          id: "1",
+          entries: [
+            { repo: R, pr: 7, head_sha: head },
+            { repo: R.toUpperCase(), pr: 7, head_sha: head },
+          ],
+        }),
+      ),
+    ).toThrow();
+  });
 });

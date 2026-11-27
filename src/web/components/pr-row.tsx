@@ -19,12 +19,17 @@
  * line are grid items of the row; the meta line takes the diff numbers and
  * the risk bars (their desktop columns are hidden), the ask sits at the right
  * of the meta line, the checkbox column is always there.
+ *
+ * With several repos (ADR 0007) the meta line carries the row's repo chip;
+ * with one it does not, and the row is as it always was.
  */
 
 import type * as React from "react";
 
 import type { ClusterItem, PrItem } from "../../shared/attention";
 import { selectable } from "../../shared/attention";
+import type { PrId } from "../../shared/protocol";
+import { idOf } from "../../shared/repo-key";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { clusterKey, prKey } from "@/lib/focus";
@@ -41,7 +46,7 @@ import {
   statusText,
   whoOf,
 } from "@/lib/wording";
-import { Avatar, RiskBars, Tag } from "./bits";
+import { Avatar, RepoChip, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import { DiffIndicator } from "./diff-indicator";
 
@@ -128,10 +133,12 @@ function RowShell({
 
 function Checkbox({
   pr,
+  number,
   checked,
   approve,
 }: {
-  pr: number;
+  pr: PrId;
+  number: number;
   checked: boolean;
   /** It asks for a GitHub approval, not a nod. */
   approve: boolean;
@@ -148,7 +155,7 @@ function Checkbox({
         type="checkbox"
         tabIndex={-1}
         checked={checked}
-        aria-label={checked ? `Unselect #${pr}` : `Select #${pr} for ${what}`}
+        aria-label={checked ? `Unselect #${number}` : `Select #${number} for ${what}`}
         onChange={() => toggleSelected(pr)}
         className="peer border-line2 hover:border-tx3 checked:bg-need checked:border-need absolute inset-0 m-0 cursor-pointer appearance-none rounded-[5px] border-[1.5px] phone:inset-auto phone:top-1/2 phone:left-1/2 phone:size-[22px] phone:-translate-x-1/2 phone:-translate-y-1/2 phone:rounded-[7px]"
       />
@@ -207,10 +214,10 @@ function RightColumn({
   /** The classes that place it in a phone's grid. */
   phoneRow: string;
 }) {
-  const { openBatch, ackFyi, people, me, signing } = useDashboard();
+  const { openBatch, ackFyi, people, me, signingIn } = useDashboard();
   const pr = item.pr;
   // My own PR without a key: GitHub does not let me approve it; said quietly, on hover.
-  const own = ownPrHint(pr, signing) ?? undefined;
+  const own = ownPrHint(pr, signingIn(pr)) ?? undefined;
   const size = small ? "text-[12.5px]" : "text-[13px]";
   const phoneAction = cn(
     "phone:flex phone:min-h-11 phone:items-center phone:pr-4 phone:pl-2.5 phone:text-sm phone:col-start-[-2]",
@@ -224,7 +231,7 @@ function RightColumn({
         title={pr.ask.kind === "approve" ? "Approve on GitHub (s)" : "Sign (s)"}
         onClick={(e) => {
           e.stopPropagation();
-          openBatch([pr.number]);
+          openBatch([idOf(pr)]);
         }}
         className={cn(
           "text-need justify-self-end text-right font-semibold whitespace-nowrap hover:underline",
@@ -258,7 +265,7 @@ function RightColumn({
         title="Got it (e)"
         onClick={(e) => {
           e.stopPropagation();
-          ackFyi(pr.number);
+          ackFyi(pr);
         }}
         className={cn(
           "text-know justify-self-end text-right font-semibold whitespace-nowrap hover:underline",
@@ -292,14 +299,15 @@ export function PrRow({
   chrono: boolean;
   inside?: boolean;
 }) {
-  const { people, selection, focusRow } = useDashboard();
+  const { people, selection, focusRow, chips } = useDashboard();
   const now = useNow(MINUTE);
   const offset = useUtcOffset();
   const pr = item.pr;
   const form = item.form;
-  const key = prKey(pr.number);
+  const id = idOf(pr);
+  const key = prKey(id);
   const canSelect = selectable(pr);
-  const selected = canSelect && selection.includes(pr.number);
+  const selected = canSelect && selection.includes(id);
   const who = whoOf(pr, people);
   const hints = dependencyHints(pr);
   const whenStr = whenText(pr.lastActivity.at, now, offset);
@@ -307,7 +315,7 @@ export function PrRow({
     <span className="text-tx3 text-xs tabular-nums phone:hidden">{whenStr}</span>
   ) : null;
   const box = canSelect ? (
-    <Checkbox pr={pr.number} checked={selected} approve={pr.ask?.kind === "approve"} />
+    <Checkbox pr={id} number={pr.number} checked={selected} approve={pr.ask?.kind === "approve"} />
   ) : (
     <span className={cn(PHONE_BOX_CELL, "phone:hidden")} />
   );
@@ -359,6 +367,7 @@ export function PrRow({
               people={people}
               className="mr-1.5 -mt-0.5 align-middle phone:mt-0 phone:mr-0"
             />
+            <RepoChip repo={pr.repo} chips={chips} className="mr-1.5 align-middle phone:mr-0" />
             {reason}
             {hints.map((h) => (
               <span key={h} className="phone:hidden">
@@ -436,6 +445,7 @@ export function PrRow({
             </span>
             <span className="hidden phone:inline">{chrono ? whenStr : ago(pr.openedAt, now)}</span>
           </span>
+          <RepoChip repo={pr.repo} chips={chips} />
           {tag && <Tag tag={tag} />}
           <PhoneStats pr={pr} />
           {chrono && <PhoneActivity text={pr.lastActivity.text} />}
@@ -498,7 +508,7 @@ export function ClusterRow({ cluster, chrono }: { cluster: ClusterItem; chrono: 
       {open &&
         cluster.prs.map((pr) => (
           <PrRow
-            key={pr.number}
+            key={idOf(pr)}
             item={{ kind: "pr", pr, tier: 4, form: 4 }}
             chrono={chrono}
             inside

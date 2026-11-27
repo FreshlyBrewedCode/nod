@@ -95,6 +95,15 @@ test("once: locks again right after the next signature", async () => {
   expect(signer.status().state).toBe("locked");
 });
 
+test("once covers a batch of lines (one per repo), then locks; a second batch is refused", async () => {
+  const signer = new FakeSigner(new ManualClock(0));
+  await signer.unlock("pass", { once: true });
+  const signatures = await signer.signLines(["a", "b"]);
+  expect(signatures).toEqual([fakeSignature("a"), fakeSignature("b")]);
+  expect(signer.status().state).toBe("locked");
+  expect(await code(signer.signLines(["c"]))).toBe("locked");
+});
+
 test("lock() forgets the key now", async () => {
   const signer = new FakeSigner(new ManualClock(0));
   await signer.unlock("pass");

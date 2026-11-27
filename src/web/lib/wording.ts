@@ -14,6 +14,7 @@ import type {
   PrView,
   Signature,
   SignerState,
+  Enrolment,
   Slot,
   WaitingOn,
 } from "../../shared/protocol";
@@ -113,12 +114,14 @@ export function statusText(pr: PrView, people: People): string {
 /**
  * Why my key cannot sign, in a few words for the board's "You" column, or
  * null when it can (or the server has not said yet): "no key yet", "key
- * pending", "key not enrolled".
+ * pending", "key not enrolled". With many repos, `enrolment` is the best of
+ * them (`bestEnrolment`): the column is muted only when the key signs nowhere.
  */
-export function keyNoteOf(signer: SignerState | null): string | null {
+export function keyNoteOf(signer: SignerState | null, enrolment: Enrolment | null): string | null {
   if (!signer) return null;
   if (signer.state === "no-key") return "no key yet";
-  switch (signer.key.enrolment.state) {
+  if (!enrolment) return null;
+  switch (enrolment.state) {
     case "active":
       return null;
     case "pending":

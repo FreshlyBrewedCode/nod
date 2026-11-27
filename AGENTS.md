@@ -9,7 +9,9 @@ nod
   1. **`nod serve`** (`src/cli.ts`, `src/server/`): local Bun server, polls GitHub, holds the
      signing key, one token-guarded WebSocket used only by the user's own browser
   2. **web app** (`src/web/`): Vite/React SPA, hosted UI later, Vite dev server locally
-- `src/shared/protocol.ts` is the wire contract of both halves; `src/kit/` is the pure helper
+- `src/shared/protocol.ts` is the wire contract of both halves (protocol 2: many repos, ADR 0007;
+  a repo is its repo key `owner/name` or `host/owner/name`, a PR is (repo, number), in the web
+  app the PR id `<repo key>#<n>`, both in `src/shared/repo-key.ts`); `src/kit/` is the pure helper
   kit the repo-owned verifier imports as `@frebreco/nod/kit`
 - `templates/` is what `nod init` (`src/init/`) writes into a user's repo: `.nod/policy.ts`,
   `.nod/classifiers/`, `.nod/verify.ts`, `allowed_signers`, the kit pin and
@@ -30,16 +32,20 @@ nod
 - working in this repo
   - `bun run check` = format:check + lint + typecheck + test; CI runs it plus `bun run build`
   - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
-    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared]
+    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos]
       [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
-      link. Fake passphrase: anything but `wrong`
+      link. Fake passphrase: anything but `wrong`. `repos`: three repos at three ladder steps,
+      one on `acme.ghe.com` (`fake-repos.ts`); every other scenario reads one repo
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
     - against GitHub: `bun src/cli.ts serve --dir <a clone of the repo> [--poll 60]`;
       `NOD_DEBUG=1` logs each poll's queries and GraphQL cost. Experiments use a throwaway
       `XDG_CONFIG_HOME` (key and token) and then need `GH_CONFIG_DIR` pointing at the real gh
       config, or `gh auth token` finds no login. Finding 03 is the sandbox run
-  - server seams: `Source` (`src/server/source.ts`; `fake-source.ts`, and `github-source.ts`
+  - server seams: `Source` (`src/server/source.ts`: one source knows every repo, each method
+    that touches one takes its repo key, `repos()` lists them; the session groups a batch by
+    repo and signs one payload per repo with `Signer.signLines`; `fake-source.ts` has a
+    `FakeRepo` per repo, `github-source.ts` is still one repo as a list of one, #48 reads many
     with its parts in `src/server/github/`: the `GitHubApi` seam with an injectable `fetch`,
     the queries, `map.ts` (GraphQL PR + the verifier's summary → `PrFacts`, never classifies),
     the brief parser, patch-ids in the clone, setup and enrolment; tests run on
@@ -53,7 +59,10 @@ nod
     (route, focus, selection, panel width, time, diff bar, wording); theme tokens (the r3
     palette) in `styles.css`; one ticking clock (`hooks/use-clock.ts`). The board
     (`board.tsx`, group by Waiting on or State) opens the same panel as a 540 px overlay
-    drawer. Every way to sign calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`):
+    drawer. With several repos rows, cards, the panel and the sheet carry a repo chip
+    (`RepoChip`, `chipsOf` in `lib/repos.ts`, which also has the enrolment helpers: the lock
+    chip takes the best of all repos, a batch the worst of its own); with one, the top bar names
+    it and there is no chip. Every way to sign calls `openBatch(prIds)` (`components/batch-dialog.tsx`):
     review, unlock in place, signed / stale / posting failed, the steps a pure state machine
     in `lib/batch.ts`; without an active key the asks are `approve` and the same dialog posts
     GitHub approvals (request `approve`, review → approving → approved, one kind per batch;
@@ -63,9 +72,11 @@ nod
     not logged in or no repo is picked, then the dashboard. The ladder's next step for this repo
     and me is one dismissible card above the list (`components/offer.tsx`; "Not now" is kept per
     viewer in `nod.offers`), every step offered is in the avatar menu, and the steps are done on
-    the setup page `#/setup[/<step>]` (`components/onboarding.tsx`, the ladder). All of it is
-    derived from server state only (`lib/onboarding.ts`, tested per fake scenario) and takes one
-    repo's `SetupStatus` (with `permission`) and my signer as props, ready for many repos. Deep links (`components/link-landing.tsx`,
+    the setup page `#/setup[/<repo>][/<step>]` (`components/onboarding.tsx`, the ladder; with
+    several repos it names one and switches). All of it is derived from server state only
+    (`lib/onboarding.ts`, tested per fake scenario) and takes one repo (`RepoInfo`: setup with
+    `permission`, my enrolment there) and my signer; the card is the first repo's next step,
+    named, and "Not now" brings up no other repo's. Deep links (`components/link-landing.tsx`,
     `lib/deep-link.ts`): `#/pr/<owner>/<repo>/<n>` and `#/batch/<owner>/<repo>/<n>,<n>` (kit:
     `prDeepLink`, `batchDeepLink`) only open views; a link opened before pairing is remembered
     and the host link lands on it (`rememberLink`/`takeLink` in `lib/connection.ts`). The host

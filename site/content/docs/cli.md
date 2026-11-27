@@ -34,7 +34,7 @@ of the repository.
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
 | `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
-| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox` or `shared`; see [Fake scenarios](#fake-scenarios) |
+| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox`, `shared` or `repos`; see [Fake scenarios](#fake-scenarios) |
 | `--frozen` | With `--fake`: nothing changes on its own |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
 | `--new-token` | Replace both tokens: every paired browser pairs again |
@@ -64,6 +64,7 @@ onboarding first wherever the setup or the key is not ready.
 | `join` | Enforced, you joining without a key; a teammate approved one pull request on GitHub | the dashboard | **Sign your own agent PRs** |
 | `inbox` | The inbox step: no `.nod/`, no key, the pull requests classified locally. Not released | the dashboard | **Share one policy with the team** |
 | `shared` | The shared policy, its check not required yet; your key active, you an admin. Not released | the dashboard | **Let agents merge on their own** |
+| `repos` | [Three repositories](/docs/dashboard#many-repositories): `tallyho/fieldbook` enforced, `tallyho/field-app` at the inbox step, `finance/ledger` on the fictional host `acme.ghe.com` with the shared policy; your key active in the first and the last. Not released | the dashboard, with a repo chip on every row | **Share one policy with the team**, for `tallyho/field-app` |
 
 ## `nod init`
 

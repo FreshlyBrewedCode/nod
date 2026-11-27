@@ -31,8 +31,8 @@ import {
   type RequestError,
   type RequestResult,
   type RequestType,
+  type RepoInfo,
   type ServerToClient,
-  type SetupStatus,
   type SignerState,
   type Snapshot,
   type Welcome,
@@ -246,6 +246,13 @@ export function takePairing(
   return loadPairing(storage, page);
 }
 
+/** The same repos, in any order (a reconnect to the same server keeps its last snapshot). */
+function sameKeys(a: ReadonlyArray<RepoInfo> | null, b: ReadonlyArray<RepoInfo>): boolean {
+  if (!a || a.length !== b.length) return false;
+  const keys = new Set(a.map((r) => r.key.toLowerCase()));
+  return b.every((r) => keys.has(r.key.toLowerCase()));
+}
+
 export function socketUrl(pairing: Pairing): string {
   return `${pairing.host}${WS_PATH}?token=${encodeURIComponent(pairing.token)}`;
 }
@@ -265,7 +272,8 @@ export interface ConnectionState {
   readonly welcome: Welcome | null;
   readonly snapshot: Snapshot | null;
   readonly signer: SignerState | null;
-  readonly setup: SetupStatus | null;
+  /** The repos it reads, with their setup and my enrolment (ADR 0007); from the welcome and `repos` pushes. */
+  readonly repos: ReadonlyArray<RepoInfo> | null;
   /** The last error the server pushed on its own (a failed poll, …). */
   readonly lastError: { readonly code: ErrorCode; readonly message: string } | null;
   /** How many times the socket closed since the page loaded. */
@@ -277,7 +285,7 @@ export const INITIAL_STATE: ConnectionState = {
   welcome: null,
   snapshot: null,
   signer: null,
-  setup: null,
+  repos: null,
   lastError: null,
   reconnects: 0,
 };
@@ -524,9 +532,9 @@ export class NodClient {
           status: "open",
           welcome: message,
           signer: message.signer,
-          setup: message.setup,
-          // A snapshot of another repo would be wrong; the next one follows.
-          snapshot: this.state.snapshot?.repo === message.repo ? this.state.snapshot : null,
+          repos: message.repos,
+          // A snapshot of other repos would be wrong; the next one follows.
+          snapshot: sameKeys(this.state.repos, message.repos) ? this.state.snapshot : null,
         });
       case "snapshot": {
         const { t: _, ...snapshot } = message;
@@ -534,8 +542,8 @@ export class NodClient {
       }
       case "signer":
         return this.set({ signer: message.signer });
-      case "setup":
-        return this.set({ setup: message.setup });
+      case "repos":
+        return this.set({ repos: message.repos });
       case "error":
         return this.set({ lastError: { code: message.code, message: message.message } });
       case "reply": {

@@ -8,10 +8,14 @@
  *   JSON types: no classes, no `Date`, no `undefined` values. Times are epoch
  *   milliseconds (`number`).
  * - The server pushes state; the client never has to ask twice. On connect it
- *   sends `welcome`, then `snapshot` (when a repo is picked). Afterwards it
+ *   sends `welcome`, then `snapshot` (when it reads a repo). Afterwards it
  *   pushes a full `snapshot` on every change of the PRs, `signer` on every
- *   change of the signing key (unlock, lock, auto-lock), and `setup` on every
- *   change of the repo's setup. Every open tab gets every push.
+ *   change of the signing key (unlock, lock, auto-lock), and `repos` on every
+ *   change of a repo's setup or my enrolment there. Every open tab gets every
+ *   push.
+ * - Many repos (ADR 0007): `welcome.repos` lists them, each PR carries its
+ *   repo key (`owner/name` on github.com, `host/owner/name` elsewhere), and a
+ *   PR is (repo, number) in every request.
  * - The client sends requests. Each carries an `id` the client picks; the
  *   server answers each with exactly one `reply` of the same `id`. A reply's
  *   result is typed by the request (`Requests` below). State changes caused by
@@ -19,9 +23,17 @@
  * - Everything shown on screen is derived from the `snapshot` view model by
  *   the pure functions in `attention.ts`. The view model is already relative
  *   to the user (`me`): `mine`, `needsMe`, `ask`, `fyiForMe`, `waitingOn`.
+ * - Additions stay inside a version: a new optional field or a new push,
+ *   which an older page ignores. The version moves only when a field changes
+ *   its meaning or goes away (ADR 0007, 7).
  */
 
-export const PROTOCOL_VERSION = 1;
+import type { PrId, RepoKey } from "./repo-key";
+
+export type { PrId, RepoKey };
+
+/** 2: many repos (ADR 0007). */
+export const PROTOCOL_VERSION = 2;
 
 /** Where `nod serve` listens unless `--port` says otherwise (loopback only). */
 export const DEFAULT_SERVE_PORT = 4518;
@@ -46,7 +58,7 @@ export const CLOSE_SHUTDOWN = 4001;
 /** A GitHub login, compared case-insensitively. */
 export type Login = string;
 
-/** `owner/name`, as in the nod payload. */
+/** `owner/name`, as in the nod payload; without the host (that is `RepoKey`). */
 export type RepoName = string;
 
 export interface Person {
@@ -75,7 +87,7 @@ export interface GitHubInfo {
   readonly webUrl: string;
 }
 
-/** A repo offered in onboarding step 1 (`list-repos`). */
+/** A repo offered in onboarding step 1 (`list-repos`, the fake's first run). */
 export interface RepoChoice {
   readonly repo: RepoName;
   /** The repo of the folder `nod serve` was started in. */
@@ -131,37 +143,26 @@ export interface SetupCheck {
 export type LadderStep = "inbox" | "shared-policy" | "enforced";
 
 /**
- * Where the repo stands. `none`: no repo picked yet (step 1). `missing`:
- * the repo has no `.nod/` yet (step 2 offers the setup PR). `pending`: the
- * setup PR is open, nothing is gated yet. `ready`: the verifier runs.
+ * Where a repo stands. `missing`: the repo has no `.nod/` yet (the shared
+ * policy is offered: the setup PR). `pending`: the setup PR is open, nothing
+ * is gated yet. `ready`: the verifier runs.
  */
 export interface SetupStatus {
-  readonly repo: RepoName | null;
-  readonly state: "none" | "missing" | "pending" | "ready";
+  readonly state: "missing" | "pending" | "ready";
   readonly checks: ReadonlyArray<SetupCheck>;
   /** The open setup PR, once nod opened one. */
   readonly setupPr: PrLink | null;
-  /**
-   * The repo's ladder step. Per repo, so it carries over to many repos.
-   * Added after protocol 1 shipped: read it with `ladderStepOf`, which
-   * derives it from `state` for a server that does not send it.
-   */
-  readonly step?: LadderStep;
+  /** The repo's ladder step. */
+  readonly step: LadderStep;
   /**
    * What I may do in the repo, as GitHub says (`viewerPermission`; `maintain`
    * reads as `write`, `triage` as `read`): the setup PR needs `write`,
-   * `nod init --ruleset` needs `admin`. Per repo, like `step`. Added after
-   * protocol 1 shipped: absent or null means unknown.
+   * `nod init --ruleset` needs `admin`. null: unknown.
    */
-  readonly permission?: RepoPermission | null;
+  readonly permission: RepoPermission | null;
 }
 
 export type RepoPermission = "admin" | "write" | "read";
-
-/** The repo's ladder step; from `state` when the server did not say (`ready` reads `shared-policy`). */
-export function ladderStepOf(setup: Pick<SetupStatus, "state" | "step">): LadderStep {
-  return setup.step ?? (setup.state === "ready" ? "shared-policy" : "inbox");
-}
 
 /**
  * Whether the repo trusts the key (`.nod/allowed_signers` on the base
@@ -172,6 +173,7 @@ export type Enrolment =
   | { readonly state: "pending"; readonly pr: PrLink | null }
   | { readonly state: "not-enrolled" };
 
+/** My one signing key, for every repo; its enrolment is per repo (`RepoInfo.enrolment`). */
 export interface KeyInfo {
   /** `SHA256:…`, as `ssh-keygen -l` prints it. */
   readonly fingerprint: string;
@@ -179,7 +181,26 @@ export interface KeyInfo {
   readonly publicKey: string;
   /** Where the encrypted private key lives, for display. */
   readonly location: string;
-  readonly enrolment: Enrolment;
+}
+
+/**
+ * A repo `nod serve` reads (ADR 0007): its identity, its host, where it
+ * stands on the ladder and whether it trusts my key. In the server's order:
+ * the inbox's, where one is needed (the offer card, the setup page).
+ */
+export interface RepoInfo {
+  /** The repo key: `owner/name` on github.com, `host/owner/name` elsewhere. Also how it is named on screen. */
+  readonly key: RepoKey;
+  /** `owner/name`, as in the nod payload and in GitHub's URLs. */
+  readonly name: RepoName;
+  /** The GitHub host it is on; PR and repo links start at its `webUrl`. */
+  readonly github: GitHubInfo;
+  readonly setup: SetupStatus;
+  /**
+   * Whether the repo trusts my key (its `.nod/allowed_signers` on the base
+   * branch, ADR 0002): each repo is its own trust root. null: no key yet.
+   */
+  readonly enrolment: Enrolment | null;
 }
 
 /**
@@ -460,6 +481,8 @@ export interface Activity {
  * the UI (the batch dialog's "not opened" mark), selection, the panel's state.
  */
 export interface PrView {
+  /** The repo key of the PR's repo (`RepoInfo.key`): a PR is (repo, number). */
+  readonly repo: RepoKey;
   readonly number: number;
   readonly title: string;
   readonly url: string;
@@ -502,9 +525,12 @@ export interface PrView {
   readonly brief: Brief | null;
   /** The epic (`Epic: #n` in the brief), for the epic filter. */
   readonly epic: { readonly number: number; readonly title: string } | null;
-  /** "needs #492 first": from `Depends on #n` lines and stacked base branches. */
+  /**
+   * "needs #492 first": from `Depends on #n` lines and stacked base branches.
+   * Numbers in the PR's own repo: neither can name another repo's PR.
+   */
   readonly dependsOn: ReadonlyArray<number>;
-  /** "unblocks #482": the reverse of `dependsOn`, across the snapshot. */
+  /** "unblocks #482": the reverse of `dependsOn`, across the repo's PRs. */
   readonly unblocks: ReadonlyArray<number>;
   readonly journey: ReadonlyArray<JourneyEvent>;
   /** null when the server has not loaded the file list. */
@@ -544,6 +570,7 @@ export interface PrView {
  * error", so it is never folded away as a low-risk change.
  */
 export interface UnclassifiedPr {
+  readonly repo: RepoKey;
   readonly number: number;
   readonly title: string;
   readonly url: string;
@@ -568,15 +595,16 @@ export interface SyncStatus {
 }
 
 /**
- * The full state of the dashboard, pushed on every change. Holds the open
- * PRs and those merged or closed in the last 14 days.
+ * The full state of the dashboard, pushed on every change. Holds every
+ * repo's open PRs and those merged or closed in the last 14 days; each PR
+ * names its repo.
  */
 export interface Snapshot {
-  readonly repo: RepoName;
   readonly me: Login;
   readonly people: ReadonlyArray<Person>;
   readonly prs: ReadonlyArray<PrView>;
   readonly unclassified: ReadonlyArray<UnclassifiedPr>;
+  /** Of every repo (and host) together: the oldest read, a failing host's message. */
   readonly sync: SyncStatus;
 }
 
@@ -585,35 +613,43 @@ export interface Snapshot {
 
 export type Verdict = "approve";
 
-/** One PR of a batch, at the head the user looked at. */
-export interface SignEntry {
+/** A PR, wherever it is: its repo key and its number. */
+export interface PrRef {
+  readonly repo: RepoKey;
   readonly pr: number;
+}
+
+/** One PR of a batch, at the head the user looked at. */
+export interface SignEntry extends PrRef {
   readonly head_sha: string;
 }
 
 export interface SignResult {
-  /** The exact payload line that was signed (ADR 0001). */
-  readonly payload: string;
+  /**
+   * The exact payload line signed for each repo of the batch (ADR 0001): a
+   * payload names one repo, so a batch across repos is one signature per repo.
+   */
+  readonly payloads: ReadonlyArray<{ readonly repo: RepoKey; readonly payload: string }>;
   /** The PRs the nod comment was posted on, with the comment's URL. */
-  readonly posted: ReadonlyArray<{ readonly pr: number; readonly url: string }>;
-  /** Posting failed on these; the signature is valid, retrying posts the same comment. */
-  readonly failed: ReadonlyArray<{ readonly pr: number; readonly message: string }>;
+  readonly posted: ReadonlyArray<PrRef & { readonly url: string }>;
+  /** Posting failed on these; the signature is valid, retrying signs and posts them again. */
+  readonly failed: ReadonlyArray<PrRef & { readonly message: string }>;
 }
 
 /** What `approve` did: the review on each PR, or why posting it failed. */
 export interface ApproveResult {
   /** The PRs approved, with the review's URL. */
-  readonly posted: ReadonlyArray<{ readonly pr: number; readonly url: string }>;
+  readonly posted: ReadonlyArray<PrRef & { readonly url: string }>;
   /** GitHub refused or did not answer on these; nothing was approved there, retrying is safe. */
-  readonly failed: ReadonlyArray<{ readonly pr: number; readonly message: string }>;
+  readonly failed: ReadonlyArray<PrRef & { readonly message: string }>;
 }
 
+/** The test signature: not a nod, it counts nowhere; my enrolment is per repo (`RepoInfo`). */
 export interface TestSignatureResult {
   readonly payload: string;
   readonly signature: string;
   /** Verified locally against the key's own public half. */
   readonly verified: boolean;
-  readonly enrolment: Enrolment;
 }
 
 /**
@@ -635,15 +671,17 @@ export interface Requests {
   /** Forget the decrypted key now. Never fails. */
   lock: { body: Record<never, never>; result: Record<never, never> };
   /**
-   * Nod a batch. The server checks each entry's `head_sha` against the PR's
-   * current head, builds one payload (`repo`, `base`, `head_sha`, `patch_id`
-   * per entry, `verdict`, `level: review`, `reviewer: me`, `signed_at`),
-   * signs it once and posts the same comment on every PR. All or nothing:
-   * if any entry moved since the user looked, nothing is signed and the error
-   * is `stale` with `details.stale` listing them, so the dialog can show what
-   * changed and the user can re-select. `note` is the comment's free-text
-   * human line (not signed). Errors: `locked`, `no-key`, `key-pending`,
-   * `stale`, `not-found`, `not-open`, `no-patch-id`, `bad-request`.
+   * Nod a batch, which may span repos. The server checks each entry's
+   * `head_sha` against the PR's current head, builds one payload per repo
+   * (`repo`, `base`, `head_sha`, `patch_id` per entry, `verdict`, `level:
+   * review`, `reviewer: me`, `signed_at`), signs them in one go and posts
+   * each repo's comment on that repo's PRs. All or nothing, across repos:
+   * my key must be enrolled in every repo of the batch, and if any entry
+   * moved since the user looked, nothing is signed and the error is `stale`
+   * with `details.stale` listing them, so the dialog can show what changed
+   * and the user can re-select. `note` is the comment's free-text human line
+   * (not signed). Errors: `locked`, `no-key`, `key-pending`, `stale`,
+   * `not-found`, `not-open`, `no-patch-id`, `bad-request`.
    */
   sign: {
     body: {
@@ -656,11 +694,11 @@ export interface Requests {
   /**
    * Approve a batch on GitHub, without a key (ADR 0006): for each entry an
    * `APPROVED` review at the head the user looked at (`commit_id`), as `gh pr
-   * review --approve` does. The same all-or-nothing check as `sign`: if any
-   * entry moved since the user looked, nothing is approved and the error is
-   * `stale` with `details.stale`. No passphrase, no unlock. `note` is the
-   * review's text (none by default). The same shape as `sign`, so both get a
-   * PR's repo the same way once a batch spans repos. Errors: `stale`,
+   * review --approve` does, each on its repo's host; a batch may span repos.
+   * The same all-or-nothing check as `sign`: if any entry moved since the
+   * user looked, nothing is approved and the error is `stale` with
+   * `details.stale`. No passphrase, no unlock. `note` is the review's text
+   * (none by default). Errors: `stale`,
    * `not-found`, `not-open` (drafts too), `forbidden` (my own PR: GitHub
    * refuses it), `bad-request`.
    */
@@ -672,7 +710,7 @@ export interface Requests {
    * Mark an FYI as seen ("Got it"): a 👀 reaction on the PR, unsigned; a 👀
    * by anyone is their ack. Errors: `not-found`.
    */
-  "ack-fyi": { body: { readonly pr: number }; result: Record<never, never> };
+  "ack-fyi": { body: PrRef; result: Record<never, never> };
   /**
    * Answer at once and do nothing else: the web app's wake check, to tell a
    * live socket from a half-open one. Any reply proves the socket lives, so
@@ -683,26 +721,27 @@ export interface Requests {
   /** Read GitHub now instead of waiting for the next poll. A new snapshot follows. */
   refresh: { body: Record<never, never>; result: Record<never, never> };
   /**
-   * Onboarding step 1: the `gh` account and the repos to pick from. v1 reads
-   * one repo: the GitHub source lists only the clone `nod serve` runs in
-   * (`--dir`), and `pick-repo` accepts only that one.
+   * Onboarding step 1, while `nod serve` reads no repo (the fake's first
+   * run): the `gh` account and the repos to pick from. The GitHub source
+   * lists only the clone `nod serve` runs in (`--dir`), and `pick-repo`
+   * accepts only that one; adding and removing repos is #48's.
    */
   "list-repos": {
     body: Record<never, never>;
     result: { readonly account: Account; readonly repos: ReadonlyArray<RepoChoice> };
   };
   /**
-   * Pick the repo (one per server in v1). The server re-reads the setup,
-   * pushes `setup` and then `snapshot`. Errors: `not-found`, `forbidden`.
+   * Pick the first repo. The server re-reads the setup, pushes `repos` and
+   * then `snapshot`. Errors: `not-found`, `forbidden`.
    */
   "pick-repo": { body: { readonly repo: RepoName }; result: { readonly setup: SetupStatus } };
-  /** Onboarding step 2: re-check the repo's setup. Errors: `no-repo`. */
-  "check-setup": { body: Record<never, never>; result: { readonly setup: SetupStatus } };
+  /** The shared policy: re-check a repo's setup. Errors: `not-found`. */
+  "check-setup": { body: RepoBody; result: { readonly setup: SetupStatus } };
   /**
-   * Onboarding step 2: open the one-time setup PR (`.nod/`, the workflow and
-   * my public key, when I have one). Errors: `no-repo`, `already-set-up`.
+   * The shared policy: open a repo's one-time setup PR (`.nod/`, the workflow
+   * and my public key, when I have one). Errors: `not-found`, `already-set-up`.
    */
-  "open-setup-pr": { body: Record<never, never>; result: { readonly pr: PrLink } };
+  "open-setup-pr": { body: RepoBody; result: { readonly pr: PrLink } };
   /**
    * Onboarding step 3: create a new ed25519 key encrypted with `passphrase`
    * (at least MIN_PASSPHRASE_LENGTH characters). Never replaces a key: that
@@ -716,16 +755,21 @@ export interface Requests {
     result: { readonly key: KeyInfo };
   };
   /**
-   * Onboarding step 3, a teammate joining a set-up repo: open the one-line PR
-   * that adds my public key to `.nod/allowed_signers`. Errors: `no-key`,
-   * `no-repo`, `already-enrolled`.
+   * Signing, a teammate joining a set-up repo: open the one-line PR that adds
+   * my public key to that repo's `.nod/allowed_signers`. Errors: `no-key`,
+   * `not-found`, `already-enrolled`.
    */
-  "open-enrol-pr": { body: Record<never, never>; result: { readonly pr: PrLink } };
+  "open-enrol-pr": { body: RepoBody; result: { readonly pr: PrLink } };
   /**
    * Onboarding step 4: sign a harmless test message and verify it locally.
    * Needs the key unlocked (send `unlock` first). Errors: `locked`, `no-key`.
    */
   "test-signature": { body: Record<never, never>; result: TestSignatureResult };
+}
+
+/** A request about one repo. */
+export interface RepoBody {
+  readonly repo: RepoKey;
 }
 
 export type RequestType = keyof Requests;
@@ -766,11 +810,12 @@ export interface RequestError {
   readonly message: string;
   /** `stale`: the entries whose head moved since the user looked. */
   readonly details?: {
-    readonly stale?: ReadonlyArray<{
-      readonly pr: number;
-      readonly signed: string;
-      readonly current: string;
-    }>;
+    readonly stale?: ReadonlyArray<
+      PrRef & {
+        readonly signed: string;
+        readonly current: string;
+      }
+    >;
   };
 }
 
@@ -802,15 +847,13 @@ export interface Welcome {
   readonly version: string | null;
   /** Serving the in-memory fake data set (`nod serve --fake`), not GitHub. */
   readonly fake: boolean;
-  /** The `gh` account; null when `gh` is not logged in (onboarding step 1 says so). */
-  readonly me: Account | null;
-  readonly repo: RepoName | null;
   /**
-   * The GitHub host `repo` is on. Added after protocol 1 shipped: a server
-   * that does not send it reads github.com.
+   * The `gh` account (of the first repo's host; ADR 0007, 8); null when `gh`
+   * is not logged in (onboarding step 1 says so).
    */
-  readonly github?: GitHubInfo;
-  readonly setup: SetupStatus;
+  readonly me: Account | null;
+  /** Every repo it reads, in its order; empty before the first one is picked (the fake's first run). */
+  readonly repos: ReadonlyArray<RepoInfo>;
   readonly signer: SignerState;
 }
 
@@ -818,7 +861,8 @@ export type ServerToClient =
   | Welcome
   | ({ readonly t: "snapshot" } & Snapshot)
   | { readonly t: "signer"; readonly signer: SignerState }
-  | { readonly t: "setup"; readonly setup: SetupStatus }
+  /** Every repo again, on a change of one's setup or my enrolment in one. */
+  | { readonly t: "repos"; readonly repos: ReadonlyArray<RepoInfo> }
   | Reply
   /** Not caused by a request: a failed poll, a failed auto-merge watch, … */
   | { readonly t: "error"; readonly code: ErrorCode; readonly message: string };

@@ -6,10 +6,12 @@
  * Only the two pages before a dashboard are left: not signed in to GitHub,
  * and no repo picked yet.
  *
- * Every step takes one repo's setup and my signer as props, so a settings
- * page for many repos (epic C) can show them per repo. Where each step stands
- * comes from the server's state alone (`lib/onboarding.ts`). Every action is
- * one protocol request; the state it changes arrives as a push.
+ * Every step takes one repo (its setup, its host and my key's enrolment
+ * there) and my signer as props; with many repos (ADR 0007, 11) the page is
+ * about one of them, named in the top bar, and switches between them
+ * (`#/setup/<repo>/<step>`). Where each step stands comes from the server's
+ * state alone (`lib/onboarding.ts`). Every action is one protocol request
+ * naming the repo; the state it changes arrives as a push.
  *
  * Passphrases live only in their inputs and the one request that sends
  * them: read on submit, the inputs cleared at once and when the step goes
@@ -22,10 +24,13 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefOb
 import {
   MIN_PASSPHRASE_LENGTH,
   type Account,
+  type Enrolment,
   type GitHubInfo,
   type Person,
   type PrLink,
   type RepoChoice,
+  type RepoInfo,
+  type RepoKey,
   type SetupCheck,
   type SetupStatus,
   type SignerState,
@@ -260,11 +265,11 @@ export function SignInPage({ github }: { github: GitHubInfo }) {
 }
 
 /** No repo picked yet (only `nod serve --fake --scenario fresh`: the GitHub source reads its clone's). */
-export function PickRepoPage(props: { me: Account; setup: SetupStatus; actions: Actions }) {
+export function PickRepoPage(props: { me: Account; actions: Actions }) {
   return (
     <FullPage title="Pick a repository">
-      <p>nod shows the pull requests of one repository. Nothing in it changes by looking.</p>
-      <RepoPicker {...props} />
+      <p>nod shows the pull requests of your repositories. Nothing in them changes by looking.</p>
+      <RepoPicker {...props} current={null} />
     </FullPage>
   );
 }
@@ -274,35 +279,54 @@ export function PickRepoPage(props: { me: Account; setup: SetupStatus; actions: 
 
 export interface SetupPageProps {
   readonly me: Account | null;
-  /** The GitHub host `nod serve` reads. */
-  readonly github: GitHubInfo;
-  /** The repo's setup and ladder step. */
-  readonly setup: SetupStatus;
-  /** My key and its enrolment in the repo. */
+  /** The repo the page is about: its host, its setup and ladder step, my key's enrolment there. */
+  readonly repo: RepoInfo;
+  /** Every repo `nod serve` reads: with more than one, the page switches between them. */
+  readonly repos: ReadonlyArray<RepoInfo>;
+  /** My key (one for every repo) and its lock. */
   readonly signer: SignerState;
   readonly people: ReadonlyArray<Person>;
   readonly actions: Actions;
   /** The step shown (`setupRungOf`). */
   readonly step: Rung;
   readonly onStep: (step: Rung) => void;
+  /** Another repo's ladder, on the step its next offer is. */
+  readonly onRepo: (repo: RepoKey) => void;
   /** Back to the dashboard; null while there is none to go to (no snapshot yet). */
   readonly onLeave: (() => void) | null;
 }
 
-type StepProps = SetupPageProps & { readonly progress: Progress };
+/** What every step reads: the page's props and the repo's parts. */
+type StepProps = SetupPageProps & {
+  readonly progress: Progress;
+  readonly setup: SetupStatus;
+  readonly github: GitHubInfo;
+  /** My key's enrolment in the repo; null without a key. */
+  readonly enrolment: Enrolment | null;
+  /** How the repo is named here: its key (`owner/name`, or `host/owner/name`). */
+  readonly repoName: string;
+};
 
 export function SetupPage(props: SetupPageProps) {
-  const { me, setup, signer, step, onStep, onLeave } = props;
-  const progress = progressOf({ me, setup, signer });
-  const rungs = rungsOf({ me, setup, signer });
-  const next = offersOf({ me, setup, signer })[0]?.rung ?? null;
-  const stepProps: StepProps = { ...props, progress };
+  const { me, repo, repos, signer, step, onStep, onRepo, onLeave } = props;
+  const state = { me, repo, signer };
+  const progress = progressOf(state);
+  const rungs = rungsOf(state);
+  const next = offersOf(state)[0]?.rung ?? null;
+  const stepProps: StepProps = {
+    ...props,
+    progress,
+    setup: repo.setup,
+    github: repo.github,
+    enrolment: repo.enrolment,
+    repoName: repo.key,
+  };
 
   return (
     <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
         <Logo />
-        {setup.repo && <span className="text-tx3 min-w-0 truncate text-[13px]">{setup.repo}</span>}
+        <span className="text-tx3 min-w-0 truncate text-[13px]">{repo.key}</span>
         <span className="flex-1" />
         {onLeave && (
           <button
@@ -316,14 +340,17 @@ export function SetupPage(props: SetupPageProps) {
         )}
       </TopBarShell>
       <div className="mx-auto my-12 grid w-full max-w-[940px] grid-cols-[230px_1fr] gap-11 px-6 phone:my-4 phone:grid-cols-1 phone:gap-4 phone:px-4">
-        <Ladder
-          rungs={rungs}
-          step={step}
-          next={next}
-          setup={setup}
-          signer={signer}
-          onStep={onStep}
-        />
+        <div className="min-w-0 phone:contents">
+          {repos.length > 1 && <RepoSwitch repos={repos} repo={repo} onRepo={onRepo} />}
+          <Ladder
+            rungs={rungs}
+            step={step}
+            next={next}
+            setup={repo.setup}
+            enrolment={signer.state === "no-key" ? null : repo.enrolment}
+            onStep={onStep}
+          />
+        </div>
         <main
           className="border-line bg-panel rounded-2xl border px-9 py-8 phone:px-5 phone:py-6"
           aria-live="polite"
@@ -333,7 +360,7 @@ export function SetupPage(props: SetupPageProps) {
           ) : step === "shared-policy" ? (
             <SetupStep {...stepProps} />
           ) : step === "signing" ? (
-            <SigningStep key={setup.repo ?? ""} {...stepProps} />
+            <SigningStep key={repo.key} {...stepProps} />
           ) : (
             <EnforcedStep {...stepProps} state={rungs.enforced} />
           )}
@@ -343,13 +370,60 @@ export function SetupPage(props: SetupPageProps) {
   );
 }
 
+/**
+ * With many repos: which repo's ladder this is, and the others to switch to,
+ * each with its step. #49 moves this into the settings page.
+ */
+function RepoSwitch({
+  repos,
+  repo,
+  onRepo,
+}: {
+  repos: ReadonlyArray<RepoInfo>;
+  repo: RepoInfo;
+  onRepo: (repo: RepoKey) => void;
+}) {
+  return (
+    <nav aria-label="Repositories" className="mb-6 phone:mb-0">
+      <h2 className="text-tx3 m-0 mt-1.5 mb-1 text-[11px] font-semibold tracking-[0.08em] uppercase">
+        Repository
+      </h2>
+      <ul className="m-0 list-none p-0">
+        {repos.map((r) => {
+          const on = r.key === repo.key;
+          return (
+            <li key={r.key}>
+              <button
+                type="button"
+                aria-current={on ? "page" : undefined}
+                onClick={() => onRepo(r.key)}
+                className={cn(
+                  "hover:text-tx w-full py-1.5 text-left phone:min-h-11",
+                  on ? "text-tx font-semibold" : "text-tx3",
+                )}
+              >
+                <span className="block min-w-0 text-[13.5px] [overflow-wrap:anywhere]">
+                  {r.key}
+                </span>
+                <span className="text-tx3 block fs-note font-normal">
+                  {RUNG_NAMES[r.setup.step]}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
 /** The short line under a step's name: who opts in, and where it stands. */
 function rungLine(
   rung: Rung,
   state: RungState,
   next: boolean,
   setup: SetupStatus,
-  signer: SignerState,
+  enrolment: Enrolment | null,
 ): string {
   const who = RUNG_WHO[rung];
   if (state === "done") return `${who} · done`;
@@ -357,8 +431,8 @@ function rungLine(
     const pr =
       rung === "shared-policy"
         ? setup.setupPr
-        : signer.state !== "no-key" && signer.key.enrolment.state === "pending"
-          ? signer.key.enrolment.pr
+        : enrolment?.state === "pending"
+          ? enrolment.pr
           : null;
     return `${who} · ${pr ? `#${pr.number} open` : "pending"}`;
   }
@@ -378,14 +452,14 @@ function Ladder({
   step,
   next,
   setup,
-  signer,
+  enrolment,
   onStep,
 }: {
   rungs: Readonly<Record<Rung, RungState>>;
   step: Rung;
   next: Rung | null;
   setup: SetupStatus;
-  signer: SignerState;
+  enrolment: Enrolment | null;
   onStep: (step: Rung) => void;
 }) {
   return (
@@ -399,7 +473,7 @@ function Ladder({
             const on = rung === step;
             const state = rungs[rung];
             const done = state === "done";
-            const line = rungLine(rung, state, rung === next, setup, signer);
+            const line = rungLine(rung, state, rung === next, setup, enrolment);
             return (
               <li key={rung} aria-current={on ? "step" : undefined}>
                 <button
@@ -445,7 +519,7 @@ function Ladder({
       <span className="text-tx3 fs-note hidden phone:block">
         <b className="text-tx2 font-semibold">{RUNG_NAMES[step]}</b>
         <br />
-        {rungLine(step, rungs[step], step === next, setup, signer)}
+        {rungLine(step, rungs[step], step === next, setup, enrolment)}
       </span>
     </nav>
   );
@@ -472,7 +546,7 @@ function NextButton({ to, onStep }: { to: Rung; onStep: (step: Rung) => void }) 
 // ---------------------------------------------------------------------------
 // 0 · Inbox: GitHub and the repository (r3 `12`)
 
-function InboxStep({ me, github, setup, actions, onStep }: StepProps) {
+function InboxStep({ me, github, repo, repos, actions, onStep }: StepProps) {
   const onGitHubCom = github.host === GITHUB_COM;
   const scopes = me?.scopes ?? [];
   return (
@@ -510,15 +584,26 @@ function InboxStep({ me, github, setup, actions, onStep }: StepProps) {
           </Check>
         )}
       </Checks>
-      {me && (
+      {me && repos.length > 1 ? (
+        <>
+          <Checks>
+            <Check mark="ok" title={`Reads ${repos.length} repositories`}>
+              {repos.map((r) => r.key).join(", ")}
+            </Check>
+          </Checks>
+          <Footer note="Each repository has its own step of the ladder.">
+            <NextButton to="shared-policy" onStep={onStep} />
+          </Footer>
+        </>
+      ) : me ? (
         <RepoPicker
           me={me}
-          setup={setup}
+          current={repo}
           actions={actions}
           then={() => onStep("shared-policy")}
-          label={setup.state === "none" ? "Continue" : "Next: shared policy"}
+          label="Next: shared policy"
         />
-      )}
+      ) : null}
     </>
   );
 }
@@ -526,13 +611,14 @@ function InboxStep({ me, github, setup, actions, onStep }: StepProps) {
 /** The repos to pick from (`list-repos`), the current folder's first; one per `nod serve`. */
 function RepoPicker({
   me,
-  setup,
+  current: picked,
   actions,
   then,
   label = "Continue",
 }: {
   me: Account;
-  setup: SetupStatus;
+  /** The repo `nod serve` reads already; null before the first is picked. */
+  current: RepoInfo | null;
   actions: Actions;
   /** After the pick: the next step, or nothing (the app moves on by itself). */
   then?: () => void;
@@ -557,13 +643,12 @@ function RepoPicker({
   }, [me.login, actions]);
 
   const current = repos?.find((r) => r.current) ?? repos?.[0] ?? null;
-  const selected = chosen ?? setup.repo ?? current?.repo ?? null;
+  const selected = chosen ?? picked?.name ?? current?.repo ?? null;
   const sorted = repos ? [...repos].sort((a, b) => Number(b.current) - Number(a.current)) : [];
 
   const onContinue = async () => {
     if (!selected) return;
-    const same = setup.repo?.toLowerCase() === selected.toLowerCase();
-    if (same && setup.state !== "none") return then?.();
+    if (picked?.name.toLowerCase() === selected.toLowerCase()) return then?.();
     if (await pick.run("pick", () => actions.request("pick-repo", { repo: selected }))) then?.();
   };
 
@@ -578,7 +663,8 @@ function RepoPicker({
             ? [
                 "the repo of your current folder",
                 r.canWrite ? "you have write access" : "you can read it, not push to it",
-                setup.state === "ready" && setup.repo?.toLowerCase() === r.repo.toLowerCase()
+                picked?.setup.state === "ready" &&
+                picked.name.toLowerCase() === r.repo.toLowerCase()
                   ? "its policy is shared already"
                   : null,
               ]
@@ -707,10 +793,9 @@ function AfterMerge() {
   );
 }
 
-function SetupStep({ setup, signer, actions, onStep }: StepProps) {
+function SetupStep({ setup, signer, actions, onStep, repo: info, repoName: repo }: StepProps) {
   const open = useRequest();
   const recheck = useRequest();
-  const repo = setup.repo ?? "this repository";
   const hasKey = signer.state !== "no-key";
   // The required check and auto-merge are the last step's (enforced).
   const files = setup.checks.filter((c) => FILE_CHECKS.includes(c.id));
@@ -719,7 +804,9 @@ function SetupStep({ setup, signer, actions, onStep }: StepProps) {
       type="button"
       className={GHOST}
       disabled={recheck.busy !== null}
-      onClick={() => void recheck.run("check", () => actions.request("check-setup", {}))}
+      onClick={() =>
+        void recheck.run("check", () => actions.request("check-setup", { repo: info.key }))
+      }
     >
       {recheck.busy ? "Checking…" : "Check again"}
     </button>
@@ -748,7 +835,7 @@ function SetupStep({ setup, signer, actions, onStep }: StepProps) {
 
   const pr = setup.setupPr;
   const readOnly = setup.permission === "read";
-  const onOpen = () => open.run("open", () => actions.request("open-setup-pr", {}));
+  const onOpen = () => open.run("open", () => actions.request("open-setup-pr", { repo: info.key }));
   return (
     <>
       <Heading title={pr ? "Shared policy" : "Share one policy with the team"}>
@@ -823,7 +910,13 @@ function SigningStep(props: StepProps) {
 const FIELD =
   "bg-bg text-tx h-[38px] w-full rounded-lg border px-3 text-[15px] tracking-[2px] outline-none phone:h-11";
 
-function CreateKey({ progress, setup, actions, onCreated }: StepProps & { onCreated: () => void }) {
+function CreateKey({
+  progress,
+  setup,
+  repoName,
+  actions,
+  onCreated,
+}: StepProps & { onCreated: () => void }) {
   const first = useRef<HTMLInputElement>(null);
   const second = useRef<HTMLInputElement>(null);
   // Only facts about the fields, never their content.
@@ -901,9 +994,8 @@ function CreateKey({ progress, setup, actions, onCreated }: StepProps & { onCrea
     <form onSubmit={(e) => void onSubmit(e)}>
       <Heading title="Sign your own agent PRs">
         GitHub does not let you approve your own pull request; a nod can attest it. Nods are signed
-        with an SSH key that only this app can unlock, and its public half goes into{" "}
-        {setup.repo ?? "the repository"}, in <Mono>.nod/allowed_signers</Mono>. Without one you keep
-        approving on GitHub.
+        with an SSH key that only this app can unlock, and its public half goes into {repoName}, in{" "}
+        <Mono>.nod/allowed_signers</Mono>. Without one you keep approving on GitHub.
       </Heading>
       <div className="border-need bg-need-bg rounded-[10px] border px-4 py-3.5">
         <b>Create a new key</b>
@@ -959,14 +1051,16 @@ function Enrol({
   actions,
   created,
   onTest,
+  repo: info,
+  repoName: repo,
+  enrolment: known,
 }: StepProps & { created: boolean; onTest: () => void }) {
   const open = useRequest();
   const [copied, setCopied] = useState(false);
   if (signer.state === "no-key") return null;
   const { key } = signer;
-  const enrolment = key.enrolment;
+  const enrolment: Enrolment = known ?? { state: "not-enrolled" };
   const login = me?.login ?? "you";
-  const repo = setup.repo ?? "this repository";
   const pendingPr = enrolment.state === "pending" ? enrolment.pr : null;
   const viaSetup = progress.enrolVia === "setup-pr";
   const inSetupPr =
@@ -975,11 +1069,10 @@ function Enrol({
   const ask = teammates(people, login, "and");
 
   const openPr = (t: "open-setup-pr" | "open-enrol-pr") =>
-    void open.run(t, () => actions.request(t, {}));
+    void open.run(t, () => actions.request(t, { repo: info.key }));
 
   const copyAsk = async (pr: PrLink) => {
-    if (!setup.repo) return;
-    const link = `${window.location.origin}${window.location.pathname}${formatRoute({ view: "pr", host: github.host, repo: setup.repo, number: pr.number })}`;
+    const link = `${window.location.origin}${window.location.pathname}${formatRoute({ view: "pr", host: github.host, repo: info.name, number: pr.number })}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopied(true);
@@ -1082,7 +1175,9 @@ function Enrol({
         type="button"
         className={PRIMARY}
         disabled={open.busy !== null}
-        onClick={() => void open.run("check", () => actions.request("check-setup", {}))}
+        onClick={() =>
+          void open.run("check", () => actions.request("check-setup", { repo: info.key }))
+        }
       >
         Check again
       </button>
@@ -1141,14 +1236,21 @@ function Enrol({
 // ---------------------------------------------------------------------------
 // 2 · Signing, the test signature (r3 `16`)
 
-function TestStep({ setup, signer, actions, onLeave, onBack }: StepProps & { onBack: () => void }) {
+function TestStep({
+  setup,
+  signer,
+  actions,
+  onLeave,
+  onBack,
+  repoName: repo,
+  enrolment: known,
+}: StepProps & { onBack: () => void }) {
   const passphrase = useRef<HTMLInputElement>(null);
   const [filled, setFilled] = useState(false);
   const [result, setResult] = useState<
     (TestSignatureResult & { readonly unlocked: "now" | "before" }) | null
   >(null);
   const test = useRequest();
-  const repo = setup.repo ?? "this repository";
 
   useEffect(() => {
     const input = passphrase.current;
@@ -1192,7 +1294,7 @@ function TestStep({ setup, signer, actions, onLeave, onBack }: StepProps & { onB
     });
   };
 
-  const enrolment = result?.enrolment ?? signer.key.enrolment;
+  const enrolment: Enrolment = known ?? { state: "not-enrolled" };
   const pendingPr = enrolment.state === "pending" ? enrolment.pr : null;
   const viaSetup = pendingPr !== null && setup.setupPr?.number === pendingPr.number;
   const enrolled =
@@ -1357,9 +1459,10 @@ function EnforcedStep({
   onLeave,
   onStep,
   state,
+  repo: info,
+  repoName: repo,
 }: StepProps & { state: RungState }) {
   const recheck = useRequest();
-  const repo = setup.repo ?? "this repository";
   const rules = setup.checks.filter((c) => c.id === "required-check" || c.id === "auto-merge");
   const paid = rules.some((c) => c.note === "needs a paid plan");
   const again = (
@@ -1367,7 +1470,9 @@ function EnforcedStep({
       type="button"
       className={GHOST}
       disabled={recheck.busy !== null}
-      onClick={() => void recheck.run("check", () => actions.request("check-setup", {}))}
+      onClick={() =>
+        void recheck.run("check", () => actions.request("check-setup", { repo: info.key }))
+      }
     >
       {recheck.busy ? "Checking…" : "Check again"}
     </button>
