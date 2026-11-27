@@ -1,7 +1,7 @@
 /**
  * Onboarding's "open the setup PR": `nod init` (src/init), run in a
- * temporary worktree of the user's clone, so the user's working tree and
- * current branch stay as they are. The user's key is the first signer when
+ * temporary worktree of the clone (the user's, or nod's own bare one), so
+ * the user's working tree and current branch stay as they are. The user's key is the first signer when
  * there is one; without one `.nod/allowed_signers` starts empty (ADR 0006).
  */
 
@@ -25,11 +25,28 @@ export interface SetupPrInput {
   readonly version: string;
   readonly runner?: Runner;
   readonly log?: (line: string) => void;
+  /**
+   * Added to the environment of every `git` it runs (nod's own clone: the
+   * host's token as an extra header, `tokenGitEnv`, for the blobs the
+   * checkout fetches and for the push). Not given: the user's own git setup.
+   */
+  readonly gitAuth?: Record<string, string>;
 }
 
 /** Opens the setup PR and resolves to its URL. Throws with `nod init`'s sentence. */
 export async function openSetupPrWithInit(input: SetupPrInput): Promise<string> {
-  const runner = input.runner ?? processRunner;
+  const base = input.runner ?? processRunner;
+  const auth = input.gitAuth;
+  const runner: Runner =
+    auth && Object.keys(auth).length
+      ? {
+          run: (cmd, options = {}) =>
+            base.run(
+              cmd,
+              cmd[0] === "git" ? { ...options, env: { ...options.env, ...auth } } : options,
+            ),
+        }
+      : base;
   const parent = await mkdtemp(join(tmpdir(), "nod-setup-"));
   const tree = join(parent, "tree");
   const git = async (args: string[]) => {

@@ -8,8 +8,12 @@ nod runs against three kinds of GitHub host:
 
 ## The rule
 
-The host comes from the clone's `origin` remote, once, and everything derives from it.
-`src/kit/host.ts` is the only place that knows the endpoint shapes:
+A repo of the list (`$XDG_CONFIG_HOME/nod/config.json`, `nod repo add`, ADR 0007) carries its
+host: `{ "host": "acme.ghe.com", "repo": "finance/ledger" }`, typed as
+`acme.ghe.com/finance/ledger` or a URL on that host. For a clone (`--dir`, or an empty list and
+`nod serve` started in a clone) the host comes from the clone's `origin` remote, once.
+Everything derives from the host. `src/kit/host.ts` is the only place that knows the endpoint
+shapes:
 
 | host             | REST                         | GraphQL                              | web                      |
 | ---------------- | ---------------------------- | ------------------------------------ | ------------------------ |
@@ -21,10 +25,20 @@ The host comes from the clone's `origin` remote, once, and everything derives fr
   (`git@host:owner/repo.git`, `ssh://user@host:port/owner/repo`, `https://host[:port]/owner/repo`).
   `--host` overrides it. An ssh alias from `~/.ssh/config` (`git@work:acme/widgets`) cannot be
   resolved: both refuse it and ask for `--host`.
-- The token is `gh auth token --hostname <host>`. It is sent to that host's API only: every request
-  goes through the kit's `fetchWithToken`, which refuses any other URL and follows redirects by
-  hand, within the API only. Patch-id fetches go to `origin` as it is; over https the token rides
-  in an `http.<web URL>/.extraheader`, so git sends it to that host and nowhere else.
+- The token is `gh auth token --hostname <host>`, one per host. It is sent to that host's API
+  only: every request goes through the kit's `fetchWithToken`, which refuses any other URL and
+  follows redirects by hand, within the API only. Patch-id fetches go to `origin` as it is; over
+  https the token rides in an `http.<web URL>/.extraheader` (`tokenGitEnv`, through
+  `GIT_CONFIG_*`), so git sends it to that host and nowhere else.
+- Hosts side by side: the list may mix github.com, GHE.com and GHES. Each host has its own
+  `GitHubApi`, login and rate limit, and one `Poll` query per poll for all of its repos (up to ten
+  per query, `REPOS_PER_QUERY`). A host without a `gh` login shows its sign-in command on its
+  repos; the others read. A login can differ per host (`mona` and `mona_acme`); each row is
+  relative to its host's login.
+- nod's own clones (`$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`, blobless and bare)
+  are cloned from `https://<host web>/<owner>/<repo>.git` with the same scoped extra header, which
+  also covers the blobs a diff or the setup PR's checkout fetch on demand. It is never written into
+  the clone's config.
 - Every `gh` call of `nod init` runs with `GH_HOST=<host>`, `gh api` calls carry
   `--hostname <host>`, and `--repo` takes `<host>/<owner>/<repo>` off github.com.
 - The verifier (`.nod/verify.ts`) uses `GITHUB_API_URL` and `GITHUB_SERVER_URL`, which Actions
@@ -81,6 +95,13 @@ nod config out of `~/.config/nod` with a scratch `XDG_CONFIG_HOME` if you like (
    Expect: `nod serve on ws://127.0.0.1:4518 · GitHub on acme.ghe.com · acme/nod-trial`, poll lines
    without errors, and after pairing the dashboard lists the PR; its GitHub links open
    `acme.ghe.com`.
+   Then the list, beside a github.com repo: `nod repo add acme.ghe.com/acme/nod-trial` and
+   `nod repo add <a github.com repo of yours>`, and `NOD_DEBUG=1 nod serve` outside any clone.
+   Expect: `nod repo add` clones into `~/.cache/nod/clones/acme.ghe.com/acme/nod-trial.git`, one
+   poll line per host (`nod serve: poll acme.ghe.com: 1 GraphQL …`), both repos' PRs in one
+   dashboard with a repo chip each. Where the GHE.com login differs from the github.com one, a
+   nod's payload must name the GHE.com login as `reviewer` (ADR 0007, 8; `RepoInfo.login`):
+   check it in the batch dialog's details and in the posted comment.
 5. **Open the setup PR.** In onboarding, create the key and press "Open setup PR", or run
    `nod init --signer-key <your key>.pub`. Expect: a PR "chore: set up nod …" whose body tells
    you to run `nod init --ruleset --repo acme/nod-trial --host acme.ghe.com` and says where the

@@ -89,19 +89,6 @@ export interface GitHubInfo {
   readonly webUrl: string;
 }
 
-/**
- * A repo the GitHub source's clone offered to pick, before the repo list
- * (protocol 2 asks with `suggest-repos` instead). Only the GitHub source's
- * own `listRepos` still returns it, until #48 replaces that source.
- */
-export interface RepoChoice {
-  readonly repo: RepoName;
-  /** The repo of the folder `nod serve` was started in. */
-  readonly current: boolean;
-  readonly canWrite: boolean;
-  readonly pushedAt: number | null;
-}
-
 /** A pull request nod opened itself (the setup PR, an enrolment PR). */
 export interface PrLink {
   readonly number: number;
@@ -201,6 +188,14 @@ export interface RepoInfo {
   readonly name: RepoName;
   /** The GitHub host it is on; PR and repo links start at its `webUrl`. */
   readonly github: GitHubInfo;
+  /**
+   * My login on the repo's host (ADR 0007, 8): logins can differ between
+   * hosts (a managed user on GHE.com is `mara_acme`), and what is "mine" in
+   * the repo, a nod's `reviewer` and "your own PR" go by this one. null while
+   * the host has not been read, or `gh` is not logged in there. Added within
+   * protocol 2: without it, `welcome.me` is meant.
+   */
+  readonly login?: Login | null;
   readonly setup: SetupStatus;
   /**
    * Whether the repo trusts my key (its `.nod/allowed_signers` on the base

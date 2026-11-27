@@ -196,19 +196,23 @@ test("a batch across two repos: one unlock, one signature per repo, each verifie
   ) as { payloads: { repo: string; payload: string }[] };
   expect(lastSigner()).toMatchObject({ signer: { state: "locked" } });
   expect(posted.map((p) => p.repo)).toEqual([R, LEDGER]);
-  const allowedSignersPath = join(dir, "allowed_signers");
-  await writeFile(
-    allowedSignersPath,
-    `${allowedSignersLine("mara-l", created!.record.publicKey)}\n`,
-  );
+  // Each repo trusts my key under my login on its host: a managed user on GHE.com.
+  const reviewers = ["mara-l", "mara_acme"];
   for (const [i, input] of posted.entries()) {
+    const allowedSignersPath = join(dir, `allowed_signers-${i}`);
+    await writeFile(
+      allowedSignersPath,
+      `${allowedSignersLine(reviewers[i]!, created!.record.publicKey)}\n`,
+    );
     const [block] = parseNodComments(input.body);
     expect(block!.payloadLine).toBe(result.payloads[i]!.payload);
+    expect(JSON.parse(block!.payloadLine).reviewer).toBe(reviewers[i]);
     const verified = await verifyNodBlock(block!, { allowedSignersPath });
     expect(verified.ok).toBe(true);
   }
   expect(JSON.parse(result.payloads[1]!.payload)).toMatchObject({
     repo: "finance/ledger",
     entries: [{ pr: 57 }],
+    reviewer: "mara_acme",
   });
 });

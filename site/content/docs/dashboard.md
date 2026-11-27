@@ -74,7 +74,7 @@ Columns instead of lanes. Group by:
 - **Waiting on** (the default): You, one column per teammate who has to nod, Agents & CI, Merged.
 - **State**: Checks running, Needs a signature, Signed · merging, Merged.
 - **Repository**, once the dashboard shows more than one (not released): a column per repository,
-  in the order of the [repository list](/docs/settings#repositories), with its step of the ladder
+  in the order of the [repo list](/docs/settings#repositories), with its step of the ladder
   and how many of its pull requests need you.
 
 This browser remembers the grouping.
@@ -159,9 +159,11 @@ command). Every further step of the [ladder](/docs/quick-start#the-ladder) is of
 
 ## Many repositories
 
-Not released, and not yet with GitHub: today `nod serve` reads the repository of the clone it runs
-in. `nod serve --fake --scenario repos` shows three fictional ones in one dashboard. Which
-repositories it reads is set in [Settings → Repositories](/docs/settings#repositories).
+Not released. `nod serve` reads every repository of its [repo list](/docs/cli#nod-repo), on any
+mix of GitHub hosts ([GitHub Enterprise](/docs/enterprise#several-hosts-in-one-dashboard)).
+`nod serve --fake --scenario repos` shows three fictional ones in one dashboard. Which
+repositories it reads is set in [Settings → Repositories](/docs/settings#repositories), or with
+`nod repo`.
 
 - **One inbox.** The pull requests of every repository sit in the same lanes, tiers and board
   columns. Each row, card and detail panel carries a **repo chip**: the repository's short name

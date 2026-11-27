@@ -1,6 +1,7 @@
 /**
  * The `nod` CLI entry: `nod serve` (the local server, src/server/),
- * `nod key` (the signing key, src/server/signer/key-cli.ts) and `nod init`
+ * `nod repo` (the repo list, src/server/repo-cli.ts), `nod key` (the
+ * signing key, src/server/signer/key-cli.ts) and `nod init`
  * (opens the repo-owned setup PR, src/init/).
  */
 import { resolve } from "node:path";
@@ -12,6 +13,7 @@ import { githubHost } from "./kit/host.ts";
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
 import { parseNamedHost, type NamedHost } from "./shared/named-host";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
+import { REPO_HELP, parseRepoArgs, type RepoFlags } from "./server/repo-cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 
 // Placeholder: the release task (semantic-release) stamps the real version.
@@ -50,6 +52,7 @@ export type Command =
   | { kind: "serve"; flags: ServeFlags }
   | { kind: "init"; flags: InitFlags }
   | { kind: "key"; flags: KeyFlags }
+  | { kind: "repo"; flags: RepoFlags }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -60,18 +63,25 @@ usage: nod <command>
 
 commands:
   serve        start the local server for the dashboard
+  repo         add, remove or list the repositories nod serve reads
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key (see below)
 
+nod serve reads every repository of its list (nod repo, below), each from
+nod's own clone. With an empty list, started in a clone, it reads that
+clone's repository, as --dir does.
+
 serve options:
   --port <n>          port on 127.0.0.1 (default ${DEFAULT_SERVE_PORT})
-  --dir <path>        a clone of the repository (default: this folder); nod
-                      fetches PR objects into it (refs/nod/*) to compute
+  --dir <path>        serve this one clone instead of the list (default,
+                      with an empty list: this folder, when it is a clone);
+                      nod fetches PR objects into it (refs/nod/*) to compute
                       patch-ids, and never checks anything out
-  --repo <owner/name> the repository (default: the clone's origin)
-  --host <host>       its GitHub host: github.com, <name>.ghe.com or a GitHub
-                      Enterprise Server (default: the host of the clone's
-                      origin; needed when origin names an ssh alias)
+  --repo <owner/name> with a clone: the repository (default: its origin)
+  --host <host>       with a clone: its GitHub host, github.com,
+                      <name>.ghe.com or a GitHub Enterprise Server (default:
+                      the host of its origin; needed when origin names an
+                      ssh alias)
   --poll <seconds>    how often to read GitHub (default 60, at least 10)
   --web-url <url>     the web app to pair with (default: this release's, or
                       the Vite dev server for a checkout; env NOD_WEB_URL)
@@ -94,6 +104,7 @@ serve options:
   --open              open the host link in a browser
   --no-open           do not (the default)
 
+${REPO_HELP}
 ${INIT_HELP}
 
 ${KEY_HELP}
@@ -111,6 +122,7 @@ export function parseArgs(argv: readonly string[]): Command {
   if (first === "init") return parseInitArgs(rest);
   if (first === "serve") return parseServe(rest);
   if (first === "key") return parseKeyArgs(rest);
+  if (first === "repo") return parseRepoArgs(rest);
   return { kind: "error", message: `unknown command: ${first}` };
 }
 
@@ -253,6 +265,10 @@ async function runServe(flags: ServeFlags): Promise<number> {
   console.log(
     `nod serve on ${started.wsUrl} · ${what} · ${repos.map((r) => r.key).join(", ") || "no repo yet"}`,
   );
+  if (!flags.fake && repos.length === 0)
+    console.log(
+      "\n  no repository yet: add one in the dashboard, or with `nod repo add owner/name`.",
+    );
   console.log(`\n  open the dashboard:\n  ${started.link}\n`);
   if (started.deviceLink) {
     const { qrLines } = await import("./server/qr");
@@ -308,6 +324,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return runServe(cmd.flags);
     case "key":
       return (await import("./server/signer/key-cli")).runKey(cmd.flags);
+    case "repo":
+      return (await import("./server/repo-cli")).runRepo(cmd.flags);
     case "init": {
       const { runInit } = await import("./init/init");
       return runInit(cmd.flags, { version: VERSION });

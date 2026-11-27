@@ -17,7 +17,9 @@ nod runs against three kinds of GitHub host:
 
 ## How the host is found
 
-The host comes from the clone's `origin` remote, once, and everything derives from it.
+A repository of the [repo list](/docs/cli#nod-repo) names its host: `acme.ghe.com/acme/widgets`,
+or a URL on that host (not released). For a clone (`--dir`, or `nod serve` started in one), the
+host comes from the clone's `origin` remote, once. Everything derives from the host.
 
 | Host | REST | GraphQL | Web |
 | --- | --- | --- | --- |
@@ -30,6 +32,20 @@ alias from your ssh config (`git@work:acme/widgets`) cannot be resolved: both re
 for `--host`.
 
 Your token is `gh auth token --hostname <host>`, and it is sent to that host's API only.
+
+## Several hosts in one dashboard
+
+Not released. The repo list may hold repositories of github.com, GHE.com and your server side by
+side. Each host has its own `gh` login, its own token and its own rate limit, and `nod serve`
+asks each host once per poll for all of its repositories. A host you are not logged in to shows
+the command to log in on its repositories; the other hosts work. Your login may differ between
+hosts (`mona` on github.com, `mona_acme` on GHE.com); each pull request is shown relative to the
+login of its own host, and a nod there names that login as its reviewer, so the repository's
+`.nod/allowed_signers` lists your key under it.
+
+nod's own clones (the [clone cache](/docs/cli#files-and-environment)) are fetched over https from
+the host's web URL, with the same token passed for that URL only, and never written into the
+clone's config.
 
 ## What it needs
 
@@ -72,7 +88,9 @@ Use a throwaway repository, e.g. `acme/nod-trial` on `acme.ghe.com`.
 3. Open a small pull request to look at.
 4. `NOD_DEBUG=1 nod serve` in the clone. Expect
    `nod serve on ws://127.0.0.1:4518 · GitHub on acme.ghe.com · acme/nod-trial` and the pull
-   request in the dashboard.
+   request in the dashboard. Not released, without a clone: `nod repo add
+   acme.ghe.com/acme/nod-trial`, then `NOD_DEBUG=1 nod serve` outside a clone; expect one poll
+   line per host (`nod serve: poll acme.ghe.com: 1 GraphQL …`).
 5. On the setup page (an offer, or **Settings** → **The ladder ›** in the avatar menu), create the key and open the setup PR. Its
    description names the command for step 7 with `--host`.
 6. Merge it under the repository's current rules.

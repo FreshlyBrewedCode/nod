@@ -26,6 +26,28 @@ test("key: the subcommands go to nod key", () => {
   expect(parseArgs(["key"]).kind).toBe("error");
 });
 
+test("repo: add, remove, list go to nod repo", () => {
+  expect(parseArgs(["repo", "add", "acme.ghe.com/finance/ledger"])).toEqual({
+    kind: "repo",
+    flags: { command: "add", repo: "acme.ghe.com/finance/ledger", noClone: false },
+  });
+  expect(parseArgs(["repo", "add", "--no-clone", "tallyho/fieldbook"])).toMatchObject({
+    flags: { noClone: true },
+  });
+  expect(parseArgs(["repo", "remove", "tallyho/fieldbook"])).toMatchObject({
+    flags: { command: "remove", repo: "tallyho/fieldbook" },
+  });
+  expect(parseArgs(["repo", "list"])).toMatchObject({ flags: { command: "list", repo: null } });
+  for (const bad of [
+    ["repo"],
+    ["repo", "add"],
+    ["repo", "list", "x/y"],
+    ["repo", "remove", "--no-clone", "x/y"],
+    ["repo", "add", "a/b", "c/d"],
+  ])
+    expect(parseArgs(bad).kind).toBe("error");
+});
+
 test("serve defaults: GitHub, port 4518, no browser", () => {
   expect(serveFlags([])).toEqual({
     fake: false,

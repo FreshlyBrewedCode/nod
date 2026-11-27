@@ -12,10 +12,13 @@
  * it); every URL `nod serve` uses derives from it (`kit/host.ts`).
  */
 
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 
+import { run } from "../../kit/exec.ts";
 import { githubHost, parseRemote, type GitHubHost } from "../../kit/host.ts";
-import { fetchPullRequestObjects, gitEnv, patchId } from "../../kit/patch-id.ts";
+import { fetchPullRequestObjects, gitEnv, patchId, tokenGitEnv } from "../../kit/patch-id.ts";
 
 export class CloneError extends Error {
   override name = "CloneError";
@@ -129,5 +132,144 @@ export function clonePatchIds(
       queue = job.catch(() => {});
       return job;
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// nod's own clones (ADR 0007, 3)
+
+/**
+ * Where nod keeps its clone of a repo: `<cache>/clones/<host>/<owner>/<repo>.git`
+ * (`cache` is `$XDG_CACHE_HOME/nod`). Lowercase, as GitHub's names compare.
+ */
+export function ownClonePath(cache: string, host: string, name: string): string {
+  const [owner, repo] = name.toLowerCase().split("/") as [string, string];
+  return join(cache, "clones", host.toLowerCase(), owner, `${repo}.git`);
+}
+
+/** The https URL nod clones a repo from: on its host's web, as `gh repo clone` would. */
+export function cloneUrl(host: GitHubHost, name: string): string {
+  return `${host.webUrl}/${name}.git`;
+}
+
+export interface OwnCloneOptions {
+  /** The repo's bare clone: {@link ownClonePath}. */
+  readonly dir: string;
+  readonly host: GitHubHost;
+  /** `owner/name`. */
+  readonly name: string;
+  /** The host's token, for a private repo; read at each use, never stored in the clone. */
+  readonly token: () => string | null;
+  /** Where to clone and fetch from (default {@link cloneUrl}; tests: a local repo's `file://` URL). */
+  readonly url?: string;
+}
+
+/**
+ * A repo's clone that nod owns: blobless and bare (`git clone --bare
+ * --filter=blob:none`), made on first use and then only fetched into. A
+ * cache: a deleted folder is cloned again. The token rides in an extra
+ * header for the host's web URL only (`tokenGitEnv`), for the clone, every
+ * fetch and the blobs a diff fetches on demand; it is never written into the
+ * clone's config. Calls run one at a time.
+ */
+export class OwnClone {
+  readonly dir: string;
+  readonly url: string;
+  private ready: Promise<void> | null = null;
+  private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly options: OwnCloneOptions) {
+    this.dir = options.dir;
+    this.url = options.url ?? cloneUrl(options.host, options.name);
+  }
+
+  /** The host's token now; null without one. */
+  token(): string | null {
+    return this.options.token();
+  }
+
+  /** git's environment with the token for this host (none without one). */
+  env(): Record<string, string> {
+    const token = this.token();
+    return token ? tokenGitEnv(token, `${this.options.host.webUrl}/`) : {};
+  }
+
+  /** Whether the clone is on disk. */
+  exists(): boolean {
+    return existsSync(join(this.dir, "HEAD")) && existsSync(join(this.dir, "objects"));
+  }
+
+  /**
+   * Clones when the folder has no clone yet. The clone goes to a temporary
+   * folder next to it first and is renamed into place, so a failed clone
+   * leaves nothing behind that looks like one.
+   */
+  ensure(): Promise<void> {
+    if (this.exists()) return Promise.resolve();
+    this.ready ??= this.clone().finally(() => (this.ready = null));
+    return this.ready;
+  }
+
+  private async clone(): Promise<void> {
+    const parent = dirname(this.dir);
+    await mkdir(parent, { recursive: true });
+    const tmp = await mkdtemp(join(parent, ".cloning-"));
+    try {
+      const r = await run(
+        "git",
+        ["clone", "--bare", "--filter=blob:none", "--no-tags", "--quiet", "--", this.url, tmp],
+        { env: gitEnv(this.env()), timeoutMs: 600_000 },
+      );
+      if (r.status !== 0)
+        throw new CloneError(
+          `cloning ${this.options.name} from ${this.options.host.name} failed: ${r.stderr.trim().slice(0, 300)}`,
+        );
+      // A remote-tracking branch per branch, as a normal clone has: `nod init`
+      // (the setup PR, in a worktree of this clone) starts from origin/<default>.
+      const c = await run(
+        "git",
+        ["-C", tmp, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"],
+        { env: gitEnv() },
+      );
+      if (c.status !== 0) throw new CloneError(`configuring the clone failed: ${c.stderr.trim()}`);
+      if (this.exists()) return; // another nod got there first
+      await rename(tmp, this.dir);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  }
+
+  /** Runs `job` after the clone exists and after every earlier job. */
+  serial<T>(job: () => Promise<T>): Promise<T> {
+    const next = this.queue.then(async () => {
+      await this.ensure();
+      return job();
+    });
+    this.queue = next.catch(() => {});
+    return next;
+  }
+}
+
+/**
+ * Patch-ids in nod's own clone: cloned on the first one, then the base
+ * branch and the head fetched by id, as in a clone of the user's
+ * ({@link clonePatchIds}); the diff's blobs come on demand, with the token.
+ */
+export function ownClonePatchIds(clone: OwnClone, host: GitHubHost): PatchIds {
+  return {
+    compute: ({ base, headSha }) =>
+      clone.serial(async () => {
+        const token = clone.token();
+        // From `origin` by name, so the clone's blob filter applies to the fetch too.
+        const baseTip = await fetchPullRequestObjects({
+          repoDir: clone.dir,
+          base,
+          headSha,
+          remote: "origin",
+          serverUrl: `${host.webUrl}/`,
+          ...(token ? { token } : {}),
+        });
+        return patchId({ repoDir: clone.dir, baseTip, head: headSha, env: clone.env() });
+      }),
   };
 }

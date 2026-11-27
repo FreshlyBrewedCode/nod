@@ -7,6 +7,7 @@ import {
   bestEnrolment,
   chipsOf,
   githubOfRepo,
+  loginIn,
   readRepoFilter,
   repoOf,
   worstEnrolment,
@@ -37,6 +38,14 @@ describe("the repos (ADR 0007)", () => {
       webUrl: "https://acme.ghe.com",
     });
     expect(githubOfRepo(all, "gone/repo").host).toBe("github.com");
+  });
+
+  test("my login in a repo is its host's; the snapshot's while the server does not say", () => {
+    const managed = { ...ledger, login: "mara_acme" };
+    expect(loginIn([fieldbook, managed], managed.key, "mara-l")).toBe("mara_acme");
+    expect(loginIn([fieldbook, managed], fieldbook.key, "mara-l")).toBe("mara-l");
+    expect(loginIn([{ ...managed, login: null }], managed.key, "mara-l")).toBe("mara-l");
+    expect(loginIn([], "gone/repo", "mara-l")).toBe("mara-l");
   });
 
   test("no chip with one repo, the shortest name with several", () => {

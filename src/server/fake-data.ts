@@ -37,11 +37,27 @@ export const FAKE_PEOPLE = {
 
 type Who = keyof typeof FAKE_PEOPLE;
 
+/** The team, by who they are in the data set. */
+export type FakeTeam = Readonly<Record<Who, Person>>;
+
 export const FAKE_ME = FAKE_PEOPLE.mara.login;
 
-/** A fake person's first name, by login. */
+/**
+ * The same team on the fictional GHE.com host (`fake-repos.ts`): managed
+ * users, whose logins carry the enterprise's suffix, so my login there is not
+ * the one on github.com (ADR 0007, 8).
+ */
+export const FAKE_PEOPLE_ACME = {
+  mara: { login: "mara_acme", name: FAKE_PEOPLE.mara.name },
+  jonas: { login: "jonas_acme", name: FAKE_PEOPLE.jonas.name },
+  ines: { login: "ines_acme", name: FAKE_PEOPLE.ines.name },
+} as const satisfies FakeTeam;
+
+/** A fake person's first name, by login on either host. */
 export function personName(login: string): string {
-  const person = Object.values(FAKE_PEOPLE).find((p) => p.login === login);
+  const person = [...Object.values(FAKE_PEOPLE), ...Object.values(FAKE_PEOPLE_ACME)].find(
+    (p) => p.login === login,
+  );
   return person ? person.name.split(" ")[0]! : login;
 }
 
@@ -851,15 +867,19 @@ export function prUrl(repo: string, n: number, webUrl = "https://github.com"): s
   return `${webUrl}/${repo}/pull/${n}`;
 }
 
-/** One seed as `PrFacts`, with times relative to `now`; `repo` is `owner/name` on `webUrl`'s host. */
+/**
+ * One seed as `PrFacts`, with times relative to `now`; `repo` is `owner/name`
+ * on `webUrl`'s host, where the team has the logins of `team` (Mara is me).
+ */
 export function seedFacts(
   seed: Seed,
   now: number,
   repo = FAKE_REPO,
   webUrl = "https://github.com",
+  team: FakeTeam = FAKE_PEOPLE,
 ): PrFacts {
   const ago = (min: number) => now - min * MIN;
-  const login = (w: Who) => FAKE_PEOPLE[w].login;
+  const login = (w: Who) => team[w].login;
   const signatures: Omit<Signature, "byMe">[] = [];
   const slots: Slot[] = seed.slots.map((s) => {
     let signature: number | null = null;
@@ -910,7 +930,7 @@ export function seedFacts(
   for (const s of slots) {
     if (s.signature === null) continue;
     const sig = signatures[s.signature]!;
-    const name = sig.by === FAKE_ME ? "You" : personName(sig.by);
+    const name = sig.by === team.mara.login ? "You" : personName(sig.by);
     journey.push(ev("nodded", `${name} signed`, sig.at));
     if (sig.matchedBy === "patch_id")
       journey.push(ev("rebased", "Rebased", sig.at + 15 * MIN, "signature held"));

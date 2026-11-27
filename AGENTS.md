@@ -35,24 +35,34 @@ nod
     - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos|dir]
       [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
       link. Fake passphrase: anything but `wrong`. `repos`: three repos at three ladder steps,
-      one on `acme.ghe.com` (`fake-repos.ts`); `fresh`: an empty repo list; `dir`: `team` as a
+      one on `acme.ghe.com` (`fake-repos.ts`, where the team are managed users and I am
+      `mara_acme`: logins are per host); `fresh`: an empty repo list; `dir`: `team` as a
       fixed list (`--dir`); every other scenario reads one repo. The fake's list is managed:
       add (a name with `missing` is not found, `private` forbidden), remove, suggestions
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
-    - against GitHub: `bun src/cli.ts serve --dir <a clone of the repo> [--poll 60]`;
+    - against GitHub: `bun src/cli.ts serve --dir <a clone of the repo> [--poll 60]`, or the
+      repo list (`bun src/cli.ts repo add <[host/]owner/name>`, then `serve` outside a clone);
       `NOD_DEBUG=1` logs each poll's queries and GraphQL cost. Experiments use a throwaway
       `XDG_CONFIG_HOME` (key and token) and then need `GH_CONFIG_DIR` pointing at the real gh
       config, or `gh auth token` finds no login. Finding 03 is the sandbox run
   - server seams: `Source` (`src/server/source.ts`: one source knows every repo, each method
-    that touches one takes its repo key, `repos()` lists them; the session groups a batch by
+    that touches one takes its repo key, `repos()` lists them, each with my login on its host
+    (`SourceRepo.login`, `RepoInfo.login`: a nod's `reviewer`, "your own PR"; the web app's
+    `meIn(pr)`, not `snapshot.me`, for anything on one PR); the session groups a batch by
     repo and signs one payload per repo with `Signer.signLines`; `fake-source.ts` has a
-    `FakeRepo` per repo, `github-source.ts` is still one repo as a fixed list of one (stubs for
-    `addRepo`/`removeRepo`/`suggestRepos`), #48 reads many
-    with its parts in `src/server/github/`: the `GitHubApi` seam with an injectable `fetch`,
-    the queries, `map.ts` (GraphQL PR + the verifier's summary → `PrFacts`, never classifies),
-    the brief parser, patch-ids in the clone, setup and enrolment; tests run on
-    `github/fake-github.ts`), `Signer`
+    `FakeRepo` per repo; `github-source.ts` reads the repo list (`config.ts`,
+    `$XDG_CONFIG_HOME/nod/config.json`) or, as the clone override (`--dir`, or an empty list in
+    a clone), one clone, with its parts in `src/server/github/`: `repo.ts` (one repo's cache and
+    rows), `host.ts` (one host's API, login, rate limit and its one `Poll` query for all its
+    repos, a block `r<i>` each, `REPOS_PER_QUERY`), the `GitHubApi` seam with an injectable
+    `fetch` (`graphqlPartial`: one repo's error does not fail the host), the queries, `map.ts`
+    (GraphQL PR + the verifier's summary → `PrFacts`, never classifies), the brief parser,
+    `clone.ts` (patch-ids in the user's clone or nod's own blobless bare one under
+    `$XDG_CACHE_HOME/nod/clones/`), `suggest.ts` (what one may type for a repo, suggestions),
+    setup and enrolment; `nod repo add|remove|list` is `repo-cli.ts`; tests run on
+    `github/fake-github.ts`, one fake per host with any number of repos (`repo(name)`), and
+    temp XDG dirs: never `~/.config/nod` or `~/.cache/nod`), `Signer`
     (`signer.ts`: the seam, the unlock window and the fake), `view.ts` turns a source's `PrFacts` into the user-relative view model;
     `src/shared/attention.ts` is the pure layout logic (tiers, lanes, buckets, board, the repo
     filter `inRepo` and `repoBoardView`) the UI

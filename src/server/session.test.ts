@@ -722,7 +722,13 @@ describe("many repos (ADR 0007)", () => {
   test("welcome lists every repo with its host, its ladder step and my enrolment there", async () => {
     const { t } = await repos();
     expect(t.last("welcome")?.repos).toMatchObject([
-      { key: R, name: R, setup: { step: "enforced" }, enrolment: { state: "active" } },
+      {
+        key: R,
+        name: R,
+        login: "mara-l",
+        setup: { step: "enforced" },
+        enrolment: { state: "active" },
+      },
       {
         key: APP,
         setup: { state: "missing", step: "inbox" },
@@ -732,6 +738,8 @@ describe("many repos (ADR 0007)", () => {
         key: LEDGER,
         name: "finance/ledger",
         github: { host: "acme.ghe.com", webUrl: "https://acme.ghe.com" },
+        // A managed user on GHE.com: my login there is not the github.com one.
+        login: "mara_acme",
         setup: { state: "ready", step: "shared-policy" },
         enrolment: { state: "active" },
       },
@@ -745,6 +753,29 @@ describe("many repos (ADR 0007)", () => {
     // Per repo, what my key can do: a nod where it is enrolled, an approval at the inbox step.
     expect(ledger.find((p) => p.number === 57)?.ask?.kind).toBe("peer");
     expect(prs.find((p) => p.repo === APP && p.number === 512)?.ask?.kind).toBe("approve");
+  });
+
+  test("my login is per host: what is mine, and my own PR, on GHE.com go by mara_acme", async () => {
+    const { t, at } = await repos();
+    // welcome.me is the first repo's host's account.
+    expect(t.last("welcome")?.me?.login).toBe("mara-l");
+    // Ledger #54 is Mara's own, as mara_acme; #57 is Jonas's and asks me.
+    expect(at(LEDGER, 54)).toMatchObject({ author: "mara_acme", mine: true });
+    expect(at(LEDGER, 57)).toMatchObject({ mine: false, needsMe: true });
+    // GitHub refuses an approval of one's own PR: the check uses the ledger's login.
+    const own = await t.ask("approve", {
+      entries: [{ repo: LEDGER, pr: 54, head_sha: at(LEDGER, 54).headSha }],
+    });
+    expect(own).toMatchObject({
+      ok: false,
+      error: { code: "forbidden", message: expect.stringContaining("#54 is your own") },
+    });
+    ok(
+      await t.ask("approve", {
+        entries: [{ repo: LEDGER, pr: 57, head_sha: at(LEDGER, 57).headSha }],
+      }),
+    );
+    expect(at(LEDGER, 57).review?.approvedBy).toContain("mara_acme");
   });
 
   test("a nod batch across two repos: one payload and one signature per repo, one unlock", async () => {
@@ -768,6 +799,8 @@ describe("many repos (ADR 0007)", () => {
     // The payload names owner/name (ADR 0001), the host is not in it.
     expect(fieldbook).toMatchObject({ repo: R, entries: [{ pr: 482 }, { pr: 488 }] });
     expect(ledger).toMatchObject({ repo: "finance/ledger", entries: [{ pr: 57 }] });
+    // Each payload names me as its repo's host knows me.
+    expect([fieldbook.reviewer, ledger.reviewer]).toEqual(["mara-l", "mara_acme"]);
     expect(result.posted.map((p) => `${p.repo}#${p.pr}`)).toEqual([
       `${R}#482`,
       `${R}#488`,

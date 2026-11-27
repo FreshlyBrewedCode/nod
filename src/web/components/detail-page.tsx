@@ -75,8 +75,9 @@ export function DetailPage({
   /** Show another PR in the page (`Next ›`). */
   onOpen: (pr: PrId) => void;
 }) {
-  const { people, me, openBatch, selection, toggleSelected, ackFyi, signingIn, chips, githubOf } =
+  const { people, meIn, openBatch, selection, toggleSelected, ackFyi, signingIn, chips, githubOf } =
     useDashboard();
+  const me = meIn(pr);
   const host = githubOf(pr).host;
   const now = useNow(MINUTE);
   const offset = useUtcOffset();
@@ -208,7 +209,7 @@ export function DetailPage({
           )}
           {pr.fyi && (
             <PageFold id="fyi" title="FYI" summary={fyiSummary(pr.fyi, people, me)}>
-              <FyiBody fyi={pr.fyi} />
+              <FyiBody fyi={pr.fyi} repo={pr.repo} />
             </PageFold>
           )}
           <PageFold id="files" title="Files" summary={filesSummary(pr)} last>

@@ -66,3 +66,48 @@ Status: accepted (2026-11-27), from the owner's second brainstorm ([concept](../
 - A web app of protocol 1 (the hosted UI before this release) and a server of protocol 2 do not talk; each says so on a full page. The hosted UI follows the CLI's channel (`src/server/web-url.ts`), so a matching pair is the usual case.
 - A poll costs one request per host, not per repo; a GraphQL query grows with the repos in it, and the cost is logged.
 - Not built here (#47): the config file, the clones, `nod repo`, polling several repos or hosts. The fake (`--scenario repos`: three repos at three ladder steps, one on `acme.ghe.com`) and the web app work with many repos; the GitHub source is one repo in a list of one until #48.
+
+## Amended with #48 (2026-11-27)
+
+The GitHub source now reads many repos. Decided while building it, in the spirit of the above:
+
+- **2, the list.**
+  - `nod serve` outside a clone with an empty list starts with no repo (`welcome.repoList` is
+    `managed`): the web app's "Add a repository" page, with the suggestions (`suggest-repos`),
+    adds one (`add-repo`). The first-run picker (`list-repos`, `pick-repo`, `RepoChoice`) is gone
+    from the protocol and from the GitHub source.
+  - The clone override is `welcome.repoList: "fixed"`.
+  - In the clone override, adding and removing are refused (`forbidden`, with a sentence naming
+    `nod repo add`) and there are no suggestions: the list is never written there. An explicit
+    `--repo` or `--host` is the override too.
+  - A change to the file by another process (`nod repo add` while serving) is read before each
+    host's next poll and on `refresh`, by its modification time.
+  - The writer reads the file afresh for each change and refuses to write over a file that is not
+    JSON, or of a newer `version`.
+  - Adding checks the repo on its host (`GET /repos/{owner}/{name}`, which also gives GitHub's
+    spelling) with that host's token: `not-found`, or `forbidden` without a `gh` login there.
+    `nod repo add` clones at once (`--no-clone` leaves it to the first patch-id); a failed clone
+    is not fatal.
+- **3, the clones.** Cloned over https from the host's web URL; the token rides in the scoped
+  extra header (`tokenGitEnv`) for the clone, each fetch, the blobs a diff fetches on demand (the
+  kit's `patchId` takes an `env`) and the git calls of the setup PR's worktree. Fetches name
+  `origin`, so its blob filter applies. The clone gets a remote-tracking refspec, as a normal
+  clone has, because `nod init` starts the setup branch from `origin/<default>`. A clone is made
+  in a temporary folder next to its place and renamed in, so a failed one leaves nothing that
+  looks like a clone. Removing a repo leaves its clone in the cache.
+- **5, one query per host.** At most ten repos share a query (`REPOS_PER_QUERY`): a repo's block
+  asks for up to ~20,000 nodes and GitHub refuses a query of more than 500,000. A host with more
+  repos takes one more query per ten; `Details` likewise. Answers are taken in part
+  (`graphqlPartial`): a repo GitHub cannot read fails alone, keeps what it showed, and its
+  sentence (naming it) joins `sync.error`; a rate-limited host's `until` is the latest of them.
+  Measured once (two public repos on github.com, cold): the first poll took one `Poll` and three
+  `Details` rounds, 13 points in all.
+- **8, logins.** My login is per repo, as its host knows it: `SourceRepo.login` and
+  `RepoInfo.login` (an optional field within protocol 2; null before the host's first read). The
+  session signs with it (the payload's `reviewer`) and checks "your own PR" with it; before the
+  host is read, `welcome.me` stands in only on that account's own host, else the request fails
+  with the host's sign-in command. The web app's "you" and "mine to fill" on a PR go by it
+  (`loginIn`), falling back to `snapshot.me`. The fake proves it: on its GHE.com host the team are
+  managed users (`mara_acme`).
+- **The list's push.** A change of the list, or of my login on a repo's host, is the source's
+  `repos` change, emitted before the `prs` that follows it.
