@@ -136,7 +136,12 @@ describe("polling", () => {
     const snap = t.source.snapshot()!;
     expect(snap).toMatchObject({ me: ALICE, sync: { at: T0, error: null } });
     expect(t.source.repos()).toEqual([
-      { key: REPO, name: REPO, github: { host: "github.com", webUrl: "https://github.com" } },
+      {
+        key: REPO,
+        name: REPO,
+        github: { host: "github.com", webUrl: "https://github.com" },
+        login: ALICE,
+      },
     ]);
     expect(snap.prs.every((p) => p.repo === REPO)).toBe(true);
     expect(snap.prs.map((p) => [p.number, p.category, p.needsMe, p.ask?.kind ?? null])).toEqual([
@@ -829,14 +834,13 @@ describe("setup and enrolment", () => {
     source.stop();
   });
 
-  test("list-repos is the clone's repo; pick-repo accepts only that one", async () => {
+  test("the clone override is a fixed list: no adding, removing or suggestions", async () => {
     const t = setup();
     t.source.start();
-    expect(await t.source.listRepos()).toEqual([
-      { repo: REPO, current: true, canWrite: true, pushedAt: T0 - 5 * 60 * SECOND },
-    ]);
-    await t.source.pickRepo("ACME/widgets");
-    await expect(t.source.pickRepo("acme/other")).rejects.toMatchObject({ code: "forbidden" });
+    expect(t.source.repoList).toBe("fixed");
+    await expect(t.source.addRepo("acme/other")).rejects.toMatchObject({ code: "forbidden" });
+    await expect(t.source.removeRepo(REPO)).rejects.toMatchObject({ code: "forbidden" });
+    expect(await t.source.suggestRepos()).toEqual([]);
     expect(await t.source.account()).toEqual({
       login: ALICE,
       name: null,

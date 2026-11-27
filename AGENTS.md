@@ -35,7 +35,8 @@ nod
     - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos|dir]
       [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
       link. Fake passphrase: anything but `wrong`. `repos`: three repos at three ladder steps,
-      one on `acme.ghe.com` (`fake-repos.ts`); `fresh`: an empty repo list; `dir`: `team` as a
+      one on `acme.ghe.com` (`fake-repos.ts`, where the team are managed users and I am
+      `mara_acme`: logins are per host); `fresh`: an empty repo list; `dir`: `team` as a
       fixed list (`--dir`); every other scenario reads one repo. The fake's list is managed:
       add (a name with `missing` is not found, `private` forbidden), remove, suggestions
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
@@ -46,7 +47,9 @@ nod
       `XDG_CONFIG_HOME` (key and token) and then need `GH_CONFIG_DIR` pointing at the real gh
       config, or `gh auth token` finds no login. Finding 03 is the sandbox run
   - server seams: `Source` (`src/server/source.ts`: one source knows every repo, each method
-    that touches one takes its repo key, `repos()` lists them; the session groups a batch by
+    that touches one takes its repo key, `repos()` lists them, each with my login on its host
+    (`SourceRepo.login`, `RepoInfo.login`: a nod's `reviewer`, "your own PR"; the web app's
+    `meIn(pr)`, not `snapshot.me`, for anything on one PR); the session groups a batch by
     repo and signs one payload per repo with `Signer.signLines`; `fake-source.ts` has a
     `FakeRepo` per repo; `github-source.ts` reads the repo list (`config.ts`,
     `$XDG_CONFIG_HOME/nod/config.json`) or, as the clone override (`--dir`, or an empty list in

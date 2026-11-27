@@ -99,8 +99,9 @@ nod config out of `~/.config/nod` with a scratch `XDG_CONFIG_HOME` if you like (
    `nod repo add <a github.com repo of yours>`, and `NOD_DEBUG=1 nod serve` outside any clone.
    Expect: `nod repo add` clones into `~/.cache/nod/clones/acme.ghe.com/acme/nod-trial.git`, one
    poll line per host (`nod serve: poll acme.ghe.com: 1 GraphQL …`), both repos' PRs in one
-   dashboard with a repo chip each. Note whether the GHE.com login differs from the github.com
-   one: the payload's reviewer must be the GHE.com login there (see ADR 0007, 8).
+   dashboard with a repo chip each. Where the GHE.com login differs from the github.com one, a
+   nod's payload must name the GHE.com login as `reviewer` (ADR 0007, 8; `RepoInfo.login`):
+   check it in the batch dialog's details and in the posted comment.
 5. **Open the setup PR.** In onboarding, create the key and press "Open setup PR", or run
    `nod init --signer-key <your key>.pub`. Expect: a PR "chore: set up nod …" whose body tells
    you to run `nod init --ruleset --repo acme/nod-trial --host acme.ghe.com` and says where the

@@ -17,8 +17,9 @@
  *   blobless bare clone under `$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`,
  *   made on the first patch-id (`github/clone.ts`). Removing a repo leaves
  *   its clone: a cache, deleted by hand.
- * - **Pushes.** A snapshot is pushed only when the user's view changed;
- *   "setup" whenever a repo's setup, my enrolment or the list changed.
+ * - **Pushes.** `repos` when the list or my login on a repo's host changed
+ *   (before the `prs` that follows it), `prs` only when the user's view
+ *   changed, `setup` and `enrolment` when a repo's setup or my enrolment did.
  *
  * No state beyond the cache and the list: everything shared lives in GitHub.
  */
@@ -32,15 +33,15 @@ import type {
   Enrolment,
   Person,
   PrLink,
-  RepoChoice,
   RepoKey,
+  RepoList,
   RepoName,
   RepoSuggestion,
   SetupStatus,
   Snapshot,
   SyncStatus,
 } from "../shared/protocol";
-import { repoKey, sameRepo } from "../shared/repo-key";
+import { parseRepoInput, repoKey, sameRepo } from "../shared/repo-key";
 import type { Clock, Timer } from "./clock";
 import {
   addConfigRepo,
@@ -67,14 +68,7 @@ import {
 import { DEFAULT_POLL_MS, HostPoller } from "./github/host";
 import { GitHubRepo, message, type RepoOptions } from "./github/repo";
 import { openSetupPrWithInit } from "./github/setup-pr";
-import {
-  parseRepoInput,
-  rankSuggestions,
-  resolveRepo,
-  suggestOnHost,
-  type HostSuggestion,
-  type RepoSuggestion,
-} from "./github/suggest";
+import { rankSuggestions, resolveRepo, suggestOnHost } from "./github/suggest";
 import {
   SourceError,
   type PostApprovalsInput,
@@ -85,7 +79,6 @@ import {
   type SourceChange,
   type SourceRepo,
 } from "./source";
-import { sameLogin } from "./view";
 
 export { DEFAULT_POLL_MS, FAST_FOR_MS, FAST_POLL_MS } from "./github/host";
 
@@ -143,7 +136,7 @@ export class GitHubSource implements Source {
   private readonly apis = new Map<string, GitHubApi | null>();
   private readonly accounts = new Map<string, Account | null>();
   private readonly listeners = new Set<(change: SourceChange) => void>();
-  private readonly last = { prs: "", setup: "", enrolment: "" };
+  private readonly last = { repos: "", prs: "", setup: "", enrolment: "" };
   private stamp: number | null = null;
   private configTimer: Timer | null = null;
   private started = false;
@@ -176,6 +169,11 @@ export class GitHubSource implements Source {
   /** Whether this is the clone override (`--dir`): the list is not used. */
   get cloneMode(): boolean {
     return this.options.configFile === null;
+  }
+
+  /** `fixed` for the clone override, else the config file's list (`managed`). */
+  get repoList(): RepoList {
+    return this.cloneMode ? "fixed" : "managed";
   }
 
   // -- the repos and hosts ------------------------------------------------------
@@ -250,23 +248,23 @@ export class GitHubSource implements Source {
     return hit;
   }
 
+  /**
+   * A repo as the session sees it. `login` is mine on its host, from the
+   * host's last poll (null before it): logins differ between hosts (a
+   * managed user on GHE.com is `mara_acme`), so a nod's `reviewer` and the
+   * "your own PR" check use the repo's, not `welcome.me` (ADR 0007, 8).
+   */
   private sourceRepo(e: Entry): SourceRepo {
-    return { key: e.repo.key(), name: e.repo.name(), github: e.repo.github() };
+    return {
+      key: e.repo.key(),
+      name: e.repo.name(),
+      github: e.repo.github(),
+      login: this.hosts.get(e.spec.host.name)?.viewer?.login ?? null,
+    };
   }
 
   repos(): ReadonlyArray<SourceRepo> {
     return this.entries.map((e) => this.sourceRepo(e));
-  }
-
-  /**
-   * My login on a repo's host, from its last poll; null before it. Logins
-   * differ between hosts (a managed user on GHE.com is `alice_acme`): a nod's
-   * `reviewer` and the "your own PR" check must use the repo's, not
-   * `welcome.me` (ADR 0007, 8). Not on the `Source` seam yet.
-   */
-  login(repo: RepoKey): string | null {
-    const e = this.find(repo);
-    return (e && this.hosts.get(e.spec.host.name)?.viewer?.login) ?? null;
   }
 
   /**
@@ -337,40 +335,6 @@ export class GitHubSource implements Source {
       this.log(`nod serve: reading the gh account on ${host.name} failed: ${message(error)}`);
       return null;
     }
-  }
-
-  /**
-   * The first-run picker: the repos read, or, with none yet, the suggestions
-   * (where I have open PRs or review requests), named by their repo key.
-   */
-  async listRepos(): Promise<ReadonlyArray<RepoChoice>> {
-    await this.ready;
-    if (this.entries.length)
-      return this.entries.map((e) => ({
-        repo: e.repo.key(),
-        current: true,
-        canWrite: e.repo.canWrite(),
-        pushedAt: e.repo.pushedAt(),
-      }));
-    return (await this.suggestions()).map((s) => ({
-      repo: s.suggestion.key,
-      current: false,
-      canWrite: s.canWrite,
-      pushedAt: s.pushedAt,
-    }));
-  }
-
-  /** The first-run pick: adds the repo to the list (`addRepo`). */
-  async pickRepo(repo: RepoName): Promise<void> {
-    if (this.cloneMode) {
-      const only = this.entries[0];
-      if (only && (sameLogin(repo, only.repo.name()) || sameRepo(repo, only.repo.key()))) return;
-      throw new SourceError(
-        "forbidden",
-        `nod serve reads ${only?.repo.key() ?? "one clone"} only, the repository of ${this.options.clone?.dir ?? "its folder"}. To use ${repo}, start nod serve in a clone of it, or add it with \`nod repo add ${repo}\` and start nod serve without --dir.`,
-      );
-    }
-    await this.addRepo(repo);
   }
 
   snapshot(): Snapshot | null {
@@ -519,7 +483,7 @@ export class GitHubSource implements Source {
     const parsed = parseRepoInput(input);
     if (!parsed)
       throw new SourceError(
-        "not-found",
+        "bad-request",
         `"${input}" is not a repository: use owner/name, host/owner/name or its GitHub URL.`,
       );
     const listed = this.find(repoKey(parsed.host, parsed.name));
@@ -575,10 +539,6 @@ export class GitHubSource implements Source {
    * left out (and logged). Nothing in the clone override: it cannot add.
    */
   async suggestRepos(): Promise<ReadonlyArray<RepoSuggestion>> {
-    return (await this.suggestions()).map((s) => s.suggestion);
-  }
-
-  private async suggestions(): Promise<HostSuggestion[]> {
     if (this.cloneMode) return [];
     const hosts = new Map<string, GitHubHost>([[GITHUB_COM, githubHost(GITHUB_COM)]]);
     for (const e of this.entries) hosts.set(e.spec.host.name, e.spec.host);
@@ -636,14 +596,17 @@ export class GitHubSource implements Source {
       u: snapshot?.unclassified ?? null,
       sync,
     });
+    const repos = JSON.stringify(this.repos().map((r) => [r.key, r.login]));
     const setup = JSON.stringify(this.entries.map((e) => [e.repo.key(), e.repo.setupNow()]));
     const key = this.options.myKey?.() ?? null;
     const enrolment = JSON.stringify(key ? this.entries.map((e) => e.repo.enrolmentOf(key)) : null);
     const changed: SourceChange[] = [];
+    // The list first: a tab learns of a repo before it sees its PRs.
+    if (repos !== this.last.repos) changed.push("repos");
     if (prs !== this.last.prs) changed.push("prs");
     if (setup !== this.last.setup) changed.push("setup");
     if (enrolment !== this.last.enrolment) changed.push("enrolment");
-    Object.assign(this.last, { prs, setup, enrolment });
+    Object.assign(this.last, { repos, prs, setup, enrolment });
     for (const change of changed) for (const listener of this.listeners) listener(change);
   }
 }

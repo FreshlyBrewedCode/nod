@@ -4,10 +4,10 @@
  * - `FakeSource` (`fake-source.ts`, `nod serve --fake`): the mockup's data
  *   set in memory; signing and acking change it so the UI can be exercised.
  *   One repo, or three with `--scenario repos`.
- * - The GitHub source (`github-source.ts`): polls GraphQL with the `gh`
- *   token about every 60 s and reads the verifier's check summary; patch-ids
- *   come from the clone it runs in. One repo, as a fixed list of one (#48
- *   reads many, from the config file's list).
+ * - The GitHub source (`github-source.ts`): the repos of the config file's
+ *   list (`managed`), or the one `--dir` clone (`fixed`); one GraphQL poll
+ *   per host about every 60 s with each host's `gh` token, the verifier's
+ *   check summary, patch-ids in nod's own clones or the `--dir` clone.
  *
  * One source knows every repo (ADR 0007, 8): what touches a repo takes its
  * key, and `snapshot()` holds all of them. The session (`session.ts`) owns
@@ -36,6 +36,13 @@ export interface SourceRepo {
   /** `owner/name`, as in the nod payload. */
   readonly name: RepoName;
   readonly github: GitHubInfo;
+  /**
+   * My login on its host (logins differ between hosts, ADR 0007, 8): a nod's
+   * `reviewer`, "your own PR". null while the host is not read yet, or `gh`
+   * is not logged in there; the session then falls back to `account()` on
+   * that account's host.
+   */
+  readonly login: string | null;
 }
 
 /** What a nod entry is built from: the PR as the source sees it now. */

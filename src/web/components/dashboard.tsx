@@ -62,6 +62,7 @@ import {
   chipsOf,
   enrolmentIn,
   githubOfRepo,
+  loginIn,
   readRepoFilter,
   repoOf,
 } from "@/lib/repos";
@@ -596,6 +597,7 @@ function DashboardInner({
     chips,
     githubOf: (pr) => githubOfRepo(repos, pr.repo),
     me,
+    meIn: (pr) => loginIn(repos, pr.repo, me),
     people: snapshot.people,
     focus,
     focusRow,
@@ -1020,7 +1022,7 @@ function boardColumns(
         oldestWait(c, now)
       ) : null,
     items: c.items,
-    footer: alsoText(c, prs, snapshot, chips),
+    footer: alsoText(c, prs, snapshot, chips, repos),
     empty: WAIT_EMPTY[c.kind],
   }));
 }
@@ -1042,6 +1044,7 @@ function alsoText(
   prs: ReadonlyArray<PrView>,
   snapshot: Snapshot,
   chips: ReadonlyMap<RepoKey, string>,
+  repos: ReadonlyArray<RepoInfo>,
 ): string | null {
   if (!column.also.length) return null;
   const after = column.also.map((id) => {
@@ -1051,7 +1054,7 @@ function alsoText(
       !first || first.kind === "me"
         ? "you"
         : first.kind === "person"
-          ? first.login.toLowerCase() === snapshot.me.toLowerCase()
+          ? first.login.toLowerCase() === loginIn(repos, pr?.repo, snapshot.me).toLowerCase()
             ? "you"
             : shortName(first.login, snapshot.people)
           : "the agent";

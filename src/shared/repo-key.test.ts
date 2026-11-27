@@ -90,6 +90,8 @@ describe("a repo as a person names it (adding one)", () => {
       "https://github.com/tallyho",
       "git@work:tallyho/fieldbook",
       "file:///tmp/a/b",
+      "https://api.github.com/repos/x",
+      "gist.github.com/tallyho/x",
       "x".repeat(301),
     ])
       expect(key(bad)).toBeNull();

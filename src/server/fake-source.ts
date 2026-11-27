@@ -23,7 +23,9 @@
  *   repo, the last one too. Suggestions are fictional repos with my open
  *   PRs or review requests (`SUGGESTIONS`), without those of the list.
  * - Who I am in a repo: an admin everywhere but in `join`, where a
- *   teammate with write access joins.
+ *   teammate with write access joins. My login is per host (ADR 0007, 8):
+ *   `mara-l` on github.com, `mara_acme` on the fictional GHE.com host, where
+ *   the team are managed users (`FAKE_PEOPLE_ACME`).
  * - Only an enforced repo merges on its own: at `inbox` and `shared` a
  *   person merges, the fake leaves the PRs open.
  * - Without an active key in a repo (`fresh`, `join`, `inbox`, the inbox
@@ -60,6 +62,7 @@ import { publicKeyId } from "./signer/ssh-wire";
 import {
   FAKE_ME,
   FAKE_PEOPLE,
+  FAKE_PEOPLE_ACME,
   FAKE_REPO,
   SEEDS,
   UNCLASSIFIED_TITLES,
@@ -146,10 +149,16 @@ const hostInfo = (host: string): GitHubInfo => {
   return { host: name, webUrl };
 };
 
+/** My login on a host: a managed user's on the fake's GHE.com host, else the github.com one. */
+const loginOn = (host: string): string =>
+  githubHost(host).name === LEDGER_HOST ? FAKE_PEOPLE_ACME.mara.login : FAKE_ME;
+
 /** One repo of the fake: its PRs, its setup and the keys it trusts. */
 class FakeRepo {
   readonly key: RepoKey;
   readonly github: GitHubInfo;
+  /** My login on its host. */
+  readonly login: string;
   facts: PrFacts[] = [];
   unclassified: Omit<UnclassifiedPr, "repo">[] = [];
   setupPr: PrLink | null = null;
@@ -166,10 +175,11 @@ class FakeRepo {
   ) {
     this.github = hostInfo(host);
     this.key = repoKey(this.github.host, name);
+    this.login = loginOn(host);
   }
 
   get ref(): SourceRepo {
-    return { key: this.key, name: this.name, github: this.github };
+    return { key: this.key, name: this.name, github: this.github, login: this.login };
   }
 
   url(n: number) {
@@ -217,7 +227,7 @@ export class FakeSource implements Source {
       const app = this.inbox(FIELD_APP, pending);
       const ledger = new FakeRepo(LEDGER, LEDGER_HOST, "ready", "shared-policy", "admin");
       ledger.facts = LEDGER_SEEDS.map((s) =>
-        seedFacts(s, this.started, LEDGER, ledger.github.webUrl),
+        seedFacts(s, this.started, LEDGER, ledger.github.webUrl, FAKE_PEOPLE_ACME),
       );
       ledger.enrolments.set(this.myKey, { state: "active" });
       this.list = [fieldbook, app, ledger];
@@ -248,6 +258,7 @@ export class FakeSource implements Source {
           f.number === JOIN_APPROVED
             ? this.withApproval(
                 f,
+                FAKE_ME,
                 FAKE_PEOPLE.ines.login,
                 f.headSha,
                 this.started - 2 * 60 * SECOND,
@@ -303,12 +314,12 @@ export class FakeSource implements Source {
     if (/missing/i.test(parsed.name))
       throw new SourceError(
         "not-found",
-        `${parsed.key} does not exist, or ${FAKE_ME} on ${parsed.host} cannot see it.`,
+        `${parsed.key} does not exist, or ${loginOn(parsed.host)} on ${parsed.host} cannot see it.`,
       );
     if (/private/i.test(parsed.name))
       throw new SourceError(
         "forbidden",
-        `${FAKE_ME} on ${parsed.host} cannot read ${parsed.key}: ask for read access.`,
+        `${loginOn(parsed.host)} on ${parsed.host} cannot read ${parsed.key}: ask for read access.`,
       );
     // A repo nod has not read yet: the inbox step, nothing of nod in it, no PRs in the fake.
     const repo = new FakeRepo(parsed.name, parsed.host, "missing", "enforced", "admin");
@@ -342,15 +353,20 @@ export class FakeSource implements Source {
 
   snapshot(): Snapshot | null {
     if (this.list.length === 0) return null;
-    const people = Object.values(FAKE_PEOPLE);
+    const acme = this.list.some((r) => r.login !== FAKE_ME);
+    const people = [
+      ...Object.values(FAKE_PEOPLE),
+      ...(acme ? Object.values(FAKE_PEOPLE_ACME) : []),
+    ];
     const now = this.clock.now();
     return {
-      me: FAKE_ME,
+      // The first repo's host's, as `welcome.me`; each repo's views are relative to its own.
+      me: this.list[0]!.login,
       people,
       prs: this.list.flatMap((repo) =>
         toViews(repo.facts.map(enforcedIn(repo)), {
           repo: repo.key,
-          me: FAKE_ME,
+          me: repo.login,
           now,
           people,
           // My key signs only once it is enrolled; until then the asks are approvals.
@@ -402,7 +418,14 @@ export class FakeSource implements Source {
       }
       const f = repo.facts[index]!;
       const url = `${f.url}#issuecomment-${9_000_000 + ++this.comments}`;
-      repo.facts[index] = this.withNod(f, payload.reviewer, entry, payload.entries.length, url);
+      repo.facts[index] = this.withNod(
+        f,
+        repo.login,
+        payload.reviewer,
+        entry,
+        payload.entries.length,
+        url,
+      );
       results.push({ pr: entry.pr, ok: true, url, message: null });
       this.whenReady(repo, entry.pr);
     }
@@ -426,7 +449,7 @@ export class FakeSource implements Source {
       }
       const f = repo.facts[index]!;
       const url = `${f.url}#pullrequestreview-${8_000_000 + ++this.comments}`;
-      repo.facts[index] = this.withApproval(f, FAKE_ME, entry.headSha);
+      repo.facts[index] = this.withApproval(f, repo.login, repo.login, entry.headSha);
       results.push({ pr: entry.pr, ok: true, url, message: null });
       this.whenReady(repo, entry.pr);
     }
@@ -439,14 +462,15 @@ export class FakeSource implements Source {
     const index = repo.index(pr);
     const f = repo.facts[index];
     if (!f?.fyi) throw new SourceError("not-found", `#${pr} has no FYI.`);
-    if (!f.fyi.pending.some((l) => sameLogin(l, FAKE_ME))) return;
+    const me = repo.login;
+    if (!f.fyi.pending.some((l) => sameLogin(l, me))) return;
     const at = this.clock.now();
     repo.facts[index] = {
       ...f,
       fyi: {
         ...f.fyi,
-        acked: [...f.fyi.acked, FAKE_ME],
-        pending: f.fyi.pending.filter((l) => !sameLogin(l, FAKE_ME)),
+        acked: [...f.fyi.acked, me],
+        pending: f.fyi.pending.filter((l) => !sameLogin(l, me)),
       },
       journey: [...f.journey, event("fyi-acked", "You got it", at)],
     };
@@ -537,6 +561,7 @@ export class FakeSource implements Source {
   /** A nod as the verifier would count it (ADR 0001, rule 5). */
   private withNod(
     f: PrFacts,
+    me: string,
     reviewer: string,
     entry: PostNodInput["payload"]["entries"][number],
     batchSize: number,
@@ -565,7 +590,7 @@ export class FakeSource implements Source {
     const slots = f.requirement.slots.map((s) =>
       counts && canFill(s, reviewer) ? { ...s, state: "ok" as const, signature: index } : s,
     );
-    const you = sameLogin(reviewer, FAKE_ME);
+    const you = sameLogin(reviewer, me);
     return {
       ...f,
       signatures,
@@ -589,6 +614,7 @@ export class FakeSource implements Source {
    */
   private withApproval(
     f: PrFacts,
+    me: string,
     reviewer: string,
     headSha: string,
     at = this.clock.now(),
@@ -610,7 +636,7 @@ export class FakeSource implements Source {
         ? { ...s, state: "ok" as const, signature: null, approval: reviewer }
         : s,
     );
-    const you = sameLogin(reviewer, FAKE_ME);
+    const you = sameLogin(reviewer, me);
     return {
       ...f,
       review: {
@@ -699,6 +725,7 @@ export class FakeSource implements Source {
     if (f.state === "open" && f.requirement.slots.some((s) => canFill(s, FAKE_ME))) {
       next = this.withNod(
         f,
+        FAKE_ME,
         FAKE_ME,
         { pr: f.number, base: f.base, head_sha: f.headSha, patch_id: f.patchId ?? "" },
         1,

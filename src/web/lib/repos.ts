@@ -1,7 +1,8 @@
 /**
  * The repos `nod serve` reads (ADR 0007), as the web app needs them: a PR's
- * repo by its key, the repo chip's words, and my key's enrolment where one
- * answer stands for all repos (the lock chip, the board's "You" column).
+ * repo by its key, the repo chip's words, my login there, and my key's
+ * enrolment where one answer stands for all repos (the lock chip, the board's
+ * "You" column).
  *
  * With one repo the dashboard looks as it always did: no chip, the repo's
  * name in the top bar. `chipsOf` is empty then.
@@ -24,6 +25,15 @@ const GITHUB_DOT_COM: GitHubInfo = { host: GITHUB_COM, webUrl: githubHost(GITHUB
 /** The GitHub host a repo is on. */
 export function githubOfRepo(repos: Repos, key: RepoKey | null | undefined): GitHubInfo {
   return repoOf(repos, key)?.github ?? GITHUB_DOT_COM;
+}
+
+/**
+ * My login in a repo: the one on its host (ADR 0007, 8; a managed user on
+ * GHE.com is `mara_acme`), else `fallback` (the snapshot's `me`, the first
+ * repo's host's) while the server does not know it or does not say.
+ */
+export function loginIn(repos: Repos, key: RepoKey | null | undefined, fallback: string): string {
+  return repoOf(repos, key)?.login ?? fallback;
 }
 
 /** The repo chip's words per repo, once there is more than one; empty with one. */
