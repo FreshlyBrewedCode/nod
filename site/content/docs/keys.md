@@ -56,16 +56,18 @@ nod cannot adopt an existing OpenSSH private key.
 The first signer's key is part of the setup PR, which merges under the repository's old rules.
 Everyone after that joins through a one-line pull request.
 
-![Onboarding, step 3: creating the key](./screenshots/onboarding-key.webp)
+![The setup page, signing: creating the key](./screenshots/signing-key.webp)
 
 ### A teammate joining
 
-1. They clone the repository, run `nod serve` in it and open the dashboard.
-2. Onboarding sees the repository is set up, and asks them to create a key.
+1. They clone the repository, run `nod serve` in it and open the dashboard. It shows at once:
+   without a key they approve on GitHub, as before.
+2. The dashboard offers **Sign your own agent PRs** (not released; the released version opens
+   onboarding first). It leads to the signing step of the setup page, which creates the key.
 3. **Open the enrolment PR** opens a pull request that adds their line to `.nod/allowed_signers`.
 4. A signer nods it as peer, and it is merged. From the next poll on their key is active.
 
-![A joining teammate: the key is pending until the enrolment PR merges](./screenshots/onboarding-join.webp)
+![A joining teammate: the key is pending until the enrolment PR merges](./screenshots/signing-pending.webp)
 
 A key is in one of three states:
 
