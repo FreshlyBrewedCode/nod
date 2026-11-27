@@ -172,6 +172,7 @@ export function Me({
   onLegend,
   fake = false,
   linksHere = null,
+  installable = false,
 }: {
   login: string;
   people: ReadonlyArray<Person>;
@@ -187,6 +188,8 @@ export function Me({
   fake?: boolean;
   /** The hosted UI's `#/forward?to=<this origin>` (`forwardSetupUrl`); null hides the item. */
   linksHere?: string | null;
+  /** The page is the app (`isServedApp`): only the app offers to install itself. */
+  installable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const install = useInstall();
@@ -253,7 +256,7 @@ export function Me({
             <span className="text-tx3 fs-code block">sizes, lanes, risk, the numbers</span>
           </button>
         )}
-        {install.available && (
+        {installable && install.available && (
           <button
             type="button"
             onClick={() => {

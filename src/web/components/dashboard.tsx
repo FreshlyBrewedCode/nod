@@ -784,6 +784,7 @@ function DashboardInner({
             onLegend={askLegend}
             fake={welcome?.fake}
             linksHere={forwardSetupUrl(window.location, welcome?.version ?? null, servedApp)}
+            installable={servedApp}
           />
         </TopBarShell>
         {notice === "quiet" && (

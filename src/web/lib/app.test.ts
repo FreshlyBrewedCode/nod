@@ -49,6 +49,8 @@ describe("install", () => {
     expect(installStateOf({ ...base, prompt: true })).toBe("prompt");
     expect(installStateOf(base)).toBe("manual");
     expect(installStateOf({ ...base, servedApp: false })).toBe("elsewhere");
+    // The hosted UI is installable to the browser, but it is not the app.
+    expect(installStateOf({ ...base, servedApp: false, prompt: true })).toBe("elsewhere");
   });
 
   test("how each browser installs", () => {

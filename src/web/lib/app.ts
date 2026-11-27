@@ -39,10 +39,11 @@ export function appAddressOf(pairing: Pairing | null): string {
 /**
  * - `running`: this window is the installed app (standalone);
  * - `installed`: installed from this page just now (`appinstalled`);
- * - `prompt`: the browser offers it (`beforeinstallprompt`): one button;
+ * - `prompt`: this is the app and the browser offers it (`beforeinstallprompt`): one button;
  * - `manual`: this is the app, the browser offers no button: how it is done here;
  * - `elsewhere`: this page is not the app (the hosted UI, the dev server):
- *   install it from the app's address.
+ *   install it from the app's address, even where the browser would
+ *   install this page.
  */
 export type InstallState = "running" | "installed" | "prompt" | "manual" | "elsewhere";
 
@@ -54,8 +55,9 @@ export function installStateOf(input: {
 }): InstallState {
   if (input.standalone) return "running";
   if (input.installed) return "installed";
-  if (input.prompt) return "prompt";
-  return input.servedApp ? "manual" : "elsewhere";
+  // The hosted UI may be installable too, but it is not the app (ADR 0008 §1).
+  if (!input.servedApp) return "elsewhere";
+  return input.prompt ? "prompt" : "manual";
 }
 
 /** How this browser installs a site, from its user agent: the browser's name and the steps. */
