@@ -66,6 +66,7 @@ const ROUTES = [
   "#/chrono",
   "#/board",
   "#/settings",
+  "#/settings/app",
   "#/setup",
   "#/setup/inbox",
   "#/setup/enforced",
@@ -489,6 +490,26 @@ const FORWARD_STATES: ReadonlyArray<State> = [
     assert: async (page) => {
       await must(rememberButton(page).isEnabled(), "Remember does not arm on the hosted origin");
     },
+  },
+  {
+    // ADR 0008 §6: with nothing remembered, the hosted UI offers this machine's app.
+    name: "link, the hosted UI offers the app",
+    route: `#/pr/${REPO}/${PRS[0]}`,
+    scenarios: ["team"],
+    url: () => `${HOSTED}/#/pr/${REPO}/${PRS[0]}`,
+    before: routeHosted,
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Open it in the nod app" }).waitFor();
+    },
+    assert: async (page) => {
+      const href = await page.getByRole("link", { name: "Open in the app" }).getAttribute("href");
+      await must(
+        Promise.resolve(href === `http://127.0.0.1:4518/#/pr/${REPO}/${PRS[0]}`),
+        `the app's forward goes to ${href}`,
+      );
+    },
+    shot: "30c-forward-to-app",
+    full: true,
   },
   {
     name: "forward, don't remember",
