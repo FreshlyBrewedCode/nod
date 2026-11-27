@@ -1,14 +1,16 @@
 /**
  * The `nod` CLI entry: `nod serve` (the local server, src/server/),
  * `nod repo` (the repo list, src/server/repo-cli.ts), `nod key` (the
- * signing key, src/server/signer/key-cli.ts) and `nod init`
- * (opens the repo-owned setup PR, src/init/).
+ * signing key, src/server/signer/key-cli.ts), `nod service` (serve in the
+ * background, src/service/) and `nod init` (opens the repo-owned setup PR,
+ * src/init/).
  */
 import { resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
 
 import { INIT_HELP, parseInitArgs, type InitFlags } from "./init/args";
 import { githubHost } from "./kit/host.ts";
+import { parseServiceArgs, SERVICE_HELP, type ServiceFlags } from "./service/cli";
 
 import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
 import { parseNamedHost, type NamedHost } from "./shared/named-host";
@@ -53,6 +55,7 @@ export type Command =
   | { kind: "init"; flags: InitFlags }
   | { kind: "key"; flags: KeyFlags }
   | { kind: "repo"; flags: RepoFlags }
+  | { kind: "service"; flags: ServiceFlags }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -66,6 +69,7 @@ commands:
   repo         add, remove or list the repositories nod serve reads
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key (see below)
+  service      run nod serve in the background (see below)
 
 nod serve reads every repository of its list (nod repo, below), each from
 nod's own clone. With an empty list, started in a clone, it reads that
@@ -110,7 +114,7 @@ ${REPO_HELP}
 ${INIT_HELP}
 
 ${KEY_HELP}
-
+${SERVICE_HELP}
 options:
   --help       show this help
   --version    show the version
@@ -125,10 +129,11 @@ export function parseArgs(argv: readonly string[]): Command {
   if (first === "serve") return parseServe(rest);
   if (first === "key") return parseKeyArgs(rest);
   if (first === "repo") return parseRepoArgs(rest);
+  if (first === "service") return parseServiceArgs(rest, parseServe);
   return { kind: "error", message: `unknown command: ${first}` };
 }
 
-function parseServe(args: string[]): Command {
+function parseServe(args: string[]): Extract<Command, { kind: "serve" | "help" | "error" }> {
   let values;
   try {
     ({ values } = parseFlags({
@@ -356,6 +361,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return (await import("./server/signer/key-cli")).runKey(cmd.flags);
     case "repo":
       return (await import("./server/repo-cli")).runRepo(cmd.flags);
+    case "service":
+      return (await import("./service/cli")).runService(cmd.flags);
     case "init": {
       const { runInit } = await import("./init/init");
       return runInit(cmd.flags, { version: VERSION });
