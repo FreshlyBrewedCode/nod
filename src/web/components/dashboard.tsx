@@ -30,6 +30,7 @@ import {
   type ColumnKind,
   type StateColumnId,
 } from "../../shared/attention";
+import { ladderStepOf } from "../../shared/protocol";
 import type { PrView, SetupStatus, SignerState, Snapshot, Welcome } from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
@@ -200,7 +201,9 @@ function DashboardInner({
     writeJson(browserStorage(), STORAGE_KEYS.board, g);
     setGroup(g);
   };
-  const keyNote = keyNoteOf(signer);
+  // The inbox step asks for no key: what waits on me there is a review on GitHub.
+  const inbox = setup !== null && ladderStepOf(setup) === "inbox";
+  const keyNote = inbox ? null : keyNoteOf(signer);
   const columns = useMemo(
     () => (view === "board" ? boardColumns(prs, group, snapshot, now, keyNote) : []),
     [view, prs, group, snapshot, now, keyNote],
@@ -555,10 +558,17 @@ function DashboardInner({
               lane={needs}
               hint={needsHint}
               empty={
-                <>
-                  <b className="text-tx font-semibold">Nothing needs you.</b> No agent is waiting on
-                  your signature.
-                </>
+                inbox ? (
+                  <>
+                    <b className="text-tx font-semibold">Nothing needs you.</b> No review is
+                    requested from you, and none of your pull requests is stuck.
+                  </>
+                ) : (
+                  <>
+                    <b className="text-tx font-semibold">Nothing needs you.</b> No agent is waiting
+                    on your signature.
+                  </>
+                )
               }
             />
             {lanes[1]!.count > 0 && <LaneSection lane={lanes[1]!} hint="no input wanted" />}

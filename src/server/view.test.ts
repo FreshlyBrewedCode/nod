@@ -162,3 +162,102 @@ describe("journey, FYI, unblocks", () => {
     expect(v.requirement.satisfied).toBe(true);
   });
 });
+
+describe("the inbox step: classified locally, needs me from GitHub's reviews", () => {
+  const review = (over: Partial<NonNullable<PrFacts["review"]>> = {}) => ({
+    requested: [],
+    teams: [],
+    fromMe: false,
+    approvedBy: [],
+    changesRequestedBy: [],
+    ...over,
+  });
+  /** #482 (Jonas's) as the inbox step sees it: no slots, GitHub's reviews. */
+  const local = (over: Partial<PrFacts> = {}): PrFacts => ({
+    ...facts(482),
+    classifiedBy: "local",
+    requirement: { policy: "none", label: "Nothing: the repository has no nod policy", slots: [] },
+    review: review(),
+    conflict: false,
+    ...over,
+  });
+  const mine = (over: Partial<PrFacts> = {}) => local({ author: ME, prompter: ME, ...over });
+
+  test("a review requested from me: needs me, nothing to sign, waits on me", () => {
+    const v = toView(local({ review: review({ requested: [ME], fromMe: true }) }), ctx);
+    expect([v.needsMe, v.ask, v.waitingOn]).toEqual([true, null, [{ kind: "me" }]]);
+    expect(v.requirement.satisfied).toBe(false);
+  });
+
+  test("through a team I am in: needs me; a team without me is a teammate", () => {
+    const mineTeam = toView(
+      local({ review: review({ teams: ["tallyho/core"], fromMe: true }) }),
+      ctx,
+    );
+    expect([mineTeam.needsMe, mineTeam.waitingOn]).toEqual([true, [{ kind: "me" }]]);
+    const other = toView(local({ review: review({ teams: ["tallyho/web"] }) }), ctx);
+    expect([other.needsMe, other.waitingOn]).toEqual([
+      false,
+      [{ kind: "anyone", except: "jonas-r" }],
+    ]);
+  });
+
+  test("asked of someone else: waits on them, not me", () => {
+    const v = toView(local({ review: review({ requested: ["inescal"] }) }), ctx);
+    expect([v.needsMe, v.waitingOn]).toEqual([false, [{ kind: "person", login: "inescal" }]]);
+  });
+
+  test("nobody asked: any teammate; approved: the merge, and the reviews are met", () => {
+    expect(toView(local(), ctx).waitingOn).toEqual([{ kind: "anyone", except: "jonas-r" }]);
+    const approved = toView(local({ review: review({ approvedBy: ["inescal"] }) }), ctx);
+    expect(approved.waitingOn).toEqual([{ kind: "merge" }]);
+    expect(approved.requirement.satisfied).toBe(true);
+    const ready = approved.journey.filter((e) => e.phase !== "done").map((e) => e.text);
+    expect(ready).toEqual(["Ready to merge"]);
+  });
+
+  test("my own PR, stuck: changes requested, a conflict, a failing check need me", () => {
+    const changes = toView(mine({ review: review({ changesRequestedBy: ["jonas-r"] }) }), ctx);
+    expect([changes.needsMe, changes.stuck, changes.waitingOn[0]]).toEqual([
+      true,
+      { reason: "changes-requested", by: ["jonas-r"] },
+      { kind: "agent" },
+    ]);
+    expect(changes.journey.find((e) => e.phase === "now")?.text).toBe("Changes requested");
+    const conflict = toView(mine({ conflict: true }), ctx);
+    expect([conflict.needsMe, conflict.stuck]).toEqual([true, { reason: "conflict" }]);
+    const red = toView(
+      mine({ checks: { state: "failing", passed: 13, total: 14, failing: ["e2e"] } }),
+      ctx,
+    );
+    expect([red.needsMe, red.stuck?.reason]).toEqual([true, "checks-failing"]);
+  });
+
+  test("my own PR that only waits, even for long, or a draft: does not need me", () => {
+    const waiting = toView(mine({ openedAt: NOW - STUCK_AFTER_MS - 1, waitingSince: null }), ctx);
+    expect([waiting.needsMe, waiting.stuck?.reason]).toEqual([false, "waiting"]);
+    const draft = toView(mine({ state: "draft", conflict: true }), ctx);
+    expect([draft.needsMe, draft.waitingOn]).toEqual([false, [{ kind: "agent" }]]);
+  });
+
+  test("the journey says review, not sign, and a person merges", () => {
+    const v = toView(local({ review: review({ requested: [ME, "inescal"], fromMe: true }) }), ctx);
+    expect(v.journey.filter((e) => e.phase !== "done").map((e) => e.text)).toEqual([
+      "Waiting on you",
+      "Ines reviews",
+      "Merged",
+    ]);
+  });
+
+  test("with a policy, a conflict or requested changes make it stuck too", () => {
+    const f = {
+      ...facts(482),
+      review: review({ changesRequestedBy: ["inescal"] }),
+      conflict: true,
+    };
+    const v = toView(f, ctx);
+    expect(v.stuck).toEqual({ reason: "conflict" });
+    // The slots still decide what needs me.
+    expect([v.needsMe, v.ask?.kind]).toEqual([true, "peer"]);
+  });
+});

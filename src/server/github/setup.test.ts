@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 
 import { ed25519PublicKeyBlob, publicKeyLine } from "../signer/ssh-wire";
-import { enrolBody, enrolmentOf, principalsOf, setupStatusOf, signerLine } from "./setup";
+import {
+  enrolBody,
+  enrolmentOf,
+  ladderStep,
+  principalsOf,
+  setupStatusOf,
+  signerLine,
+} from "./setup";
 
 const key = (fill: number) => publicKeyLine(ed25519PublicKeyBlob(new Uint8Array(32).fill(fill)));
 const KEY = key(1);
@@ -99,4 +106,22 @@ test("the enrolment PR's brief names the fingerprint and why a teammate must nod
   expect(body).toContain("**Risk:** high");
   expect(body).toContain("`.nod/**`");
   expect(body).toContain("**Look at**");
+});
+
+test("the ladder step: inbox until the whole setup is on the default branch", () => {
+  const all = { policy: true, verifier: true, workflow: true, signers: true };
+  expect(ladderStep({ files: null, requiresNod: null })).toBe("inbox");
+  expect(ladderStep({ files: { ...all, verifier: false }, requiresNod: true })).toBe("inbox");
+  expect(ladderStep({ files: all, requiresNod: false })).toBe("shared-policy");
+  expect(ladderStep({ files: all, requiresNod: null })).toBe("shared-policy");
+  expect(ladderStep({ files: all, requiresNod: true })).toBe("enforced");
+  const status = setupStatusOf({
+    repo: "acme/widgets",
+    defaultBranch: "main",
+    files: all,
+    requiresNod: true,
+    autoMerge: true,
+    setupPr: null,
+  });
+  expect([status.state, status.step]).toEqual(["ready", "enforced"]);
 });

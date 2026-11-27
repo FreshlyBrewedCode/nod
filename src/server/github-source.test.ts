@@ -292,6 +292,81 @@ describe("merged PRs without a summary", () => {
   });
 });
 
+describe("the inbox step: a repo without nod's setup", () => {
+  /** No `.nod/`, no workflow, no signers: three PRs, none with a summary. */
+  function inbox(myKey: string | null = null) {
+    const t = setup({ withTeam: false, myKey });
+    t.gh.files = { policy: false, verifier: false, workflow: false };
+    t.gh.signers = null;
+    t.gh.open.push(
+      rawPr({
+        number: 30,
+        author: BOB,
+        requested: ["acme/core"],
+        files: [[".github/workflows/ci.yml", 8, 2]],
+      }),
+      rawPr({ number: 31, reviews: [[BOB, "CHANGES_REQUESTED", 15]] }),
+      rawPr({ number: 32, author: BOB, requested: [CAROL], body: "FYI: on-call page" }),
+    );
+    // GitHub's search: #30's team request reaches alice.
+    t.gh.requested = [30];
+    return t;
+  }
+
+  test("every PR is classified locally; review requests and my stuck PR need me", async () => {
+    const t = inbox();
+    t.source.start();
+    await settle();
+    const snap = t.source.snapshot()!;
+    expect(snap.unclassified).toEqual([]);
+    expect(
+      snap.prs.map((p) => [p.number, p.classifiedBy, p.risk, p.needsMe, p.ask, p.waitingOn[0]]),
+    ).toEqual([
+      [30, "local", 3, true, null, { kind: "me" }],
+      [31, "local", 0, true, null, { kind: "agent" }],
+      [32, "local", 0, false, null, { kind: "person", login: CAROL }],
+    ]);
+    expect(t.pr(31).stuck).toEqual({ reason: "changes-requested", by: [BOB] });
+    // No signers file: the FYI is for me alone.
+    expect(t.pr(32).fyiForMe).toBe(true);
+    // The search rides in the one poll query.
+    expect(t.gh.queries("Poll")[0]!.body).toMatchObject({
+      requested: `repo:${REPO} is:pr is:open review-requested:@me`,
+    });
+    expect((await t.source.setup()).step).toBe("inbox");
+  });
+
+  test("a key changes nothing: there is still nothing to sign", async () => {
+    const t = inbox(FAKE_KEY.publicKey);
+    t.source.start();
+    await settle();
+    expect(t.source.snapshot()!.prs.map((p) => [p.number, p.needsMe, p.ask])).toEqual([
+      [30, true, null],
+      [31, true, null],
+      [32, false, null],
+    ]);
+  });
+
+  test("once set up, the verifier is the source: a PR without a summary waits for it", async () => {
+    const t = inbox();
+    t.source.start();
+    await settle();
+    t.gh.files = { policy: true, verifier: true, workflow: true };
+    t.gh.signers = `${ALICE} namespaces="nod" ${FAKE_KEY.publicKey}\n`;
+    await t.source.refresh();
+    await settle();
+    const snap = t.source.snapshot()!;
+    expect(snap.prs.map((p) => [p.classifiedBy ?? null, p.tags[0], p.needsMe])).toEqual([
+      [null, "not classified", false],
+      [null, "not classified", false],
+      [null, "not classified", false],
+    ]);
+    expect(snap.unclassified.map((u) => u.number)).toEqual([30, 31, 32]);
+    // The fake's branch rules require the `nod` check.
+    expect((await t.source.setup()).step).toBe("enforced");
+  });
+});
+
 describe("my key", () => {
   test("enrolled: the asks are there; pending or no key: readable, nothing signable", async () => {
     const t = setup();

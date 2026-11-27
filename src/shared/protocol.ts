@@ -117,6 +117,20 @@ export interface SetupCheck {
 }
 
 /**
+ * The repo's step of the opt-in ladder (ADR 0006), as far as the repo
+ * opts in; signing is per person (`SignerState`, `Enrolment`).
+ *
+ * - `inbox`: no nod setup on the default branch (or not all of it). Only
+ *   my `nod serve` knows about nod: it classifies the PRs itself, display
+ *   only (`PrView.classifiedBy` `local`), and "needs me" is GitHub's review
+ *   requests and my own stuck PRs.
+ * - `shared-policy`: `.nod/` and the workflow are on the default branch; the
+ *   verifier classifies, and its `nod` check is neutral until enforced.
+ * - `enforced`: the default branch requires the `nod` check.
+ */
+export type LadderStep = "inbox" | "shared-policy" | "enforced";
+
+/**
  * Where the repo stands. `none`: no repo picked yet (step 1). `missing`:
  * the repo has no `.nod/` yet (step 2 offers the setup PR). `pending`: the
  * setup PR is open, nothing is gated yet. `ready`: the verifier runs.
@@ -127,6 +141,17 @@ export interface SetupStatus {
   readonly checks: ReadonlyArray<SetupCheck>;
   /** The open setup PR, once nod opened one. */
   readonly setupPr: PrLink | null;
+  /**
+   * The repo's ladder step. Per repo, so it carries over to many repos.
+   * Added after protocol 1 shipped: read it with `ladderStepOf`, which
+   * derives it from `state` for a server that does not send it.
+   */
+  readonly step?: LadderStep;
+}
+
+/** The repo's ladder step; from `state` when the server did not say (`ready` reads `shared-policy`). */
+export function ladderStepOf(setup: Pick<SetupStatus, "state" | "step">): LadderStep {
+  return setup.step ?? (setup.state === "ready" ? "shared-policy" : "inbox");
 }
 
 /**
@@ -315,9 +340,15 @@ export interface Ask {
     | { readonly outcome: "waits"; readonly on: ReadonlyArray<WaitingOn> };
 }
 
-/** Why a PR is stuck: a check fails, or it has waited on a human for 12 h or more. */
+/**
+ * Why a PR is stuck: a check fails, it conflicts with its base, a reviewer
+ * requested changes, or it has waited on a human for 12 h or more. The first
+ * that applies, in that order.
+ */
 export type Stuck =
   | { readonly reason: "checks-failing"; readonly checks: ReadonlyArray<string> }
+  | { readonly reason: "conflict" }
+  | { readonly reason: "changes-requested"; readonly by: ReadonlyArray<Login> }
   | { readonly reason: "waiting"; readonly since: number; readonly on: ReadonlyArray<WaitingOn> };
 
 /** The stuck rule's threshold. */
@@ -348,6 +379,7 @@ export interface JourneyEvent {
     | "requested"
     | "nodded"
     | "nod-dropped"
+    | "reviewed"
     | "fyi-acked"
     | "checks"
     | "waiting"
@@ -373,6 +405,22 @@ export interface FileChange {
   readonly area: string | null;
   /** Left out of `DiffStats`. */
   readonly excluded: "lockfile" | "generated" | null;
+}
+
+/**
+ * GitHub's own review state of the PR, as anyone sees it on GitHub: who is
+ * asked to review, and each reviewer's latest approving or change-requesting
+ * review (people with write access only; comments do not count).
+ */
+export interface Review {
+  /** People a review is requested from. */
+  readonly requested: ReadonlyArray<Login>;
+  /** Teams a review is requested from, `org/team`. */
+  readonly teams: ReadonlyArray<string>;
+  /** A review is requested from me, directly or through a team I am in. Mentions do not count. */
+  readonly fromMe: boolean;
+  readonly approvedBy: ReadonlyArray<Login>;
+  readonly changesRequestedBy: ReadonlyArray<Login>;
 }
 
 /** The newest thing that happened, for the chronological view. */
@@ -404,6 +452,14 @@ export interface PrView {
   readonly category: Category;
   readonly risk: Risk;
   /**
+   * Who classified it (category, risk, tags, reasons). `verifier`: the
+   * repo's policy, from the check summary. `local`: the repo has no policy
+   * yet (the `inbox` step), so this `nod serve` ran the kit's built-in
+   * classifiers on what GitHub returns: display only, nothing is posted, the
+   * requirement has no slots. Absent: `verifier` (or not classified yet).
+   */
+  readonly classifiedBy?: "verifier" | "local";
+  /**
    * Classifier tags, most telling first: "migration", "core", "tier 2",
    * "deps", "docs", "tooling", "security". The first is the row's one tag.
    */
@@ -431,11 +487,21 @@ export interface PrView {
   /** null when the server has not loaded the file list. */
   readonly files: ReadonlyArray<FileChange> | null;
   readonly lastActivity: Activity;
+  /** GitHub's reviews. Absent from the fake's mockup data set. */
+  readonly review?: Review;
+  /** GitHub says the head conflicts with the base. Absent: not known. */
+  readonly conflict?: boolean;
 
   // -- relative to me ------------------------------------------------------
   /** I am the prompter. */
   readonly mine: boolean;
-  /** The requirement has an open slot I can fill, and the PR is open. Same as `ask !== null`. */
+  /**
+   * The PR is open and wants something of me. Classified by the verifier:
+   * the requirement has an open slot I can fill, the same as `ask !== null`.
+   * Classified locally (`classifiedBy` `local`): a review is requested from
+   * me or a team I am in, or it is mine and stuck (`stuck`: a check failing,
+   * a conflict, changes requested); `ask` is then null, there is nothing to sign.
+   */
   readonly needsMe: boolean;
   readonly ask: Ask | null;
   /** An FYI I have not acked. */

@@ -24,8 +24,10 @@ import {
   filesSummary,
   fyiSummary,
   journeySummary,
+  localNeed,
   neededFromYou,
   reasonsSummary,
+  reviewsSummary,
   riskWords,
   rowTag,
   signaturesSummary,
@@ -34,7 +36,14 @@ import {
 } from "@/lib/wording";
 import { Avatar, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
-import { FilesBody, FyiBody, JourneyList, ReasonsBody, SignaturesBody } from "./detail-panel";
+import {
+  FilesBody,
+  FyiBody,
+  JourneyList,
+  ReasonsBody,
+  ReviewsBody,
+  SignaturesBody,
+} from "./detail-panel";
 import { DiffIndicator } from "./diff-indicator";
 
 const BUTTON =
@@ -66,8 +75,9 @@ export function DetailPage({
   const checks = checksTag(pr);
   const who = whoOf(pr, people);
   const needed = neededFromYou(pr);
+  const need = localNeed(pr, people, me);
   const canBatch = selectable(pr);
-  const hasBar = Boolean(pr.ask || pr.fyiForMe || canBatch || next !== null);
+  const hasBar = Boolean(pr.ask || need || pr.fyiForMe || canBatch || next !== null);
   const riskWord = pr.risk > 0 ? riskWords(pr.risk, pr.brief?.risk ?? null) : null;
 
   return (
@@ -163,9 +173,15 @@ export function DetailPage({
           <PageFold id="reasons" title="Why this needs you" summary={reasonsSummary(pr)}>
             <ReasonsBody pr={pr} />
           </PageFold>
-          <PageFold id="signatures" title="Signatures" summary={signaturesSummary(pr)}>
-            <SignaturesBody pr={pr} />
-          </PageFold>
+          {pr.classifiedBy === "local" ? (
+            <PageFold id="reviews" title="Reviews" summary={reviewsSummary(pr.review)}>
+              <ReviewsBody pr={pr} />
+            </PageFold>
+          ) : (
+            <PageFold id="signatures" title="Signatures" summary={signaturesSummary(pr)}>
+              <SignaturesBody pr={pr} />
+            </PageFold>
+          )}
           {pr.fyi && (
             <PageFold id="fyi" title="FYI" summary={fyiSummary(pr.fyi, people, me)}>
               <FyiBody fyi={pr.fyi} />
@@ -182,6 +198,11 @@ export function DetailPage({
           {needed && pr.ask && (
             <p className="text-tx2 m-0 px-1 pb-[9px] text-[13px] leading-[18px]">
               <b className="text-tx font-semibold">{needed}</b> {thenText(pr.ask, people)}
+            </p>
+          )}
+          {need && (
+            <p className="text-tx2 m-0 px-1 pb-[9px] text-[13px] leading-[18px]">
+              <b className="text-tx font-semibold">{need.headline}.</b> {need.detail}
             </p>
           )}
           <div className="flex items-center gap-2">
@@ -215,6 +236,16 @@ export function DetailPage({
                 <Lock className="size-4 flex-none" />
                 <span className="truncate">{pr.ask.label}</span>
               </button>
+            ) : need ? (
+              <a
+                href={need.href}
+                target="_blank"
+                rel="noreferrer"
+                className={cn(BUTTON, "bg-need border-need text-on-need flex-1 px-2")}
+              >
+                <span className="truncate">{need.action}</span>
+                <ExternalLink className="size-4 flex-none" />
+              </a>
             ) : pr.fyiForMe ? (
               <button
                 type="button"

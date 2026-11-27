@@ -53,6 +53,8 @@ export class FakeGitHub {
   autoMergeAllowed = true;
   rateLimit = { cost: 2, remaining: 4900, limit: 5000, resetAt: iso(-60) };
   epics = new Map<number, string>();
+  /** What the search for `review-requested:@me` finds: PR numbers. */
+  requested: number[] = [];
   readonly calls: Recorded[] = [];
   /** Answers to send instead of the normal ones, in order (any request). */
   readonly failNext: Canned[] = [];
@@ -111,6 +113,7 @@ export class FakeGitHub {
     return {
       rateLimit: this.rateLimit,
       viewer: { login: ALICE, name: null },
+      requested: { nodes: this.requested.map((number) => ({ number })) },
       repository: {
         nameWithOwner: REPO,
         viewerPermission: "ADMIN",

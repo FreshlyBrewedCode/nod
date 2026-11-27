@@ -15,8 +15,11 @@ import {
   journeyDetail,
   journeySummary,
   keyNoteOf,
+  localNeed,
   neededFromYou,
   reasonsSummary,
+  reviewLines,
+  reviewsSummary,
   riskWords,
   rowTag,
   signaturePips,
@@ -241,5 +244,64 @@ describe("neededFromYou", () => {
   });
   test("is null without an ask", () => {
     expect(neededFromYou(snapshot.prs.find((p) => !p.ask)!)).toBeNull();
+  });
+});
+
+describe("the inbox step (classified locally)", () => {
+  const source = new FakeSource({ clock: new ManualClock(NOW), scenario: "inbox" });
+  const inbox = async () => {
+    await source.ready;
+    const snap = source.snapshot()!;
+    return (n: number) => snap.prs.find((p) => p.number === n)!;
+  };
+
+  test("what a row says it needs of me, and where the panel sends me", async () => {
+    const at = await inbox();
+    expect(localNeed(at(512), people, me)).toMatchObject({
+      row: "review requested",
+      headline: "Review requested from you",
+      action: "Review on GitHub",
+      href: `${at(512).url}/files`,
+    });
+    expect(localNeed(at(515), people, me)?.headline).toBe("Review requested from your team");
+    expect(localNeed(at(509), people, me)).toMatchObject({
+      row: "needs changes",
+      headline: "Changes requested by Jonas",
+      action: "Open on GitHub",
+      href: at(509).url,
+    });
+    expect(localNeed(at(511), people, me)).toMatchObject({
+      row: "merge conflict",
+      headline: "Conflicts with main",
+    });
+    // Nothing needed of me, or a policy's PR: no local need.
+    expect(localNeed(at(514), people, me)).toBeNull();
+    expect(localNeed(pr(482), people, me)).toBeNull();
+  });
+
+  test("the row's tag is never a size, and the status names the stuck reason", async () => {
+    const at = await inbox();
+    expect(at(512).tags[0]).toBe("size:l");
+    expect(rowTag(at(512))).toBeNull();
+    expect(rowTag(at(515))).toEqual({ text: "protected", tone: "plain" });
+    expect(statusText(at(514), people)).toBe("waits on Jonas");
+    expect(statusText(at(507), people)).toBe("approved");
+    // Not "once your key is enrolled": a review needs no key.
+    expect(statusText({ ...at(512), needsMe: false }, people)).toBe("waits on you");
+  });
+
+  test("the panel says who classified it, and GitHub's reviews", async () => {
+    const at = await inbox();
+    expect(reasonsSummary(at(512))).toBe("2 reasons · classified by your nod");
+    expect(reasonsSummary(pr(482))).not.toContain("your nod");
+    expect(reviewsSummary(at(507).review)).toBe("1 approved");
+    expect(reviewsSummary(at(511).review)).toBe("1 requested");
+    expect(reviewsSummary(at(516).review)).toBe("none yet");
+    expect(reviewLines(at(515).review!, people, me)).toEqual([
+      { who: "Team tallyho/core", detail: "review requested; you are in it", tone: "open" },
+    ]);
+    expect(reviewLines(at(509).review!, people, me)).toEqual([
+      { who: "Jonas", detail: "requested changes", tone: "bad" },
+    ]);
   });
 });

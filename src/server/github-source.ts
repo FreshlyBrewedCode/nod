@@ -8,6 +8,11 @@
  *   is the `text` of the `nod` check run on each head, fetched once per
  *   check run id and cached. `github/map.ts` turns each PR into `PrFacts`;
  *   `view.ts` makes them relative to me.
+ * - **The inbox step.** A repo without nod's setup on its default branch
+ *   has no verifier: each PR without a summary is classified here, with the
+ *   kit's built-in classifiers on what GraphQL returned (`github/local.ts`,
+ *   display only), and "needs me" is GitHub's review requests (teams
+ *   included, from the poll's search) and my own stuck PRs.
  * - **The host.** github.com, `<name>.ghe.com` or a GitHub Enterprise
  *   Server: read once from the clone's remote (`--host` overrides it), and
  *   every URL derives from it (`kit/host.ts`). The token is `gh`'s for that
@@ -48,11 +53,13 @@ import type { Clock, Timer } from "./clock";
 import { GitHubApi, GitHubApiError, RateLimited } from "./github/api";
 import { parseBody } from "./github/brief";
 import { clonePatchIds, resolveClone, type PatchIds } from "./github/clone";
+import { classifyLocally } from "./github/local";
 import { mapPr, nodCheckRun, type SummaryRead } from "./github/map";
 import {
   POLL,
   SIGN_TARGET,
   detailsQuery,
+  requestedQuery,
   type DetailsData,
   type PollData,
   type RawPr,
@@ -61,12 +68,14 @@ import {
   SETUP_BRANCH,
   SIGNERS_PATH,
   enrolmentOf,
+  isSetUp,
   openEnrolPr,
   requiresNodCheck,
   setupStatusOf,
 } from "./github/setup";
 import { openSetupPrWithInit } from "./github/setup-pr";
 import { isPlanRefusal } from "../init/ruleset.ts";
+import type { PolicyResult } from "../kit/policy.ts";
 import { publicKeyId } from "./signer/ssh-wire";
 import {
   SourceError,
@@ -147,6 +156,10 @@ export class GitHubSource implements Source {
   private readonly patchIds = new Map<string, string>();
   private readonly patchFailed = new Map<string, number>();
   private readonly patchRunning = new Set<string>();
+  /** Open PRs whose review is requested from me, perhaps through a team (the poll's search). */
+  private requestedOfMe = new Set<number>();
+  /** The inbox step's own classification, by PR number; empty once the repo is set up. */
+  private local = new Map<number, PolicyResult>();
 
   private facts: PrFacts[] = [];
   /** Open PRs without a summary: shown with no slot, waiting on the verifier. */
@@ -550,6 +563,7 @@ export class GitHubSource implements Source {
         owner: this.owner,
         name: this.name,
         after,
+        requested: requestedQuery(this.owner, this.name),
       });
       if (!data.repository)
         throw new GitHubApiError(
@@ -634,6 +648,62 @@ export class GitHubSource implements Source {
     this.info = info;
     this.open = open;
     this.recent = recent.map((c) => c.number);
+    this.requestedOfMe = new Set(
+      (first!.requested?.nodes ?? [])
+        .map((n) => n?.number)
+        .filter((n): n is number => typeof n === "number"),
+    );
+    this.local = await this.classifyInbox();
+  }
+
+  /**
+   * The inbox step: every PR without a summary, classified by the kit's
+   * built-ins on what GraphQL returned. Nothing once the repo is set up: the
+   * verifier is the source then, and a PR it has not seen stays "not
+   * classified yet".
+   */
+  private async classifyInbox(): Promise<Map<number, PolicyResult>> {
+    const out = new Map<number, PolicyResult>();
+    if (isSetUp(this.filesOnDefault())) return out;
+    for (const raw of this.raws()) {
+      if (this.summaryOf(raw).kind === "ok") continue;
+      out.set(
+        raw.number,
+        await classifyLocally({
+          repo: this.repo(),
+          number: raw.number,
+          title: raw.title,
+          body: raw.body ?? "",
+          author: raw.author?.login ?? "ghost",
+          base: raw.baseRefName,
+          headSha: raw.headRefOid,
+          files: raw.files?.nodes ?? [],
+          totalFiles: Math.max(raw.files?.totalCount ?? 0, raw.changedFiles),
+        }),
+      );
+    }
+    return out;
+  }
+
+  /** The open PRs, then the merged or closed ones of the window. */
+  private raws(): RawPr[] {
+    return [
+      ...this.open,
+      ...this.recent.map((n) => this.closed.get(n)?.raw).filter((r): r is RawPr => !!r),
+    ];
+  }
+
+  /** Which of nod's files the default branch has; null before the first read. */
+  private filesOnDefault() {
+    const info = this.info;
+    return info
+      ? {
+          policy: !!info.policy,
+          verifier: !!info.verifier,
+          workflow: !!info.workflow,
+          signers: !!info.signers,
+        }
+      : null;
   }
 
   // -- building the view ------------------------------------------------------
@@ -666,12 +736,9 @@ export class GitHubSource implements Source {
     const facts: PrFacts[] = [];
     const unclassified: UnclassifiedPr[] = [];
     const noSummary = new Set<number>();
-    const raws = [
-      ...this.open,
-      ...this.recent.map((n) => this.closed.get(n)?.raw).filter((r): r is RawPr => !!r),
-    ];
-    for (const raw of raws) {
+    for (const raw of this.raws()) {
       const summary = this.summaryOf(raw);
+      const local = summary.kind === "ok" ? null : (this.local.get(raw.number) ?? null);
       const isOpen = raw.state === "OPEN";
       const patchId = isOpen
         ? (this.patchIds.get(patchKey(raw.baseRefName, raw.headRefOid)) ?? null)
@@ -687,9 +754,11 @@ export class GitHubSource implements Source {
         epicTitles: this.epicTitles,
         team,
         me,
+        local,
+        reviewRequested: this.requestedOfMe.has(raw.number),
       });
       facts.push(mapped.facts);
-      if (summary.kind !== "ok") noSummary.add(raw.number);
+      if (summary.kind !== "ok" && !local) noSummary.add(raw.number);
       if (isOpen && mapped.unclassified)
         unclassified.push({
           number: raw.number,
@@ -724,7 +793,8 @@ export class GitHubSource implements Source {
           waitingOn: [{ kind: "checks" }],
         };
       }
-      if (!signable && out.needsMe) out = { ...out, ask: null, needsMe: false };
+      // A locally classified PR has no ask: what it needs of me is a review on GitHub.
+      if (!signable && out.ask) out = { ...out, ask: null, needsMe: false };
       return out;
     });
   }
@@ -759,14 +829,7 @@ export class GitHubSource implements Source {
     return setupStatusOf({
       repo: this.repo(),
       defaultBranch: info?.defaultBranchRef?.name ?? null,
-      files: info
-        ? {
-            policy: !!info.policy,
-            verifier: !!info.verifier,
-            workflow: !!info.workflow,
-            signers: !!info.signers,
-          }
-        : null,
+      files: this.filesOnDefault(),
       requiresNod: this.requiresNod,
       rulesRefused: this.rulesRefused,
       autoMerge: info ? info.autoMergeAllowed : null,

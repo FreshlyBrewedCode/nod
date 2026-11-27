@@ -5,7 +5,7 @@
  */
 
 import { parseAllowedSigners } from "../../kit/sshsig.ts";
-import type { Enrolment, PrLink, SetupCheck, SetupStatus } from "../../shared/protocol";
+import type { Enrolment, LadderStep, PrLink, SetupCheck, SetupStatus } from "../../shared/protocol";
 import { fingerprint, parsePublicKeyLine, publicKeyId, publicKeyLine } from "../signer/ssh-wire";
 import { sameLogin } from "../view";
 import { GitHubApiError, type GitHubApi } from "./api";
@@ -36,11 +36,27 @@ export interface SetupFacts {
   readonly setupPr: PrLink | null;
 }
 
+/** Whether the default branch has all of nod's setup: the policy, the verifier, the workflow, the signers. */
+export function isSetUp(files: SetupFacts["files"]): boolean {
+  return !!files && files.policy && files.verifier && files.workflow && files.signers;
+}
+
+/**
+ * The repo's ladder step (ADR 0006): `inbox` until the whole setup is on the
+ * default branch, then `shared-policy`, `enforced` once a rule requires the
+ * `nod` check (unknown reads as not: the step is for display, the verifier
+ * decides what the check concludes).
+ */
+export function ladderStep(f: Pick<SetupFacts, "files" | "requiresNod">): LadderStep {
+  if (!isSetUp(f.files)) return "inbox";
+  return f.requiresNod ? "enforced" : "shared-policy";
+}
+
 /** The checklist of onboarding step 2. */
 export function setupStatusOf(f: SetupFacts): SetupStatus {
   const files = f.files;
   const pending = f.setupPr ? `in #${f.setupPr.number}` : null;
-  const ready = !!files && files.policy && files.verifier && files.workflow && files.signers;
+  const ready = isSetUp(files);
   const file = (id: SetupCheck["id"], label: string, detail: string, have: boolean | undefined) =>
     ({
       id,
@@ -91,6 +107,7 @@ export function setupStatusOf(f: SetupFacts): SetupStatus {
     state: ready ? "ready" : f.setupPr ? "pending" : "missing",
     checks,
     setupPr: ready ? null : f.setupPr,
+    step: ladderStep(f),
   };
 }
 

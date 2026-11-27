@@ -8,7 +8,9 @@
  *   the failing one gets fixed, and those PRs merge.
  * - Scenarios start it in the states the r3 UI has: `team` (the mockup),
  *   `clear` (nothing needs you), `first-run` (setup PR open, key pending),
- *   `fresh` (onboarding from step 1, no key), `join` (a set-up repo, no key).
+ *   `fresh` (onboarding from step 1, no key), `join` (a set-up repo, no key),
+ *   `inbox` (the ladder's step 0: no `.nod/`, no key, the PRs classified
+ *   locally and "needs me" from review requests, `fake-inbox.ts`).
  */
 
 import type {
@@ -25,6 +27,7 @@ import type {
   Snapshot,
 } from "../shared/protocol";
 import { GITHUB_COM, githubHost } from "../kit/host.ts";
+import { inboxFacts } from "./fake-inbox";
 import type { Clock, Timer } from "./clock";
 import { FAKE_KEY } from "./signer";
 import { publicKeyId } from "./signer/ssh-wire";
@@ -47,12 +50,12 @@ import {
 } from "./source";
 import { canFill, sameLogin, toViews, type PrFacts } from "./view";
 
-export const FAKE_SCENARIOS = ["team", "clear", "first-run", "fresh", "join"] as const;
+export const FAKE_SCENARIOS = ["team", "clear", "first-run", "fresh", "join", "inbox"] as const;
 export type FakeScenario = (typeof FAKE_SCENARIOS)[number];
 
 /** Whether the scenario starts with a signing key (the fake signer's `hasKey`). */
 export function scenarioHasKey(scenario: FakeScenario): boolean {
-  return scenario !== "fresh" && scenario !== "join";
+  return scenario !== "fresh" && scenario !== "join" && scenario !== "inbox";
 }
 
 export interface FakeSourceOptions {
@@ -95,6 +98,8 @@ export class FakeSource implements Source {
   private readonly timers: Timer[] = [];
   private syncAt: number;
   private comments = 0;
+  /** Resolves once the scenario's PRs are in (the `inbox` scenario classifies them first). */
+  readonly ready: Promise<void>;
 
   constructor(options: FakeSourceOptions) {
     const scenario = options.scenario ?? "team";
@@ -104,7 +109,22 @@ export class FakeSource implements Source {
     this.syncAt = this.started;
     const repo = options.repo ?? FAKE_REPO;
     this.repoName = scenario === "fresh" ? (options.repo ?? null) : repo;
-    this.setupState = scenario === "fresh" ? (options.repo ? "missing" : "none") : "ready";
+    this.setupState =
+      scenario === "fresh"
+        ? options.repo
+          ? "missing"
+          : "none"
+        : scenario === "inbox"
+          ? "missing"
+          : "ready";
+    this.ready =
+      scenario === "inbox"
+        ? inboxFacts(this.started, repo).then((facts) => {
+            if (this.repoName !== repo) return;
+            this.facts = facts;
+            this.emit("prs");
+          })
+        : Promise.resolve();
 
     if (scenario === "team" || scenario === "clear" || scenario === "join")
       this.facts = SEEDS.map((s) => seedFacts(s, this.started, repo));
@@ -476,6 +496,7 @@ export function setupStatus(
   setupPr: PrLink | null,
 ): SetupStatus {
   const pending = setupPr ? `in #${setupPr.number}` : "pending";
+  // The fake's set-up repo has the required check on, as its checklist says.
   const check = (
     id: SetupCheck["id"],
     label: string,
@@ -511,5 +532,6 @@ export function setupStatus(
       ),
     ],
     setupPr,
+    step: state === "ready" ? "enforced" : "inbox",
   };
 }

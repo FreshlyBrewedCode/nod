@@ -7,6 +7,13 @@
  * `toViews` adds what depends on who is looking and when: `mine`, `needsMe`
  * and the ask, `fyiForMe`, `stuck`, `waitingOn`, the journey's present and
  * future steps, and `unblocks` across the snapshot.
+ *
+ * A PR classified locally (the inbox step, no policy in the repo) has no
+ * slots: nothing to sign. Its "needs me" and "waiting on" come from GitHub's
+ * reviews instead (`review`): a review requested from me or my team, or my
+ * own PR stuck (a check failing, a conflict, changes requested). Mentions do
+ * not count. `review.fromMe` is already relative to the source's viewer: only
+ * GitHub's search can tell a team request that includes me.
  */
 
 import type {
@@ -80,15 +87,59 @@ function dedupe(list: WaitingOn[]): WaitingOn[] {
 
 const isOpen = (f: Pick<PrFacts, "state">) => f.state === "open" || f.state === "draft";
 
+/** Classified by this nod serve, not the repo's verifier (the inbox step). */
+export const isLocal = (f: Pick<PrFacts, "classifiedBy">) => f.classifiedBy === "local";
+
+/**
+ * Who a locally classified PR waits on, from GitHub's reviews: the author's
+ * side first when it is a draft, fails a check, conflicts or has changes
+ * requested; then the people asked to review (me first; a team I am not in
+ * is "a teammate"); with nobody asked and no approval, any teammate; then
+ * running checks; approved and nothing else open, the merge.
+ */
+function localWaitingOn(facts: PrFacts, me: Login): WaitingOn[] {
+  if (!isOpen(facts)) return [{ kind: "nothing" }];
+  if (facts.state === "draft") return [{ kind: "agent" }];
+  const r = facts.review;
+  const mine = sameLogin(facts.prompter, me);
+  const list: WaitingOn[] = [];
+  if (facts.checks.state === "failing" || facts.conflict || r?.changesRequestedBy.length)
+    list.push({ kind: "agent" });
+  const humans: WaitingOn[] = [];
+  if (r?.fromMe && !mine) humans.push({ kind: "me" });
+  for (const login of r?.requested ?? [])
+    if (!sameLogin(login, me)) humans.push({ kind: "person", login });
+  // A team request that is not mine (a request from my team made `fromMe` already).
+  const directlyMe = r?.requested.some((l) => sameLogin(l, me)) ?? false;
+  if (r?.teams.length && (!r.fromMe || directlyMe))
+    humans.push({ kind: "anyone", except: facts.prompter });
+  if (humans.length === 0 && !r?.approvedBy.length && list.length === 0)
+    humans.push({ kind: "anyone", except: facts.prompter });
+  list.push(...humans);
+  if (facts.checks.state === "pending") list.push({ kind: "checks" });
+  if (list.length === 0) list.push({ kind: "merge" });
+  return dedupe(list);
+}
+
+/** A locally classified PR needs me: a review is asked of me, or it is mine and stuck. */
+function localNeedsMe(facts: PrFacts, me: Login, stuck: Stuck | null): boolean {
+  if (facts.state !== "open") return false;
+  if (sameLogin(facts.prompter, me)) return stuck !== null && stuck.reason !== "waiting";
+  return facts.review?.fromMe ?? false;
+}
+
+const isHuman = (w: WaitingOn) => w.kind === "me" || w.kind === "person" || w.kind === "anyone";
+
 /** The humans the PR waits on, me first. */
 function humans(facts: PrFacts, me: Login): WaitingOn[] {
+  if (isLocal(facts)) return localWaitingOn(facts, me).filter(isHuman);
   const open = facts.requirement.slots.filter((s) => s.state !== "ok");
   const mine = open.filter((s) => canFill(s, me)).length > 0 ? [{ kind: "me" } as const] : [];
   return dedupe([...mine, ...open.filter((s) => !canFill(s, me)).map((s) => waitingOnSlot(s, me))]);
 }
 
 function askOf(facts: PrFacts, me: Login): Ask | null {
-  if (facts.state !== "open") return null;
+  if (facts.state !== "open" || isLocal(facts)) return null;
   const slots = facts.requirement.slots;
   const fillable = slots.filter((s) => canFill(s, me));
   if (fillable.length === 0) return null;
@@ -123,6 +174,7 @@ function askOf(facts: PrFacts, me: Login): Ask | null {
 }
 
 function waitingOnOf(facts: PrFacts, me: Login): WaitingOn[] {
+  if (isLocal(facts)) return localWaitingOn(facts, me);
   if (!isOpen(facts)) return [{ kind: "nothing" }];
   const list: WaitingOn[] = [];
   if (facts.state === "draft" || facts.checks.state === "failing") list.push({ kind: "agent" });
@@ -169,31 +221,59 @@ function journeyOf(
     tone: "plain",
   });
   const [first, ...rest] = waitingOn;
+  const local = isLocal(facts);
+  // At the inbox step people review on GitHub and merge themselves.
+  const verb = local ? ["You review", "reviews"] : ["You sign", "signs"];
   const now: JourneyEvent[] = [];
   if (first?.kind === "agent")
     now.push(
       step(
-        facts.state === "draft" ? "Agent is writing it" : "Agent is fixing it",
+        facts.state === "draft"
+          ? "Agent is writing it"
+          : local && facts.conflict && facts.checks.state !== "failing"
+            ? "Conflicts with the base"
+            : local && facts.review?.changesRequestedBy.length && facts.checks.state !== "failing"
+              ? "Changes requested"
+              : "Agent is fixing it",
         "now",
         facts.lastActivity.at,
       ),
     );
   else if (first?.kind === "checks") now.push(step("Checks running", "now", facts.lastActivity.at));
-  else if (first?.kind === "merge") now.push(step("Agent merges", "now", facts.lastActivity.at));
+  else if (first?.kind === "merge")
+    now.push(step(local ? "Ready to merge" : "Agent merges", "now", facts.lastActivity.at));
   else if (first) now.push(step(`Waiting on ${whoText(first, ctx.people)}`, "now", since));
   const next: JourneyEvent[] = [];
   for (const w of first?.kind === "agent" ? waitingOn.slice(1) : rest)
-    if (w.kind === "me" || w.kind === "person" || w.kind === "anyone")
+    if (isHuman(w))
       next.push(
         step(
-          `${w.kind === "me" ? "You sign" : `${capital(whoText(w, ctx.people))} signs`}`,
+          `${w.kind === "me" ? verb[0] : `${capital(whoText(w, ctx.people))} ${verb[1]}`}`,
           "next",
         ),
       );
   if (facts.checks.state !== "passing" && facts.checks.state !== "none" && first?.kind !== "checks")
     next.push(step("Checks green", "next"));
-  if (first?.kind !== "merge") next.push(step("Agent merges", "next"));
+  if (first?.kind !== "merge") next.push(step(local ? "Merged" : "Agent merges", "next"));
   return [...past, ...now, ...next];
+}
+
+/** The first reason it is stuck, in `Stuck`'s order; null when it is not (or not open). */
+function stuckOf(
+  facts: PrFacts,
+  now: number,
+  waitingHumans: ReadonlyArray<WaitingOn>,
+  waitingSince: number | null,
+): Stuck | null {
+  if (!isOpen(facts)) return null;
+  if (facts.checks.state === "failing")
+    return { reason: "checks-failing", checks: facts.checks.failing };
+  if (facts.conflict) return { reason: "conflict" };
+  const by = facts.review?.changesRequestedBy ?? [];
+  if (by.length) return { reason: "changes-requested", by };
+  if (waitingSince !== null && now - waitingSince >= STUCK_AFTER_MS)
+    return { reason: "waiting", since: waitingSince, on: waitingHumans };
+  return null;
 }
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -209,19 +289,21 @@ export function toView(
   const waitingOn = waitingOnOf(facts, me);
   const waitingHumans = isOpen(facts) ? humans(facts, me) : [];
   const waitingSince = waitingHumans.length ? (facts.waitingSince ?? facts.openedAt) : null;
-  let stuck: Stuck | null = null;
-  if (isOpen(facts) && facts.checks.state === "failing")
-    stuck = { reason: "checks-failing", checks: facts.checks.failing };
-  else if (waitingSince !== null && now - waitingSince >= STUCK_AFTER_MS)
-    stuck = { reason: "waiting", since: waitingSince, on: waitingHumans };
+  const stuck = stuckOf(facts, now, waitingHumans, waitingSince);
+  const local = isLocal(facts);
+  // With no policy, GitHub's reviews stand in for the requirement: met once
+  // approved, with no change requested.
+  const satisfied = local
+    ? (facts.review?.approvedBy.length ?? 0) > 0 && !facts.review?.changesRequestedBy.length
+    : slots.every((s) => s.state === "ok");
   return {
     ...facts,
-    requirement: { ...facts.requirement, satisfied: slots.every((s) => s.state === "ok") },
+    requirement: { ...facts.requirement, satisfied },
     signatures: facts.signatures.map((s) => ({ ...s, byMe: sameLogin(s.by, me) })),
     journey: journeyOf(facts, waitingOn, waitingSince, ctx),
     unblocks,
     mine: sameLogin(facts.prompter, me),
-    needsMe: ask !== null,
+    needsMe: local ? localNeedsMe(facts, me, stuck) : ask !== null,
     ask,
     fyiForMe: facts.fyi?.pending.some((l) => sameLogin(l, me)) ?? false,
     stuck,

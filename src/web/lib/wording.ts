@@ -5,7 +5,7 @@
  */
 
 import type { ClusterItem } from "../../shared/attention";
-import { shortName, waitsOnMyKey } from "../../shared/attention";
+import { isSizeTag, shortName, waitsOnMyKey } from "../../shared/attention";
 import type {
   Ask,
   Fyi,
@@ -38,10 +38,11 @@ export interface TagText {
 /**
  * The row's one tag: "changed since you signed" when my nod dropped, else the
  * most telling classifier tag ("migration", "core", "tier 2", "dependency").
+ * Never a size tag: the diff indicator next to it says how big.
  */
 export function rowTag(pr: Pick<PrView, "ask" | "tags">): TagText | null {
   if (pr.ask?.kind === "re-attest") return { text: "changed since you signed", tone: "bad" };
-  const first = pr.tags[0];
+  const first = pr.tags.find((t) => !isSizeTag(t));
   if (!first) return null;
   return { text: first === "deps" ? "dependency" : first, tone: "plain" };
 }
@@ -90,8 +91,15 @@ export function statusText(pr: PrView, people: People): string {
   if (pr.state === "merged") return "merged";
   if (pr.state === "closed") return "closed";
   const first = pr.waitingOn[0];
-  if (first?.kind === "agent")
-    return pr.state === "draft" ? "agent is writing it" : "agent is fixing it";
+  const local = pr.classifiedBy === "local";
+  if (first?.kind === "agent") {
+    if (pr.state === "draft") return "agent is writing it";
+    // At the inbox step the stuck reason says more than "the agent".
+    if (local && pr.stuck?.reason === "conflict") return "merge conflict";
+    if (local && pr.stuck?.reason === "changes-requested") return "changes requested";
+    return "agent is fixing it";
+  }
+  if (local && first?.kind === "merge") return "approved";
   if (pr.requirement.slots.length > 0 && pr.requirement.satisfied) return "merging";
   if (first?.kind === "checks") return "checks running";
   if (first?.kind === "merge" || !first) return "merging";
@@ -136,6 +144,74 @@ export function dependencyHints(pr: Pick<PrView, "dependsOn" | "unblocks">): str
 }
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/**
+ * What a locally classified PR (the inbox step) needs of me, for the row's
+ * right-hand word, the panel's "Needed from you" and the phone page's bar.
+ * There is nothing to sign: the action is on GitHub. null when it needs
+ * nothing of me, or has an ask (a policy's).
+ */
+export interface LocalNeed {
+  /** The row's word: "review requested", "changes requested", "merge conflict". */
+  readonly row: string;
+  /** "Review requested from you", "Changes requested by Jonas". */
+  readonly headline: string;
+  readonly detail: string;
+  /** The button: "Review on GitHub", "Open on GitHub". */
+  readonly action: string;
+  readonly href: string;
+}
+
+export function localNeed(
+  pr: Pick<
+    PrView,
+    "classifiedBy" | "needsMe" | "ask" | "mine" | "stuck" | "review" | "base" | "url"
+  >,
+  people: People,
+  me: string,
+): LocalNeed | null {
+  if (pr.classifiedBy !== "local" || !pr.needsMe || pr.ask) return null;
+  const stuck = pr.stuck;
+  if (pr.mine && stuck && stuck.reason !== "waiting") {
+    const open = { action: "Open on GitHub", href: pr.url };
+    if (stuck.reason === "checks-failing") {
+      const n = Math.max(1, stuck.checks.length);
+      return {
+        ...open,
+        row: `${n} check${n === 1 ? "" : "s"} failing`,
+        headline: stuck.checks.length ? `Failing: ${stuck.checks.join(", ")}` : "A check fails",
+        detail: "Your pull request is stuck until its checks are green.",
+      };
+    }
+    if (stuck.reason === "conflict")
+      return {
+        ...open,
+        row: "merge conflict",
+        headline: `Conflicts with ${pr.base}`,
+        detail: "Your pull request cannot merge until the conflict is resolved.",
+      };
+    const names = stuck.by.map((l) => (sameLogin(l, me) ? "you" : shortName(l, people)));
+    const list =
+      names.length <= 1
+        ? (names[0] ?? "a reviewer")
+        : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+    return {
+      ...open,
+      // GitHub's "Changes requested" is too wide for the row's column.
+      row: "needs changes",
+      headline: `Changes requested by ${list}`,
+      detail: "Your pull request waits on a new push from your side.",
+    };
+  }
+  const direct = pr.review?.requested.some((l) => sameLogin(l, me)) ?? false;
+  return {
+    row: "review requested",
+    headline: direct ? "Review requested from you" : "Review requested from your team",
+    detail: "This repository has no nod policy yet, so it is a review on GitHub.",
+    action: "Review on GitHub",
+    href: `${pr.url}/files`,
+  };
+}
 
 /**
  * The panel's headline of what is needed from me: "Sign as peer", "Sign as
@@ -206,9 +282,63 @@ export function signaturePips(
 // ---------------------------------------------------------------------------
 // the panel's folded sections
 
-export function reasonsSummary(pr: Pick<PrView, "reasons">): string {
+export function reasonsSummary(pr: Pick<PrView, "reasons" | "classifiedBy">): string {
   const n = pr.reasons.filter((r) => r.raises).length;
-  return `${n} reason${n === 1 ? "" : "s"}`;
+  const text = `${n} reason${n === 1 ? "" : "s"}`;
+  return pr.classifiedBy === "local" ? `${text} · classified by your nod` : text;
+}
+
+/** The note on a locally classified PR: who classified it, and that the repo did not. */
+export const LOCAL_NOTE =
+  "Classified by your nod, not the repo. This repository has no nod policy yet, so nod ran its built-in defaults on GitHub’s file list. Only you see it; nothing is posted.";
+
+/** A locally classified PR's "Reviews" fold summary: "1 approved · 2 requested", "none yet". */
+export function reviewsSummary(review: PrView["review"]): string {
+  if (!review) return "none yet";
+  const requested = review.requested.length + review.teams.length;
+  const parts = [
+    review.approvedBy.length ? `${review.approvedBy.length} approved` : "",
+    review.changesRequestedBy.length ? `${review.changesRequestedBy.length} changes requested` : "",
+    requested ? `${requested} requested` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "none yet";
+}
+
+/** The lines of the "Reviews" fold: who approved, requested changes or is asked to review. */
+export function reviewLines(
+  review: NonNullable<PrView["review"]>,
+  people: People,
+  me: string,
+): ReadonlyArray<{
+  readonly who: string;
+  readonly detail: string;
+  readonly tone: "ok" | "bad" | "open";
+}> {
+  const name = (l: string) => (sameLogin(l, me) ? "You" : shortName(l, people));
+  return [
+    ...review.approvedBy.map((l) => ({ who: name(l), detail: "approved", tone: "ok" as const })),
+    ...review.changesRequestedBy.map((l) => ({
+      who: name(l),
+      detail: "requested changes",
+      tone: "bad" as const,
+    })),
+    ...review.requested.map((l) => ({
+      who: name(l),
+      detail: "review requested",
+      tone: "open" as const,
+    })),
+    ...review.teams.map((t) => ({
+      who: `Team ${t}`,
+      // GitHub's search says one of the teams has me; with one team, that is it.
+      detail:
+        review.teams.length === 1 &&
+        review.fromMe &&
+        !review.requested.some((l) => sameLogin(l, me))
+          ? "review requested; you are in it"
+          : "review requested",
+      tone: "open" as const,
+    })),
+  ];
 }
 
 export function signaturesSummary(pr: Pick<PrView, "requirement">): string {

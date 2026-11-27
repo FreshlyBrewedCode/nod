@@ -38,7 +38,7 @@ import { join } from "node:path";
 
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright-core";
 
-export const SCENARIOS = ["team", "clear", "first-run", "fresh", "join"] as const;
+export const SCENARIOS = ["team", "clear", "first-run", "fresh", "join", "inbox"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
 /** The fake team's repo and two of its PRs (`src/server/fake-data.ts`). */
@@ -689,8 +689,63 @@ const FORWARD_STATES: ReadonlyArray<State> = [
   },
 ];
 
+/** The inbox scenario starts in onboarding (no `.nod/`, no key): "Look around first" leads on. */
+const lookAround = async (page: Page) => {
+  await page.getByRole("button", { name: "Look around first" }).click();
+  await page.getByRole("heading", { name: /Needs you/ }).waitFor();
+};
+
+const INBOX_STATES: ReadonlyArray<State> = [
+  {
+    name: "the inbox, step 0",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: lookAround,
+    assert: async (page) => {
+      await must(
+        page
+          .getByText("review requested", { exact: true })
+          .count()
+          .then((n) => n === 2),
+        "the two review requests do not say so",
+      );
+      await must(
+        page
+          .getByRole("checkbox")
+          .count()
+          .then((n) => n === 0),
+        "a row without anything to sign has a checkbox",
+      );
+    },
+    shot: "24a-inbox-list",
+    full: true,
+  },
+  {
+    name: "the inbox, classified by your nod",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: async (page) => {
+      await lookAround(page);
+      await openFirstRow(page);
+      await page.getByRole("button", { name: /Why this needs you/ }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/^Classified by your nod, not the repo\./).isVisible(),
+        "the page does not say the classification is local",
+      );
+      await must(
+        page.getByRole("link", { name: /Review on GitHub/ }).isVisible(),
+        "the review request has no way to GitHub",
+      );
+    },
+    shot: "24b-inbox-local-note",
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
   ...FORWARD_STATES,
+  ...INBOX_STATES,
   {
     name: "two selected",
     route: "#/",

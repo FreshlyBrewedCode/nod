@@ -1,7 +1,9 @@
 /**
  * The GraphQL `nod serve` sends, and the shapes it gets back.
  *
- * One poll is one `POLL` query (a second page only past 50 open PRs) plus,
+ * One poll is one `POLL` query (a second page only past 50 open PRs; it also
+ * asks GitHub's search which open PRs request a review from me, teams
+ * included, `review-requested:@me`) plus,
  * only when something new needs it, one `details` query: merged or closed
  * PRs not cached yet, the `text` of `nod` check runs not seen yet (the
  * verifier's summary, cached by check run id), epic titles, and
@@ -16,6 +18,9 @@ export const PR_FIELDS = `
   baseRef { target { oid } }
   additions deletions changedFiles
   autoMergeRequest { enabledAt }
+  mergeable
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { combinedSlug } } } }
+  latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } } }
   files(first: 100) { totalCount nodes { path additions deletions } }
   commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state contexts(first: 60) { nodes { __typename
     ... on CheckRun { id databaseId name status conclusion startedAt completedAt title checkSuite { app { slug } workflowRun { workflow { resourcePath } } } }
@@ -32,9 +37,10 @@ export const PR_FIELDS = `
 `;
 
 export const POLL = `
-query Poll($owner: String!, $name: String!, $after: String) {
+query Poll($owner: String!, $name: String!, $after: String, $requested: String!) {
   rateLimit { cost remaining limit resetAt }
   viewer { login name }
+  requested: search(query: $requested, type: ISSUE, first: 100) { nodes { ... on PullRequest { number } } }
   repository(owner: $owner, name: $name) {
     nameWithOwner viewerPermission autoMergeAllowed pushedAt
     defaultBranchRef { name target { oid } }
@@ -51,6 +57,15 @@ query Poll($owner: String!, $name: String!, $after: String) {
     }
   }
 }`;
+
+/**
+ * The search for the open PRs of `owner/name` that request a review from the
+ * viewer, directly or through a team they are in (`user-review-requested`
+ * would be direct requests only). Mentions are not review requests.
+ */
+export function requestedQuery(owner: string, name: string): string {
+  return `repo:${owner}/${name} is:pr is:open review-requested:@me`;
+}
 
 /** The PR as `signTarget` re-reads it right before signing. */
 export const SIGN_TARGET = `
@@ -160,6 +175,25 @@ export interface RawPr {
   readonly deletions: number;
   readonly changedFiles: number;
   readonly autoMergeRequest: { readonly enabledAt: string | null } | null;
+  /** `MERGEABLE`, `CONFLICTING` or `UNKNOWN` (GitHub computes it lazily). Optional: older fixtures. */
+  readonly mergeable?: string;
+  readonly reviewRequests?: {
+    readonly nodes: ReadonlyArray<{
+      readonly requestedReviewer:
+        | { readonly __typename: "User"; readonly login: string }
+        | { readonly __typename: "Team"; readonly combinedSlug: string }
+        | { readonly __typename: string }
+        | null;
+    } | null>;
+  };
+  /** Each writer's latest approving, change-requesting or dismissed review. */
+  readonly latestOpinionatedReviews?: {
+    readonly nodes: ReadonlyArray<{
+      readonly state: string;
+      readonly submittedAt: string | null;
+      readonly author: { readonly login: string } | null;
+    } | null>;
+  };
   readonly files: {
     readonly totalCount: number;
     readonly nodes: ReadonlyArray<{
@@ -201,6 +235,10 @@ export interface RawPr {
 export interface PollData {
   readonly rateLimit: { cost: number; remaining: number; limit: number; resetAt: string } | null;
   readonly viewer: { readonly login: string; readonly name: string | null };
+  /** Open PRs that request a review from the viewer (`requestedQuery`). Optional: older fixtures. */
+  readonly requested?: {
+    readonly nodes: ReadonlyArray<{ readonly number?: number } | null>;
+  } | null;
   readonly repository: {
     readonly nameWithOwner: string;
     readonly viewerPermission: string | null;

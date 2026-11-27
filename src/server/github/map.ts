@@ -4,17 +4,24 @@
  *
  * The verifier is the single source of truth: category, risk, requirement,
  * reasons and which nods count all come from its `CheckSummary` on the PR
- * head. This module never classifies. A PR without a readable summary is
- * shown as what it is ("not classified yet", "verifier error"), with high
- * risk and no slot to fill, never as a low-risk change.
+ * head. This module never classifies itself. A PR without a readable
+ * summary is shown as what it is ("not classified yet", "verifier error"),
+ * with high risk and no slot to fill, never as a low-risk change.
+ *
+ * The one exception (ADR 0006 decision 6): in a repo at the inbox step, the
+ * source runs the built-in classification (`local.ts`) on a PR without a
+ * summary and hands the result in; it is mapped like a summary's findings,
+ * marked `classifiedBy: "local"`, with no slots. A summary still wins.
  *
  * What does come from GitHub directly: title, brief, diff stats (lockfiles
  * and generated files left out, as the kit's `diffStat` does), the other
- * checks, FYI acks (👀 reactions), the journey and the last activity.
+ * checks, FYI acks (👀 reactions), GitHub's reviews and review requests,
+ * whether it conflicts, the journey and the last activity.
  */
 
 import { decodePayload, parseNodComments, type NodPayload } from "../../kit/nod.ts";
 import type { NodEvaluation } from "../../kit/evaluate.ts";
+import type { PolicyResult } from "../../kit/policy.ts";
 import type { CheckSummary } from "../../kit/summary.ts";
 import { DEPENDENCY_LOCKFILES } from "../../kit/classifiers/dependencies.ts";
 import { DIFF_SIZE_IGNORE } from "../../kit/classifiers/diff-size.ts";
@@ -29,6 +36,7 @@ import type {
   Login,
   PrState,
   Reason,
+  Review,
   Signature,
   Slot,
   UnclassifiedPr,
@@ -67,6 +75,13 @@ export interface MapContext {
   /** The humans who should notice an FYI: the enrolled signers, plus me. */
   readonly team: ReadonlyArray<Login>;
   readonly me: Login | null;
+  /**
+   * The inbox step's own classification of this PR (`local.ts`), when the
+   * repo has no policy; used only when there is no summary. Absent: none.
+   */
+  readonly local?: PolicyResult | null;
+  /** GitHub's search says a review is requested from me, perhaps through a team. */
+  readonly reviewRequested?: boolean;
 }
 
 export interface Mapped {
@@ -403,7 +418,7 @@ const reasonOf = (f: Finding): Reason => ({
 
 const QUIET_TAGS = new Set(["declared:risk", "epic", "depends-on"]);
 
-function tagsOf(summary: CheckSummary): string[] {
+function tagsOf(summary: Pick<CheckSummary, "errors" | "reasons">): string[] {
   const out: string[] = [];
   if (summary.errors.some((e) => e.source === "verifier")) out.push("verifier error");
   const sorted = [...summary.reasons].sort((a, b) => (b.risk ?? -1) - (a.risk ?? -1));
@@ -413,7 +428,7 @@ function tagsOf(summary: CheckSummary): string[] {
 
 function fyiOf(
   pr: RawPr,
-  summary: CheckSummary,
+  summary: Pick<CheckSummary, "fyi" | "category" | "reasons">,
   team: readonly Login[],
   author: Login,
 ): Fyi | null {
@@ -444,6 +459,28 @@ function fyiOf(
       team.findIndex((x) => sameLogin(x, l)) === i,
   );
   return { reason, source: declared ? "declared" : "policy", acked, pending };
+}
+
+/** GitHub's review state: who is asked, and each writer's latest deciding review. */
+export function reviewOf(pr: RawPr, me: Login | null, requestedFromMe: boolean): Review {
+  const requested: Login[] = [];
+  const teams: string[] = [];
+  for (const node of pr.reviewRequests?.nodes ?? []) {
+    const r = node?.requestedReviewer;
+    if (r && "login" in r) requested.push(r.login);
+    else if (r && "combinedSlug" in r) teams.push(r.combinedSlug);
+  }
+  const latest = (pr.latestOpinionatedReviews?.nodes ?? []).filter(
+    (r): r is NonNullable<typeof r> => !!r?.author,
+  );
+  const by = (state: string) => latest.filter((r) => r.state === state).map((r) => r.author!.login);
+  return {
+    requested,
+    teams,
+    fromMe: requestedFromMe || requested.some((l) => sameLogin(l, me)),
+    approvedBy: by("APPROVED"),
+    changesRequestedBy: by("CHANGES_REQUESTED"),
+  };
 }
 
 const event = (
@@ -524,7 +561,9 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
   let reasons: Reason[];
   let requirement: PrFacts["requirement"];
   let fyi: Fyi | null = null;
+  let classifiedBy: PrFacts["classifiedBy"];
   if (summary) {
+    classifiedBy = "verifier";
     category = summary.category;
     risk = summary.risk;
     tags = isLive ? tagsOf(summary) : tagsOf(summary).filter((t) => t !== "verifier error");
@@ -546,6 +585,21 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
     fyi = fyiOf(pr, summary, ctx.team, author);
     if (isLive && summary.errors.some((e) => e.source === "verifier"))
       unclassified = "verifier-error";
+  } else if (ctx.local) {
+    // The inbox step: our own run of the built-in classifiers, display only.
+    const local = ctx.local;
+    classifiedBy = "local";
+    category = local.category;
+    risk = local.risk;
+    tags = tagsOf({ errors: [], reasons: local.reasons });
+    reasons = local.reasons.map(reasonOf);
+    requirement = {
+      policy: "none",
+      label: "Nothing: the repository has no nod policy",
+      slots: [],
+      enforced: false,
+    };
+    fyi = fyiOf(pr, local, ctx.team, author);
   } else if (!isLive) {
     // Merged or closed before the verifier wrote a summary we can read: nobody
     // can act on it, so it is a plain quiet item, not an error.
@@ -610,6 +664,15 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
       );
     }
   });
+  const review = reviewOf(pr, ctx.me, ctx.reviewRequested ?? false);
+  for (const r of pr.latestOpinionatedReviews?.nodes ?? []) {
+    const at = ms(r?.submittedAt);
+    if (!r?.author || at === null) continue;
+    const who = sameLogin(r.author.login, ctx.me) ? "You" : r.author.login;
+    if (r.state === "APPROVED") journey.push(event("reviewed", `${who} approved`, at));
+    else if (r.state === "CHANGES_REQUESTED")
+      journey.push(event("reviewed", `${who} requested changes`, at, null, "bad"));
+  }
   for (const r of pr.reactions.nodes) {
     if (!r?.user || !fyi) continue;
     const who = sameLogin(r.user.login, ctx.me) ? "You" : r.user.login;
@@ -658,6 +721,7 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
     topic: epic && ctx.epicTitles.has(epic.number) ? epic.title : null,
     category,
     risk,
+    ...(classifiedBy && { classifiedBy }),
     tags,
     base: pr.baseRefName,
     headSha: pr.headRefOid,
@@ -676,6 +740,8 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
     journey,
     files,
     lastActivity,
+    review,
+    ...(pr.mergeable !== undefined && { conflict: pr.mergeable === "CONFLICTING" }),
     waitingSince: Math.max(openedAt, lastPush) || openedAt,
   };
   return { facts, unclassified };
@@ -684,7 +750,8 @@ export function mapPr(pr: RawPr, ctx: MapContext): Mapped {
 /** "2 new commits", "you signed", "merged": a row's last activity, from my side. */
 function activityText(e: JourneyEvent, mine: boolean): string {
   if (e.kind === "opened") return mine ? "opened by your agent" : "opened";
-  if (e.kind === "nodded" || e.kind === "fyi-acked") return e.text.replace(/^You /, "you ");
+  if (e.kind === "nodded" || e.kind === "fyi-acked" || e.kind === "reviewed")
+    return e.text.replace(/^You /, "you ");
   const t = e.text.charAt(0).toLowerCase() + e.text.slice(1);
   return e.kind === "checks" && e.tone === "plain" ? "checks turned green" : t;
 }

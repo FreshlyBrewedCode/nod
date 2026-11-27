@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 
 import { tier } from "../../shared/attention";
 import { toViews } from "../view";
-import { ciChecks, mapPr, nodCheckRun, type SummaryRead } from "./map";
+import { classifyLocally } from "./local";
+import { ciChecks, mapPr, nodCheckRun, reviewOf, type SummaryRead } from "./map";
 import type { RawPr } from "./queries";
 import {
   ALICE,
@@ -545,4 +546,82 @@ test("a slot the policy keeps for nods says so, and an approval does not fill it
   ]);
   expect(view.requirement.slots[0]!.approval).toBeUndefined();
   expect(view.requirement.enforced).toBe(true);
+});
+
+test("GitHub's reviews: who is asked (people, teams), approvals and changes, writers' latest", () => {
+  const raw = rawPr({
+    number: 40,
+    author: BOB,
+    requested: [CAROL, "acme/core"],
+    reviews: [
+      [ALICE, "APPROVED", 30],
+      [CAROL, "CHANGES_REQUESTED", 20],
+    ],
+  });
+  expect(reviewOf(raw, ALICE, false)).toEqual({
+    requested: [CAROL],
+    teams: ["acme/core"],
+    fromMe: false,
+    approvedBy: [ALICE],
+    changesRequestedBy: [CAROL],
+  });
+  // Only GitHub's search knows a team request reaches me.
+  expect(reviewOf(raw, ALICE, true).fromMe).toBe(true);
+  expect(reviewOf(rawPr({ number: 41, requested: ["Alice"] }), ALICE, false).fromMe).toBe(true);
+  // The journey shows the reviews.
+  const { facts } = mapPr(raw, ctx({ kind: "none" }));
+  expect(facts.journey.filter((e) => e.kind === "reviewed").map((e) => [e.text, e.tone])).toEqual([
+    ["You approved", "plain"],
+    ["carol requested changes", "bad"],
+  ]);
+});
+
+test("the inbox step: a local classification gives risk, tags and reasons, no slots", async () => {
+  const raw = rawPr({
+    number: 42,
+    author: BOB,
+    files: [[".github/workflows/ci.yml", 20, 4]],
+    mergeable: "CONFLICTING",
+  });
+  const local = await classifyLocally({
+    repo: REPO,
+    number: 42,
+    title: raw.title,
+    body: raw.body,
+    author: BOB,
+    base: "main",
+    headSha: raw.headRefOid,
+    files: raw.files!.nodes,
+    totalFiles: 1,
+  });
+  const mapped = mapPr(raw, { ...ctx({ kind: "none" }), local, reviewRequested: true });
+  expect(mapped.unclassified).toBeNull();
+  expect(mapped.facts).toMatchObject({
+    classifiedBy: "local",
+    risk: 3,
+    tags: ["protected", "ci-config", "size:s"],
+    requirement: { slots: [], enforced: false },
+    conflict: true,
+  });
+  expect(mapped.facts.reasons.map((r) => r.classifier)).toContain("paths");
+  const [view] = toViews([mapped.facts], { me: ALICE, now: T0, people: [] });
+  expect([view!.needsMe, view!.ask, tier(view!)]).toEqual([true, null, 1]);
+});
+
+test("a verifier summary wins over the local classification", async () => {
+  const raw = rawPr({ number: 43, author: BOB });
+  const local = await classifyLocally({
+    repo: REPO,
+    number: 43,
+    title: raw.title,
+    body: "Risk: high",
+    author: BOB,
+    base: "main",
+    headSha: raw.headRefOid,
+    files: raw.files!.nodes,
+    totalFiles: 1,
+  });
+  const summary = summaryFor(raw, { risk: 1, requirement: { level: "self", named: [] } });
+  const { facts } = mapPr(raw, { ...ctx({ kind: "ok", summary }), local });
+  expect([facts.classifiedBy, facts.risk]).toEqual(["verifier", 1]);
 });
