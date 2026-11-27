@@ -39,17 +39,25 @@ export interface Signer {
   publicKey: string;
 }
 
-/** Reads every file under `dir` (default {@link TEMPLATES_DIR}), dot folders included. */
+/**
+ * Where `nod inbox init` takes my own inbox from (ADR 0009): not part of a
+ * repo's setup, so {@link loadTemplates} leaves it out of {@link TEMPLATES_DIR}.
+ */
+export const INBOX_TEMPLATES_DIR = join(TEMPLATES_DIR, "inbox");
+
+/**
+ * Reads every file under `dir` (default {@link TEMPLATES_DIR}), dot folders
+ * included; in {@link TEMPLATES_DIR}, not the inbox's (`inbox/`).
+ */
 export async function loadTemplates(dir: string = TEMPLATES_DIR): Promise<Template[]> {
   const entries = await readdir(dir, { recursive: true, withFileTypes: true });
   const out: Template[] = [];
   for (const e of entries) {
     if (!e.isFile()) continue;
     const full = join(e.parentPath, e.name);
-    out.push({
-      path: relative(dir, full).split(sep).join("/"),
-      content: await readFile(full, "utf8"),
-    });
+    const path = relative(dir, full).split(sep).join("/");
+    if (dir === TEMPLATES_DIR && path.startsWith("inbox/")) continue;
+    out.push({ path, content: await readFile(full, "utf8") });
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
 }
