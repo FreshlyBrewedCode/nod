@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { selectable } from "../../shared/attention";
 import type { PrId, PrView } from "../../shared/protocol";
-import { idOf } from "../../shared/repo-key";
+import { idOf, parsePrId } from "../../shared/repo-key";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { nextNeedingYou, positionAmong } from "@/lib/next";
@@ -53,6 +53,14 @@ import { DiffIndicator } from "./diff-indicator";
 const BUTTON =
   "border-line2 bg-panel2 text-tx inline-flex h-[46px] min-w-0 items-center justify-center gap-2 rounded-[11px] border px-4 text-[15px] font-semibold whitespace-nowrap";
 
+/** "#485", or "ledger #57" when there are several repos. */
+function nextName(id: PrId, chips: ReadonlyMap<string, string>): string {
+  const ref = parsePrId(id);
+  if (!ref) return id;
+  const chip = chips.get(ref.repo);
+  return `${chip ? `${chip} ` : ""}#${ref.number}`;
+}
+
 export function DetailPage({
   pr,
   order,
@@ -66,8 +74,9 @@ export function DetailPage({
   /** Show another PR in the page (`Next ›`). */
   onOpen: (pr: PrId) => void;
 }) {
-  const { people, me, openBatch, selection, toggleSelected, ackFyi, signingIn, chips } =
+  const { people, me, openBatch, selection, toggleSelected, ackFyi, signingIn, chips, githubOf } =
     useDashboard();
+  const host = githubOf(pr).host;
   const now = useNow(MINUTE);
   const offset = useUtcOffset();
   const page = useRef<HTMLElement>(null);
@@ -103,7 +112,7 @@ export function DetailPage({
         >
           <ChevronLeft className="size-6" />
         </button>
-        <RepoChip repo={pr.repo} chips={chips} />
+        <RepoChip repo={pr.repo} chips={chips} className="mr-1.5" />
         <span className="text-tx2 min-w-0 flex-1 truncate text-sm">
           {position
             ? `${position.index} of ${position.total} that need you`
@@ -111,10 +120,13 @@ export function DetailPage({
         </span>
         <a
           href={pr.url}
+          aria-label={host === "github.com" ? "GitHub" : `GitHub on ${host}`}
+          title={pr.url}
           target="_blank"
           rel="noreferrer"
           className="text-tx3 inline-flex min-h-11 flex-none items-center gap-1 px-3.5 text-[13px]"
         >
+          {/* The host is in the link's name; the header has no room to spell it. */}
           GitHub <ExternalLink className="size-3.5" />
         </a>
       </header>
@@ -277,7 +289,7 @@ export function DetailPage({
               <button
                 type="button"
                 onClick={() => onOpen(next)}
-                aria-label={`Next that needs you, #${next}`}
+                aria-label={`Next that needs you, ${nextName(next, chips)}`}
                 className={cn(BUTTON, "px-3.5")}
               >
                 Next <ChevronRight className="-mr-1 size-4" />
