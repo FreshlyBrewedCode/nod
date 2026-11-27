@@ -9,6 +9,7 @@ import type * as React from "react";
 
 import type { Person } from "../../shared/protocol";
 import type { Rung } from "@/lib/onboarding";
+import type { Indicator } from "@/lib/update";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./bits";
 import { useInstall } from "@/hooks/use-install";
@@ -93,6 +94,56 @@ export function Segmented<T extends string>({
         </button>
       ))}
     </div>
+  );
+}
+
+const PILL_TONE: Readonly<Record<Indicator["tone"], string>> = {
+  need: "border-need-line bg-need-bg text-need hover:border-need",
+  ok: "border-[#4cc38a55] bg-ok-bg text-ok hover:border-ok",
+  bad: "border-[#f0685d55] bg-bad-bg text-bad hover:border-bad",
+  quiet: "border-line2 text-tx2 hover:text-tx",
+};
+const DOT_TONE: Readonly<Record<Indicator["tone"], string>> = {
+  need: "bg-need",
+  ok: "bg-ok",
+  bad: "bg-bad",
+  quiet: "bg-tx3",
+};
+
+/**
+ * The update, at the top level (ADR 0008 §9): a calm pill, "Update 0.3.0"
+ * with a dot, that leads to Settings → Server; while installing and after it
+ * says so ("Updating…", "Restart to finish", "Updated to 0.3.0"). A phone
+ * gets the short word. Nothing when there is nothing to say.
+ */
+export function UpdatePill({
+  indicator,
+  onOpen,
+  className,
+}: {
+  indicator: Indicator | null;
+  onOpen: () => void;
+  className?: string;
+}) {
+  if (!indicator) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={indicator.title}
+      aria-label={`${indicator.label}: ${indicator.title}. Open Settings, Server`}
+      className={cn(
+        "relative flex h-[30px] flex-none items-center gap-2 rounded-full border px-3 text-[13px] font-medium whitespace-nowrap phone:h-8 phone:gap-1.5 phone:px-2.5 phone:after:absolute phone:after:-inset-x-1 phone:after:-inset-y-1.5 phone:after:content-['']",
+        PILL_TONE[indicator.tone],
+        className,
+      )}
+    >
+      {indicator.dot && (
+        <i aria-hidden className={cn("size-1.5 rounded-full", DOT_TONE[indicator.tone])} />
+      )}
+      <span className="phone:hidden">{indicator.label}</span>
+      <span className="hidden phone:inline">{indicator.short}</span>
+    </button>
   );
 }
 
@@ -241,7 +292,7 @@ export function Me({
           className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
         >
           Settings
-          <span className="text-tx3 fs-code block">repositories, the app</span>
+          <span className="text-tx3 fs-code block">repositories, signing, updates</span>
         </button>
         {onLegend && (
           <button

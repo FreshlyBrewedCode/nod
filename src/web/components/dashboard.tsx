@@ -116,7 +116,8 @@ import { RepoFilter } from "./repo-filter";
 import { BucketSection, EmptyLane, LaneHeader, LaneSection } from "./lists";
 import { SelectionBar } from "./selection-bar";
 import { SubBar } from "./sub-bar";
-import { Logo, Me, Segmented, ShortcutsHelp, TopBarShell } from "./top-bar";
+import { Logo, Me, Segmented, ShortcutsHelp, TopBarShell, UpdatePill } from "./top-bar";
+import type { Indicator } from "@/lib/update";
 import { LockChip } from "./unlock";
 import { cn } from "@/lib/utils";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "./ui/resizable";
@@ -133,6 +134,8 @@ export interface DashboardProps {
   readonly go: (route: Route, options?: { replace?: boolean }) => void;
   /** The page is the app `nod serve` serves (ADR 0008, `isServedApp`). */
   readonly servedApp?: boolean;
+  /** The update at the top level (ADR 0008 §9): leads to Settings → Server. */
+  readonly update?: Indicator | null;
 }
 
 export function Dashboard(props: DashboardProps) {
@@ -193,6 +196,7 @@ function DashboardInner({
   route,
   go,
   servedApp = false,
+  update = null,
   openPrRef,
 }: DashboardProps & { openPrRef: { current: (pr: PrId) => void } }) {
   const { openBatch } = useBatch();
@@ -773,6 +777,10 @@ function DashboardInner({
               fake data
             </span>
           )}
+          <UpdatePill
+            indicator={update}
+            onOpen={() => go({ view: "settings", section: "server" })}
+          />
           <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
           <LockChip signer={signer} enrolment={bestEnrolment(repos)} actions={actions} />
           <Me

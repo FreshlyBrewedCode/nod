@@ -23,7 +23,10 @@ export interface SectionWords {
 
 export const SECTIONS: Readonly<Record<SettingsSection, SectionWords>> = {
   repositories: { title: "Repositories", line: "what nod reads, and each one’s step" },
+  signing: { title: "Signing", line: "your key, its lock, where it signs" },
   app: { title: "App", line: "install it, the badge" },
+  server: { title: "Server", line: "version, updates, the service" },
+  "other-device": { title: "Other device", line: "a phone, through a named host" },
 };
 
 /** The section a route shows: the one it names, else the first. */

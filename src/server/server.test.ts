@@ -19,7 +19,7 @@ afterEach(async () => {
 
 function startFake(
   clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20)),
-  extra: Pick<StartOptions, "namedHost" | "newToken" | "newRemoteToken" | "appRoot"> = {},
+  extra: Pick<StartOptions, "namedHost" | "newToken" | "newRemoteToken" | "appRoot" | "app"> = {},
   tokenDir?: string,
 ) {
   const dir = tokenDir ?? mkdtempSync(join(tmpdir(), "nod-serve-"));
@@ -441,6 +441,60 @@ describe("--allow-host: one named host behind a TLS proxy (ADR 0005)", () => {
       expect(desk.state.signer?.state).toBe("locked");
       const result = await phone.request("sign", { entries, verdict: "approve" });
       expect(result.posted.map((p) => p.pr)).toEqual([482]);
+    } finally {
+      desk.close();
+      phone.close();
+    }
+  });
+
+  test("the app: the other device reads it, only this machine installs or gets the device link", async () => {
+    const { started, ws, clock } = startFake(undefined, {
+      ...named,
+      app: { fake: { service: "running" } },
+    });
+    class PhoneSocket extends WebSocket {
+      constructor(url: string | URL) {
+        super(url, { headers: { ...onName, Origin: host.origin } } as unknown as string[]);
+      }
+    }
+    const desk = new NodClient(ws(started.token), { maxBackoffMs: 50 });
+    const phone = new NodClient(ws(started.remoteToken!), { WebSocket: PhoneSocket });
+    try {
+      await until(() => [desk, phone].every((c) => c.state.app?.update.kind === "upgrade"));
+      expect(desk.state.app).toMatchObject({ version: "0.2.0", mayChange: true });
+      expect(phone.state.app).toMatchObject({
+        version: "0.2.0",
+        mayChange: false,
+        otherDevice: { origin: host.origin },
+      });
+      const refused = await phone
+        .request("install-update", { version: "0.3.0" })
+        .catch((e: unknown) => e);
+      expect((refused as RequestFailed).code).toBe("forbidden");
+      const link = await phone.request("device-link", {}).catch((e: unknown) => e);
+      expect((link as RequestFailed).code).toBe("forbidden");
+      const qr = await desk.request("device-link", {});
+      expect(qr.origin).toBe(host.origin);
+      expect(qr.qr.length).toBeGreaterThan(20);
+      expect(qr.qr.every((row) => /^[01]+$/.test(row) && row.length === qr.qr.length)).toBe(true);
+
+      // A click on this machine: installing, then the service restarts nod (played by the fake).
+      await desk.request("install-update", { version: "0.3.0" });
+      await until(() => phone.state.app?.update.installation.status === "installing");
+      const reconnects = desk.state.reconnects;
+      clock.advance(4000);
+      await until(() => desk.state.app?.update.after?.state === "restarting");
+      clock.advance(800);
+      await until(() => desk.state.reconnects > reconnects && desk.state.status === "open", 5000);
+      await until(() => desk.state.app?.version === "0.3.0", 5000);
+      expect(desk.state.app?.update).toMatchObject({
+        status: "up-to-date",
+        installation: { status: "idle" },
+        after: null,
+      });
+      expect((started.appSeams.service as unknown as { calls: string[] }).calls).toEqual([
+        "restart",
+      ]);
     } finally {
       desk.close();
       phone.close();

@@ -37,6 +37,7 @@ import { ClockProvider } from "@/hooks/use-clock";
 import { ConnectionProvider, useConnection } from "@/hooks/use-connection";
 import { useForward } from "@/hooks/use-forward";
 import { useRoute } from "@/hooks/use-route";
+import { useUpdate } from "@/hooks/use-update";
 import { appAddressOf, isServedApp } from "@/lib/app";
 import { offerFor } from "@/lib/forward";
 import { checkForUpdate } from "@/lib/sw-register";
@@ -67,8 +68,9 @@ export function App() {
 }
 
 function Gate() {
-  const { status, welcome, snapshot, signer, repos, actions, reconnects, pairing } =
+  const { status, welcome, snapshot, signer, repos, app, actions, reconnects, pairing } =
     useConnection();
+  const update = useUpdate(app);
   const [route, go] = useRoute();
   useBadge(snapshot ? badgeCount(snapshot.prs) : null);
   // Back after a drop: the server may be another version now.
@@ -137,6 +139,8 @@ function Gate() {
           servedApp={servedApp}
           appAddress={appAddressOf(pairing)}
           badge={snapshot ? badgeCount(snapshot.prs) : null}
+          app={app}
+          update={update}
         />
       );
     if (landing === "add-repo") return <AddRepoPage actions={actions} />;
@@ -177,6 +181,7 @@ function Gate() {
         route={route}
         go={go}
         servedApp={servedApp}
+        update={update.indicator}
       />
     );
   return <FullPage title="Reading GitHub…" />;

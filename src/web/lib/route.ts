@@ -10,7 +10,8 @@
  *                                      the same for one repo of several (ADR 0007, 11);
  *                                      the host only off github.com, as in deep links
  *   #/settings                         the settings page, on its first section
- *   #/settings/<section>               on that section: repositories, app (`SETTINGS_SECTIONS`)
+ *   #/settings/<section>               on that section: repositories, signing, app, server,
+ *                                      other-device (`SETTINGS_SECTIONS`)
  *   #/forward?to=https://<name[:port]> asks the hosted page to remember where this
  *                                      browser's nod is (`lib/forward.ts`, ADR 0005 §7)
  *   #/pr/<owner>/<repo>/<n>            a deep link to one PR: its landing
@@ -88,7 +89,13 @@ export type SetupStep = (typeof SETUP_STEPS)[number];
  * their words, `components/settings.tsx` their pages). Only sections with
  * something in them are listed: a new one is a word here and a page there.
  */
-export const SETTINGS_SECTIONS = ["repositories", "app"] as const;
+export const SETTINGS_SECTIONS = [
+  "repositories",
+  "signing",
+  "app",
+  "server",
+  "other-device",
+] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** A deep link: what a link from a PR comment opens. */
