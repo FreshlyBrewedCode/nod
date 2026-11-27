@@ -38,7 +38,7 @@ function seen(raw: RawPr, summary: Summary | null, me = ALICE) {
     ? { kind: "ok", summary: summaryFor(raw, summary) }
     : { kind: "none" };
   const mapped = mapPr(raw, { ...ctx(read), me });
-  const [view] = toViews([mapped.facts], { me, now: T0, people: [] });
+  const [view] = toViews([mapped.facts], { repo: "acme/web", me, now: T0, people: [] });
   return { ...mapped, view: view! };
 }
 
@@ -277,7 +277,7 @@ test("a stacked pair: the upper PR needs the lower first, from its base and its 
   expect(facts.map((f) => f.dependsOn)).toEqual([[], [33], [33]]);
   expect(facts[0]!.epic).toEqual({ number: 7, title: "Search v2" });
   expect(facts[0]!.topic).toBe("Search v2");
-  const views = toViews(facts, { me: ALICE, now: T0, people: [] });
+  const views = toViews(facts, { repo: "acme/web", me: ALICE, now: T0, people: [] });
   expect(views[0]!.unblocks).toEqual([34, 35]);
 });
 
@@ -344,7 +344,7 @@ test("a merged or closed PR without a readable summary is quiet history, not an 
         reasons: [],
         requirement: { slots: [] },
       });
-      const [view] = toViews([mapped.facts], { me: ALICE, now: T0, people: [] });
+      const [view] = toViews([mapped.facts], { repo: "acme/web", me: ALICE, now: T0, people: [] });
       expect(tier(view!)).toBe(4);
       expect(view!.needsMe).toBe(false);
     }
@@ -608,7 +608,7 @@ test("the inbox step: a local classification gives risk, tags and reasons, no sl
     conflict: true,
   });
   expect(mapped.facts.reasons.map((r) => r.classifier)).toContain("paths");
-  const [view] = toViews([mapped.facts], { me: ALICE, now: T0, people: [] });
+  const [view] = toViews([mapped.facts], { repo: "acme/web", me: ALICE, now: T0, people: [] });
   expect([view!.needsMe, view!.ask?.kind, tier(view!)]).toEqual([true, "approve", 1]);
 });
 

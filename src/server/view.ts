@@ -29,6 +29,7 @@ import type {
   Login,
   Person,
   PrView,
+  RepoKey,
   Requirement,
   Signature,
   Slot,
@@ -37,8 +38,10 @@ import type {
 } from "../shared/protocol";
 import { STUCK_AFTER_MS } from "../shared/protocol";
 
+/** A PR as its repo's part of a source knows it: no repo key (`ViewContext.repo` adds it). */
 export interface PrFacts extends Omit<
   PrView,
+  | "repo"
   | "requirement"
   | "signatures"
   | "unblocks"
@@ -59,6 +62,8 @@ export interface PrFacts extends Omit<
 }
 
 export interface ViewContext {
+  /** The repo the facts are of: every view carries its key. */
+  readonly repo: RepoKey;
   readonly me: Login;
   readonly now: number;
   readonly people: ReadonlyArray<Person>;
@@ -387,6 +392,7 @@ export function toView(
     ? (facts.review?.approvedBy.length ?? 0) > 0 && !facts.review?.changesRequestedBy.length
     : slots.every((s) => s.state === "ok");
   return {
+    repo: ctx.repo,
     ...facts,
     requirement: { ...facts.requirement, satisfied },
     signatures: facts.signatures.map((s) => ({ ...s, byMe: sameLogin(s.by, me) })),
@@ -402,7 +408,7 @@ export function toView(
   };
 }
 
-/** Every PR of a snapshot, with `unblocks` filled in from the others' `dependsOn`. */
+/** Every PR of one repo, with `unblocks` filled in from the others' `dependsOn`. */
 export function toViews(all: ReadonlyArray<PrFacts>, ctx: ViewContext): PrView[] {
   const unblocks = new Map<number, number[]>();
   for (const f of all)

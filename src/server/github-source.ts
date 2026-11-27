@@ -1,5 +1,6 @@
 /**
- * The real `Source`: one GitHub repo through the user's `gh` token.
+ * The real `Source`: one GitHub repo through the user's `gh` token, as a
+ * list of one (ADR 0007; #48 reads many repos and hosts).
  *
  * - **Reading.** GraphQL about every 60 s (faster for two minutes after the
  *   user acts, so a nod's green check shows within seconds): the open PRs
@@ -44,6 +45,7 @@ import type {
   PrLink,
   PrView,
   RepoChoice,
+  RepoKey,
   RepoName,
   SetupStatus,
   Snapshot,
@@ -77,6 +79,7 @@ import {
 import { openSetupPrWithInit } from "./github/setup-pr";
 import { isPlanRefusal } from "../init/ruleset.ts";
 import type { PolicyResult } from "../kit/policy.ts";
+import { repoKey, sameRepo } from "../shared/repo-key";
 import { publicKeyId } from "./signer/ssh-wire";
 import {
   SourceError,
@@ -86,6 +89,7 @@ import {
   type SignTarget,
   type Source,
   type SourceChange,
+  type SourceRepo,
 } from "./source";
 import { sameLogin, toViews, type PrFacts } from "./view";
 
@@ -166,7 +170,7 @@ export class GitHubSource implements Source {
   private facts: PrFacts[] = [];
   /** Open PRs without a summary: shown with no slot, waiting on the verifier. */
   private noSummary = new Set<number>();
-  private unclassified: UnclassifiedPr[] = [];
+  private unclassified: Omit<UnclassifiedPr, "repo">[] = [];
   private sync: SyncStatus = { at: null, error: null };
   private requiresNod: boolean | null = null;
   private rulesRefused = false;
@@ -248,12 +252,28 @@ export class GitHubSource implements Source {
     ];
   }
 
+  /** `owner/name`, as GitHub spells it once read. */
   repo(): RepoName {
     return this.info?.nameWithOwner ?? this.options.repo;
   }
 
+  /** The repo key (ADR 0007): `owner/name` on github.com, `host/owner/name` elsewhere. */
+  key(): RepoKey {
+    return repoKey(this.host.name, this.repo());
+  }
+
   github(): GitHubInfo {
     return { host: this.host.name, webUrl: this.host.webUrl };
+  }
+
+  repos(): ReadonlyArray<SourceRepo> {
+    return [{ key: this.key(), name: this.repo(), github: this.github() }];
+  }
+
+  /** Throws `not-found` for any repo but its own. */
+  private own(key: RepoKey): void {
+    if (!sameRepo(key, this.key()))
+      throw new SourceError("not-found", `nod serve reads ${this.key()} only, not ${key}.`);
   }
 
   async pickRepo(repo: RepoName): Promise<void> {
@@ -266,12 +286,12 @@ export class GitHubSource implements Source {
 
   snapshot(): Snapshot | null {
     if (!this.viewer) return null;
+    const repo = this.key();
     return {
-      repo: this.repo(),
       me: this.viewer.login,
       people: this.people(),
       prs: this.views(this.clock.now()),
-      unclassified: this.unclassified,
+      unclassified: this.unclassified.map((u) => ({ ...u, repo })),
       sync: this.sync,
     };
   }
@@ -282,7 +302,8 @@ export class GitHubSource implements Source {
     await this.tick();
   }
 
-  async signTarget(pr: number): Promise<SignTarget | null> {
+  async signTarget(repo: RepoKey, pr: number): Promise<SignTarget | null> {
+    this.own(repo);
     if (!this.api) throw new SourceError("github", "`gh` is not logged in.");
     const data = await this.api.graphql<{
       repository: {
@@ -321,6 +342,7 @@ export class GitHubSource implements Source {
       }
     }
     return {
+      repo: this.key(),
       pr,
       state,
       author: p.author?.login ?? "ghost",
@@ -335,7 +357,7 @@ export class GitHubSource implements Source {
   async postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>> {
     const results: PostResult[] = [];
     for (const entry of input.payload.entries) {
-      if (!this.api || !sameLogin(input.payload.repo, this.repo())) {
+      if (!this.api || !sameRepo(input.repo, this.key()) || !sameLogin(input.payload.repo, this.repo())) {
         results.push({ pr: entry.pr, ok: false, url: null, message: `Not ${this.repo()}.` });
         continue;
       }
@@ -363,7 +385,7 @@ export class GitHubSource implements Source {
     const results: PostResult[] = [];
     const approved: Array<{ pr: number; headSha: string }> = [];
     for (const entry of input.entries) {
-      if (!this.api || !sameLogin(input.repo, this.repo())) {
+      if (!this.api || !sameRepo(input.repo, this.key())) {
         results.push({ pr: entry.pr, ok: false, url: null, message: `Not ${this.repo()}.` });
         continue;
       }
@@ -442,7 +464,8 @@ export class GitHubSource implements Source {
     this.rebuild();
   }
 
-  async ackFyi(pr: number): Promise<void> {
+  async ackFyi(repo: RepoKey, pr: number): Promise<void> {
+    this.own(repo);
     const f = this.facts.find((x) => x.number === pr);
     if (!f?.fyi) throw new SourceError("not-found", `#${pr} has no FYI.`);
     if (!this.api || !this.viewer) throw new SourceError("github", "`gh` is not logged in.");
@@ -469,14 +492,15 @@ export class GitHubSource implements Source {
     this.poke();
   }
 
-  async setup(): Promise<SetupStatus> {
+  async setup(repo: RepoKey): Promise<SetupStatus> {
+    this.own(repo);
     await this.ready;
     await this.readRules(60 * SECOND);
     return this.setupNow();
   }
 
-  async openSetupPr(publicKey: string | null): Promise<PrLink> {
-    const status = await this.setup();
+  async openSetupPr(repo: RepoKey, publicKey: string | null): Promise<PrLink> {
+    const status = await this.setup(repo);
     if (status.state === "ready")
       throw new SourceError("already-set-up", `${this.repo()} is set up already.`);
     if (status.setupPr) return status.setupPr;
@@ -495,7 +519,8 @@ export class GitHubSource implements Source {
     return this.setupPrLink;
   }
 
-  async openEnrolPr(publicKey: string): Promise<PrLink> {
+  async openEnrolPr(repo: RepoKey, publicKey: string): Promise<PrLink> {
+    this.own(repo);
     await this.ready;
     const branch = this.info?.defaultBranchRef?.name;
     if (!this.api || !this.viewer || !branch)
@@ -505,7 +530,7 @@ export class GitHubSource implements Source {
         "github",
         `${this.repo()} is not set up yet: the setup PR enrols the first key.`,
       );
-    const current = this.enrolment(publicKey);
+    const current = this.enrolmentOf(publicKey);
     if (current.state === "active")
       throw new SourceError("already-enrolled", "Your key is enrolled already.");
     if (current.state === "pending" && current.pr) return current.pr;
@@ -527,7 +552,12 @@ export class GitHubSource implements Source {
     return pr;
   }
 
-  enrolment(publicKey: string): Enrolment {
+  enrolment(repo: RepoKey, publicKey: string): Enrolment {
+    this.own(repo);
+    return this.enrolmentOf(publicKey);
+  }
+
+  private enrolmentOf(publicKey: string): Enrolment {
     const candidates: Array<{ pr: PrLink; text: string }> = [];
     for (const raw of this.open) {
       const text = this.headSigners.get(raw.headRefOid);
@@ -822,7 +852,7 @@ export class GitHubSource implements Source {
     const headBranches = new Map(this.open.map((r) => [r.headRefName, r.number] as const));
     const defaultBranch = this.info?.defaultBranchRef?.name ?? "main";
     const facts: PrFacts[] = [];
-    const unclassified: UnclassifiedPr[] = [];
+    const unclassified: Omit<UnclassifiedPr, "repo">[] = [];
     const noSummary = new Set<number>();
     for (const raw of this.raws()) {
       const summary = this.summaryOf(raw);
@@ -869,8 +899,14 @@ export class GitHubSource implements Source {
     const key = this.options.myKey?.() ?? null;
     // ADR 0002: a pending key reads everything and signs nothing; without an
     // active key the asks are GitHub approvals (ADR 0006).
-    const signing = key !== null && this.enrolment(key).state === "active";
-    return toViews(this.facts, { me, now, people: this.people(), signing }).map((v) => {
+    const signing = key !== null && this.enrolmentOf(key).state === "active";
+    return toViews(this.facts, {
+      repo: this.key(),
+      me,
+      now,
+      people: this.people(),
+      signing,
+    }).map((v) => {
       let out = v;
       // Only an open PR is held back for the verifier; a merged or closed one is just history.
       if (this.noSummary.has(v.number) && (v.state === "open" || v.state === "draft")) {
@@ -990,7 +1026,7 @@ export class GitHubSource implements Source {
     const prs = JSON.stringify({ prs: snapshot?.prs ?? null, u: this.unclassified, sync });
     const setup = JSON.stringify(this.setupNow());
     const key = this.options.myKey?.() ?? null;
-    const enrolment = JSON.stringify(key ? this.enrolment(key) : null);
+    const enrolment = JSON.stringify(key ? this.enrolmentOf(key) : null);
     const changed: SourceChange[] = [];
     if (prs !== this.last.prs) changed.push("prs");
     if (setup !== this.last.setup) changed.push("setup");

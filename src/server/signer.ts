@@ -69,6 +69,12 @@ export interface Signer {
    * if `side`'s window is open. Throws `SignerError` `locked` or `no-key`.
    */
   sign(payloadLine: string, side?: Side): Promise<string>;
+  /**
+   * `sign` for several lines at once, in order: one batch across repos signs
+   * one payload per repo (ADR 0007, 10). A `once` window covers all of them
+   * and locks after the last.
+   */
+  signLines(payloadLines: ReadonlyArray<string>, side?: Side): Promise<string[]>;
   /** Verify against the key's own public half (onboarding's test signature). */
   verify(payloadLine: string, signature: string): Promise<boolean>;
   /**
@@ -199,6 +205,10 @@ export abstract class UnlockWindow implements Signer {
   }
 
   async sign(payloadLine: string, side: Side = "loopback"): Promise<string> {
+    return (await this.signLines([payloadLine], side))[0]!;
+  }
+
+  async signLines(payloadLines: ReadonlyArray<string>, side: Side = "loopback"): Promise<string[]> {
     const status = this.status(side);
     if (status.state === "no-key") throw new SignerError("no-key", "There is no signing key yet.");
     const window = this.windows.get(side);
@@ -208,7 +218,9 @@ export abstract class UnlockWindow implements Signer {
     // the first cannot sign as well.
     if (window.once) window.spent = true;
     try {
-      return await this.signLine(payloadLine);
+      const signatures: string[] = [];
+      for (const line of payloadLines) signatures.push(await this.signLine(line));
+      return signatures;
     } finally {
       if (window.once) this.lockNow(side);
     }

@@ -3,12 +3,16 @@
  *
  * - `FakeSource` (`fake-source.ts`, `nod serve --fake`): the mockup's data
  *   set in memory; signing and acking change it so the UI can be exercised.
+ *   One repo, or three with `--scenario repos`.
  * - The GitHub source (`github-source.ts`): polls GraphQL with the `gh`
  *   token about every 60 s and reads the verifier's check summary; patch-ids
- *   come from the clone it runs in.
+ *   come from the clone it runs in. One repo, as a list of one (#48 reads
+ *   many).
  *
- * The session (`session.ts`) owns the signer and the protocol; a source only
- * knows the repo. It never sees a passphrase or a private key.
+ * One source knows every repo (ADR 0007, 8): what touches a repo takes its
+ * key, and `snapshot()` holds all of them. The session (`session.ts`) owns
+ * the signer and the protocol, and groups a batch by repo; a source knows
+ * the repos. It never sees a passphrase or a private key.
  */
 
 import type {
@@ -19,13 +23,23 @@ import type {
   PrLink,
   PrState,
   RepoChoice,
+  RepoKey,
   RepoName,
   SetupStatus,
   Snapshot,
 } from "../shared/protocol";
 
+/** A repo the source reads: the wire's `RepoInfo` without what the session adds. */
+export interface SourceRepo {
+  readonly key: RepoKey;
+  /** `owner/name`, as in the nod payload. */
+  readonly name: RepoName;
+  readonly github: GitHubInfo;
+}
+
 /** What a nod entry is built from: the PR as the source sees it now. */
 export interface SignTarget {
+  readonly repo: RepoKey;
   readonly pr: number;
   readonly state: PrState;
   /** The GitHub author: GitHub refuses an approval of one's own PR. */
@@ -51,18 +65,20 @@ export interface NodPayload {
   readonly signed_at: string;
 }
 
+/** One repo's nod of a batch: the session signs one payload per repo (ADR 0007, 10). */
 export interface PostNodInput {
+  readonly repo: RepoKey;
   readonly payload: NodPayload;
   /** The exact signed line; the payload above is its parsed form. */
   readonly line: string;
   readonly signature: string;
-  /** The full comment body, the same on every PR of the batch. */
+  /** The full comment body, the same on every PR of the repo's part of the batch. */
   readonly body: string;
 }
 
-/** A batch of GitHub approvals, as the session checked it. */
+/** One repo's GitHub approvals of a batch, as the session checked them. */
 export interface PostApprovalsInput {
-  readonly repo: RepoName;
+  readonly repo: RepoKey;
   /** Each PR at the head the user looked at: the review's `commit_id`. */
   readonly entries: ReadonlyArray<{ readonly pr: number; readonly headSha: string }>;
   /** The review's text; null: none, as `gh pr review --approve`. */
@@ -97,28 +113,30 @@ export class SourceError extends Error {
   }
 }
 
+/**
+ * Every method that names a repo throws `SourceError` `not-found` for a key
+ * it does not read (`repos()`).
+ */
 export interface Source {
   /** The `gh` account; null when `gh` is not logged in. */
   account(): Promise<Account | null>;
-  /** Onboarding step 1: repos the account can pick. */
+  /** Onboarding step 1: repos the account can pick (while `repos()` is empty). */
   listRepos(): Promise<ReadonlyArray<RepoChoice>>;
-  /** The picked repo; null before onboarding step 1. */
-  repo(): RepoName | null;
-  /** The GitHub host the repo is on (from the clone's origin; the fake: github.com). */
-  github(): GitHubInfo;
-  /** Throws `SourceError` `not-found` / `forbidden`. */
+  /** The repos it reads, in order; empty before the first is picked (the fake's `fresh`). */
+  repos(): ReadonlyArray<SourceRepo>;
+  /** Pick the first repo. Throws `SourceError` `not-found` / `forbidden`. */
   pickRepo(repo: RepoName): Promise<void>;
-  /** The dashboard's state for the account, from the last read; null without a repo. */
+  /** The dashboard's state for the account, every repo's PRs; null before the first read. */
   snapshot(): Snapshot | null;
   /** Read GitHub now. */
   refresh(): Promise<void>;
   /**
    * The PR as a nod entry would be built from it, read fresh (the GitHub
    * source computes the patch-id against the base as it is now); null when
-   * not in the repo.
+   * the repo has no such PR.
    */
-  signTarget(pr: number): Promise<SignTarget | null>;
-  /** Post the same nod comment on every PR of the payload. Never throws per PR. */
+  signTarget(repo: RepoKey, pr: number): Promise<SignTarget | null>;
+  /** Post the same nod comment on every PR of the payload, in `repo`. Never throws per PR. */
   postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>>;
   /**
    * Approve each PR on GitHub at its `headSha` (an `APPROVED` review, ADR
@@ -127,15 +145,15 @@ export interface Source {
    */
   postApprovals(input: PostApprovalsInput): Promise<ReadonlyArray<PostResult>>;
   /** Mark an FYI as seen. Throws `SourceError` `not-found`. */
-  ackFyi(pr: number): Promise<void>;
-  /** The repo's setup: `.nod/`, the workflow, the ruleset. */
-  setup(): Promise<SetupStatus>;
-  /** Open the setup PR, with `publicKey` as the first allowed signer when given. */
-  openSetupPr(publicKey: string | null): Promise<PrLink>;
-  /** Open the PR that adds `publicKey` to `.nod/allowed_signers`. */
-  openEnrolPr(publicKey: string): Promise<PrLink>;
-  /** Whether the repo trusts the key (allowed_signers on the base branch). */
-  enrolment(publicKey: string): Enrolment;
+  ackFyi(repo: RepoKey, pr: number): Promise<void>;
+  /** A repo's setup: `.nod/`, the workflow, the ruleset. */
+  setup(repo: RepoKey): Promise<SetupStatus>;
+  /** Open a repo's setup PR, with `publicKey` as the first allowed signer when given. */
+  openSetupPr(repo: RepoKey, publicKey: string | null): Promise<PrLink>;
+  /** Open the PR that adds `publicKey` to a repo's `.nod/allowed_signers`. */
+  openEnrolPr(repo: RepoKey, publicKey: string): Promise<PrLink>;
+  /** Whether a repo trusts the key (its allowed_signers on the base branch). */
+  enrolment(repo: RepoKey, publicKey: string): Enrolment;
   /** A new key appeared (onboarding): the GitHub source rebuilds what I can sign. */
   keyCreated(publicKey: string): void;
   subscribe(listener: (change: SourceChange) => void): () => void;
