@@ -34,7 +34,7 @@ of the repository.
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
 | `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
-| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh` or `join` |
+| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join` or `inbox`. Not released: `inbox`, the inbox step, a repository with no `.nod/` and no key, the pull requests classified locally |
 | `--frozen` | With `--fake`: nothing changes on its own |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
 | `--new-token` | Replace both tokens: every paired browser pairs again |

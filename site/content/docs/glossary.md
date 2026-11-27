@@ -30,9 +30,10 @@ order: 4
 | **home-screen app** | The dashboard added to a phone's home screen: it opens without the browser's bars. On an iPhone it keeps its own pairing. [On your phone](/docs/phone#on-the-home-screen) |
 | **host link** | The link `nod serve` prints. It pairs the web app with the server |
 | **hosted web app** | The dashboard published at `ui.nod.frebreco.de`, where deep links point: the stable release's at the root, `main`'s at `/next`. [Status](/docs/status#released) |
-| **inbox** | The first step of the ladder: the dashboard for you alone, with nothing in the repository. Not built yet: without the shared policy, pull requests show as not classified today. [Quick start](/docs/quick-start#the-ladder) |
+| **inbox** | The first step of the ladder: the dashboard for you alone, with nothing in the repository. Your `nod serve` classifies the pull requests itself (local classification), and Needs you holds your review requests and your own stuck pull requests. Not released. [Dashboard](/docs/dashboard#the-inbox) |
 | **kit** | `@frebreco/nod/kit`: the helpers the policy and the verifier import. [Architecture](/docs/architecture#the-kit) |
 | **ladder** | The four steps of adopting nod, each one opt-in: inbox, shared policy, signing, enforced. [Quick start](/docs/quick-start#the-ladder) |
+| **local classification** | At the inbox step, your `nod serve` classifying a pull request itself, with the built-in classifiers, on the file list and brief GitHub returns. For your dashboard only: nothing is posted, nothing is required. A verifier summary always wins. The panel says "classified by your nod, not the repo". Not released. [Dashboard](/docs/dashboard#the-inbox) |
 | **lane** | A section of the list by attention: Needs you, Worth knowing, Background |
 | **link forwarding** | The hosted web app handing a deep link over to your named host, one tap per link, after you confirmed that host once in the same browser. Not released: on `ui.nod.frebreco.de/next` only, while links in comments open the root. [On your phone](/docs/phone#links-from-github) |
 | **named host** | The https name a TLS proxy such as `tailscale serve` gives `nod serve`, named with `--allow-host`, so another device reaches it. It has its own token and its own unlock. [On your phone](/docs/phone) |
@@ -45,6 +46,7 @@ order: 4
 | **peer nod** | A nod by a signer other than the pull request's author |
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |
+| **review request** | GitHub asking a person or a team to review a pull request. At the inbox step, one asked of you, or of a team you are in, puts the pull request in Needs you. A mention is not one. Not released. [Dashboard](/docs/dashboard#the-inbox) |
 | **remote token** | The pairing token of the named host, kept apart from the host link's. [On your phone](/docs/phone#a-lost-phone) |
 | **requirement** | What a pull request needs before it may merge: nothing, or slots for the author (self), someone else (peer) and named people, each filled by a nod or an approval. [Policy](/docs/policy#requirements) |
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
@@ -58,7 +60,7 @@ order: 4
 | **slot** | One part of a requirement that a person fills: the self or peer level, or a named person's. [Policy](/docs/policy#requirements) |
 | **stale** | A nod whose pull request changed after it was made. It no longer counts |
 | **sticky comment** | The verifier's one comment on a pull request, updated in place. Posted only once the check is enforced. [Verifier](/docs/verifier#the-sticky-comment) |
-| **stuck** | A check is failing, or the pull request has waited on a person for 12 hours or more |
+| **stuck** | A check is failing, the pull request conflicts with its base, a reviewer requested changes, or it has waited on a person for 12 hours or more. Not released: the conflict and the requested changes. [Dashboard](/docs/dashboard#attention-tiers) |
 | **summary** | The machine-readable result in the check run's output, read by `nod serve`. [Verifier](/docs/verifier#the-summary) |
 | **tailnet** | Your private Tailscale network: the devices logged in to it. [On your phone](/docs/phone) |
 | **trust root** | `.nod/allowed_signers` on the default branch |

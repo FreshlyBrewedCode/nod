@@ -37,6 +37,13 @@ released.
 `@frebreco/nod@next` and on `ui.nod.frebreco.de/next` once it is merged, and reaches `latest` and
 the root of `ui.nod.frebreco.de` with the next stable release.
 
+Built and not released yet, among others:
+
+- **The inbox.** A repository with no `.nod/` gets a sorted dashboard: your `nod serve`
+  classifies the pull requests itself, and Needs you holds the reviews asked of you or your team
+  and your own stuck pull requests. Not tried on a real repository yet.
+  [Dashboard](/docs/dashboard#the-inbox)
+
 ## Not built
 
 - **An owned GitHub App for the check** ("app mode"). Until then the check can be forged by a
