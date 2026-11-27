@@ -15,7 +15,7 @@ import { KeyFileSigner } from "./signer/key-file-signer";
 import { defaultKeyFile } from "./signer/key-store";
 import type { Source } from "./source";
 import { loadOrCreateToken, remoteTokenFile } from "./token";
-import { allowedOrigins, hostLink, isRelease, serverUrl } from "./web-url";
+import { allowedOrigins, appUrl, hostLink, isRelease, serverUrl } from "./web-url";
 
 export interface StartOptions {
   readonly port: number;
@@ -53,6 +53,11 @@ export interface StartOptions {
    * device with it.
    */
   readonly namedHost?: { readonly host: NamedHost; readonly webRoot: string } | null;
+  /**
+   * The built web app to serve on loopback, the installable app (ADR 0008);
+   * `appLink` then pairs a browser with it. null: loopback serves no page.
+   */
+  readonly appRoot?: string | null;
 }
 
 export interface Started {
@@ -60,6 +65,8 @@ export interface Started {
   readonly token: string;
   readonly wsUrl: string;
   readonly link: string;
+  /** The host link of the app on loopback, `http://127.0.0.1:<port>/#…`, when it is served. */
+  readonly appLink: string | null;
   /** The remote token, with a named host. */
   readonly remoteToken: string | null;
   /** The device link: the host link on the named host, when there is one. */
@@ -122,6 +129,7 @@ export function start(options: StartOptions): Started {
         token: remoteToken!,
         webRoot: named.webRoot,
       },
+      appRoot: options.appRoot ?? null,
       session,
       version,
     });
@@ -137,6 +145,7 @@ export function start(options: StartOptions): Started {
     token,
     wsUrl,
     link: hostLink(options.webUrl, wsUrl, token),
+    appLink: options.appRoot ? hostLink(appUrl(serving.port), wsUrl, token) : null,
     remoteToken: named ? remoteToken : null,
     deviceLink: named ? hostLink(named.host.origin, named.host.wsUrl, remoteToken!) : null,
     session,

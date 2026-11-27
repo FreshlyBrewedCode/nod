@@ -62,6 +62,7 @@ describe("parseRoute", () => {
       view: "settings",
       section: "repositories",
     });
+    expect(parseRoute("#/settings/app")).toEqual({ view: "settings", section: "app" });
     expect(parseRoute("#/settings/nope")).toEqual({ view: "settings" });
     expect(parseRoute("#/settings/repositories/extra")).toEqual({ view: "settings" });
     expect(viewOf({ view: "settings" })).toBe("list");

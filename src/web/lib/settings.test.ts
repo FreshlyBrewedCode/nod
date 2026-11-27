@@ -6,6 +6,7 @@ import { FAKE_KEY } from "../../server/signer";
 import { SETTINGS_SECTIONS } from "./route";
 import {
   SECTIONS,
+  badgeLine,
   addProblem,
   keyWords,
   repoFacts,
@@ -80,4 +81,11 @@ describe("Repositories", () => {
     );
     expect(repoListError({ code: "offline", message: "x" })).toMatch(/did not answer/);
   });
+});
+
+test("the badge's line in Settings → App", () => {
+  expect(badgeLine(null)).toContain("once nod serve has read GitHub");
+  expect(badgeLine(0)).toContain("no badge");
+  expect(badgeLine(1)).toBe("Now: 1 pull request needs you most, so it shows 1.");
+  expect(badgeLine(3)).toBe("Now: 3 pull requests need you most, so it shows 3.");
 });

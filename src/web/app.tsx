@@ -20,14 +20,26 @@
  *   in the route (`#/setup/<repo>/<step>`), else of the first with an offer;
  * - the dashboard once a snapshot is in (a deep link shows its landing there).
  *   A socket that drops keeps it: the last view stays, with a hint
- *   (`lib/reconnect.ts`), not the page for "not running".
+ *   (`lib/reconnect.ts`), not the page for "not running". Without one (the
+ *   installed app opened from the service worker's cache while nothing
+ *   runs), "nod serve isn't running" (`closedPageOf`, ADR 0008 §7), which
+ *   turns into the dashboard by itself.
+ *
+ * On every page: the badge and the tab title (`useBadge`, my tier 1 rows),
+ * and after a reconnect a look for a new service worker (`checkForUpdate`).
  */
 
+import { useEffect } from "react";
+
+import { badgeCount } from "../shared/attention";
+import { useBadge } from "@/hooks/use-badge";
 import { ClockProvider } from "@/hooks/use-clock";
 import { ConnectionProvider, useConnection } from "@/hooks/use-connection";
 import { useForward } from "@/hooks/use-forward";
 import { useRoute } from "@/hooks/use-route";
+import { appAddressOf, isServedApp } from "@/lib/app";
 import { offerFor } from "@/lib/forward";
+import { checkForUpdate } from "@/lib/sw-register";
 import { isFramed } from "@/lib/guard";
 import { landingOf, setupRepoOf, setupRungOf } from "@/lib/onboarding";
 import { githubOfRepo } from "@/lib/repos";
@@ -55,8 +67,15 @@ export function App() {
 }
 
 function Gate() {
-  const { status, welcome, snapshot, signer, repos, actions, reconnects } = useConnection();
+  const { status, welcome, snapshot, signer, repos, actions, reconnects, pairing } =
+    useConnection();
   const [route, go] = useRoute();
+  useBadge(snapshot ? badgeCount(snapshot.prs) : null);
+  // Back after a drop: the server may be another version now.
+  useEffect(() => {
+    if (status === "open" && reconnects > 0) checkForUpdate();
+  }, [status, reconnects]);
+  const servedApp = isServedApp(window.location, pairing);
   const forward = useForward();
   const linkRoute = isLinkRoute(route) ? route : null;
   const unpaired: Unpaired = {
@@ -70,6 +89,7 @@ function Gate() {
     // The named host's own page: it pairs only from the device link.
     host: forward.here ? null : window.location.host,
     standalone: isStandalone(window),
+    servedApp,
   };
 
   if (route.view === "forward" && forward.here)
@@ -114,6 +134,9 @@ function Gate() {
             go({ view: "setup", ...(repos.length > 1 && { repo }), ...(step && { step }) })
           }
           onLeave={repos.length > 0 ? () => go({ view: "list" }) : null}
+          servedApp={servedApp}
+          appAddress={appAddressOf(pairing)}
+          badge={snapshot ? badgeCount(snapshot.prs) : null}
         />
       );
     if (landing === "add-repo") return <AddRepoPage actions={actions} />;
@@ -153,6 +176,7 @@ function Gate() {
         actions={actions}
         route={route}
         go={go}
+        servedApp={servedApp}
       />
     );
   return <FullPage title="Reading GitHub…" />;

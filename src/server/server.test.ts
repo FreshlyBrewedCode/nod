@@ -19,7 +19,7 @@ afterEach(async () => {
 
 function startFake(
   clock = new ManualClock(Date.UTC(2026, 10, 18, 14, 20)),
-  extra: Pick<StartOptions, "namedHost" | "newToken" | "newRemoteToken"> = {},
+  extra: Pick<StartOptions, "namedHost" | "newToken" | "newRemoteToken" | "appRoot"> = {},
   tokenDir?: string,
 ) {
   const dir = tokenDir ?? mkdtempSync(join(tmpdir(), "nod-serve-"));
@@ -142,6 +142,107 @@ describe("http", () => {
       expect(text.length).toBeLessThan(400);
       expect(text).not.toContain("/src/");
     }
+  });
+});
+
+describe("the app on loopback (ADR 0008)", () => {
+  const appRoot = mkdtempSync(join(tmpdir(), "nod-app-"));
+  writeFileSync(join(appRoot, "index.html"), "<!doctype html><title>nod app</title>");
+  writeFileSync(join(appRoot, "sw.js"), "self.addEventListener('fetch', () => {});");
+  afterAll(() => rmSync(appRoot, { recursive: true, force: true }));
+  const withApp = { appRoot };
+
+  test("served on 127.0.0.1, with its link, the no-framing headers and the SPA fallback", async () => {
+    const { http, started } = startFake(undefined, withApp);
+    const port = started.serving.port;
+    expect(started.appLink).toBe(
+      `http://127.0.0.1:${port}/#host=ws%3A%2F%2F127.0.0.1%3A${port}&token=${started.token}`,
+    );
+    const page = await fetch(`${http}/pr/tallyho/fieldbook/7`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("<title>nod app</title>");
+    expect(page.headers.get("x-frame-options")).toBe("DENY");
+    expect(page.headers.get("cache-control")).toBe("no-cache");
+    const sw = await fetch(`${http}/sw.js`);
+    expect(sw.headers.get("cache-control")).toBe("no-cache");
+    expect(await sw.text()).toContain("addEventListener");
+    expect((await fetch(`${http}/../../etc/passwd`)).status).toBe(200); // the shell, never the file
+    expect(await (await fetch(`${http}/%2e%2e/%2e%2e/etc/passwd`)).text()).toContain("nod app");
+    // /health and the socket are not the page.
+    expect((await (await fetch(`${http}/health`)).json()).name).toBe("nod");
+  });
+
+  test("without a build, loopback serves no page and has no app link", async () => {
+    const { http, started } = startFake();
+    expect(started.appLink).toBeNull();
+    expect((await fetch(`${http}/`)).status).toBe(404);
+  });
+
+  test("localhost and [::1] are redirected to 127.0.0.1, path and query kept; /ws and /health are not", async () => {
+    const { http, started } = startFake(undefined, withApp);
+    const port = started.serving.port;
+    for (const name of [`localhost:${port}`, `[::1]:${port}`, "LOCALHOST"]) {
+      const res = await fetch(`${http}/pr/tallyho/fieldbook/7?x=1`, {
+        headers: { Host: name },
+        redirect: "manual",
+      });
+      expect(res.status).toBe(308);
+      expect(res.headers.get("location")).toBe(
+        `http://127.0.0.1:${port}/pr/tallyho/fieldbook/7?x=1`,
+      );
+    }
+    const health = await fetch(`${http}/health`, { headers: { Host: `localhost:${port}` } });
+    expect(health.status).toBe(200);
+    const socket = await probe(started.wsUrl.replace("127.0.0.1", "localhost") + "/ws", {
+      Host: `localhost:${port}`,
+    });
+    expect(socket.code).toBe(CLOSE_BAD_TOKEN);
+  });
+
+  test("DNS rebinding names get nothing: no page, no /health, no socket", async () => {
+    const { http, started } = startFake(undefined, withApp);
+    const port = started.serving.port;
+    for (const name of [
+      `evil.example.test:${port}`,
+      `127.0.0.1.example.test:${port}`,
+      `localhost.example.test:${port}`,
+      `localhost.:${port}`,
+      `2130706433:${port}`,
+      `0x7f000001:${port}`,
+      `127.1:${port}`,
+    ]) {
+      for (const path of ["/", "/sw.js", "/health", "/manifest.webmanifest"])
+        expect((await fetch(`${http}${path}`, { headers: { Host: name } })).status).toBe(421);
+      const socket = await probe(`${started.wsUrl}/ws?token=${started.token}`, { Host: name });
+      expect(socket.opened).toBe(false);
+      expect(socket.messages).toEqual([]);
+    }
+  });
+
+  test("its origin is 127.0.0.1's only: the app's page pairs, a page on localhost or [::1] never does", async () => {
+    const { http, started } = startFake(undefined, withApp);
+    const port = started.serving.port;
+    const app = `http://127.0.0.1:${port}`;
+    const cors = (origin: string) =>
+      fetch(`${http}/health`, { headers: { Origin: origin } }).then((r) =>
+        r.headers.get("access-control-allow-origin"),
+      );
+    expect(await cors(app)).toBe(app);
+    expect(await cors(`http://localhost:${port}`)).toBeNull();
+    expect(await cors(`http://[::1]:${port}`)).toBeNull();
+    const ok = await probe(`${started.wsUrl}/ws?token=${started.token}`, { Origin: app });
+    expect(ok.messages[0]?.t).toBe("welcome");
+    const no = await probe(`${started.wsUrl}/ws?token=${started.token}`, {
+      Origin: `http://localhost:${port}`,
+    });
+    expect(no.opened).toBe(false);
+    // Without the app, its origin is nobody's.
+    const bare = startFake();
+    const bareApp = `http://127.0.0.1:${bare.started.serving.port}`;
+    const refused = await probe(`${bare.started.wsUrl}/ws?token=${bare.started.token}`, {
+      Origin: bareApp,
+    });
+    expect(refused.opened).toBe(false);
   });
 });
 

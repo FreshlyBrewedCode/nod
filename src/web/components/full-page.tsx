@@ -9,6 +9,7 @@
 import type * as React from "react";
 
 import { PROTOCOL_VERSION } from "../../shared/protocol";
+import { SERVICE_HINT, closedPageOf, startCommand } from "@/lib/app";
 import type { Status } from "@/lib/connection";
 import type { Offer } from "@/lib/forward";
 import { ForwardOffer, PasteLink } from "./forward";
@@ -80,6 +81,8 @@ export interface Unpaired {
   readonly onForget: () => void;
   readonly host: string | null;
   readonly standalone: boolean;
+  /** The page is the app `nod serve` serves (ADR 0008): it opened from the cache. */
+  readonly servedApp?: boolean;
 }
 
 /** The page for a connection that is not open (and never was, or is gone). */
@@ -165,17 +168,47 @@ export function ConnectionPage({
         </FullPage>
       );
     case "closed":
-      return (
-        <FullPage title="Waiting for nod serve" command="nod serve">
-          <p>
-            {reconnects > 1
-              ? "It is not running, or it stopped. This page reconnects on its own once it is back."
-              : "Reconnecting…"}
-          </p>
-        </FullPage>
-      );
-    case "connecting":
+    case "connecting": {
+      const page = closedPageOf(status, reconnects);
+      if (page === "not-running")
+        return <NotRunningPage host={unpaired?.host ?? null} app={unpaired?.servedApp ?? false} />;
+      if (page === "reconnecting")
+        return (
+          <FullPage title="Waiting for nod serve">
+            <p>Reconnecting…</p>
+          </FullPage>
+        );
+      return <FullPage title="Connecting to nod serve…" />;
+    }
     case "open":
       return <FullPage title="Connecting to nod serve…" />;
   }
+}
+
+/**
+ * The socket cannot reach `nod serve` and a retry failed too (ADR 0008 §7):
+ * the installed app opened from its cache, or the server stopped before a
+ * snapshot came. The command to start it, the service that keeps it
+ * running, and that this page carries on by itself: it retries quietly
+ * (the usual backoff, and at once when the window shows again).
+ */
+export function NotRunningPage({ host, app }: { host: string | null; app: boolean }) {
+  return (
+    <FullPage
+      title="nod serve isn’t running"
+      command={startCommand(host)}
+      after={
+        <p className="text-tx3 fs-note m-0 mt-4 leading-[1.55]">
+          To keep it running in the background, <code className="font-mono">{SERVICE_HINT}</code>{" "}
+          sets it up as a service (not released yet).
+        </p>
+      }
+    >
+      <p>
+        {app ? "This app" : "This page"} talks to <code className="font-mono">nod serve</code> on
+        your machine, and it is not answering. Start it in a terminal{host ? " there" : ""}; this{" "}
+        {app ? "app" : "page"} reconnects on its own once it is back.
+      </p>
+    </FullPage>
+  );
 }

@@ -16,7 +16,7 @@ import { useState, type ReactNode } from "react";
 import { useArmed } from "@/hooks/use-armed";
 import type { ForwardState } from "@/hooks/use-forward";
 import { pastedHostLink } from "@/lib/connection";
-import { confirmOf, forwardUrl, hostOf, hostParts, type Offer } from "@/lib/forward";
+import { confirmOf, forwardUrl, hostOf, hostParts, isLocalApp, type Offer } from "@/lib/forward";
 import { cn } from "@/lib/utils";
 import { Footer, GHOST, PRIMARY } from "./onboarding";
 import { Logo, TopBarShell } from "./top-bar";
@@ -65,7 +65,9 @@ export function HostName({ origin, className }: { origin: string; className?: st
         className,
       )}
     >
-      <span className="text-tx3 font-normal">https://</span>
+      <span className="text-tx3 font-normal">
+        {origin.startsWith("http://") ? "http://" : "https://"}
+      </span>
       <wbr />
       <Host origin={origin} />
     </div>
@@ -145,7 +147,7 @@ export function ForwardConfirm({
         <p className={P}>
           {confirm.kind === "not-here"
             ? "This page is a nod of its own; it does not forward links anywhere."
-            : "nod opens links only on an https address with a host name and an optional port, like the one tailscale serve gives your machine: no IP address, no loopback, no path."}{" "}
+            : "nod opens links only on an https address with a host name and an optional port, like the one tailscale serve gives your machine, or in the nod app on this machine at http://127.0.0.1 and its port: no other IP address or loopback name, no path."}{" "}
           Nothing was remembered.
         </p>
         <Footer>
@@ -193,7 +195,11 @@ export function ForwardConfirm({
 
   return (
     <Page>
-      <h1 className={H1}>Open nod links in this browser at this address?</h1>
+      <h1 className={H1}>
+        {isLocalApp(confirm.to)
+          ? "Open nod links in this browser in the app at this address?"
+          : "Open nod links in this browser at this address?"}
+      </h1>
       <HostName origin={confirm.to} />
       <p className={P}>
         Links to nod in pull request comments and GitHub notifications open this page, which is not
@@ -263,6 +269,12 @@ export function ForwardOffer({
   /** More choices next to the button (the PR on GitHub). */
   children?: ReactNode;
 }) {
+  if (offer.local)
+    return (
+      <LocalOffer offer={offer} what={what} onForget={onForget}>
+        {children}
+      </LocalOffer>
+    );
   return (
     <>
       <h1 className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">{title}</h1>
@@ -283,6 +295,59 @@ export function ForwardOffer({
           <span>
             Open on <Host origin={offer.to} />
           </span>
+        </a>
+      </Footer>
+    </>
+  );
+}
+
+/**
+ * The deep link's way to this machine's app (ADR 0008 §6): the app's address,
+ * one button that opens the link there, and, since nothing may be running,
+ * the command that starts it. With nothing remembered (`assumed`) it is the
+ * default port, said as such; a remembered address can be forgotten.
+ */
+function LocalOffer({
+  offer,
+  what,
+  onForget,
+  children,
+}: {
+  offer: Extract<Offer, { kind: "forward" }>;
+  what: string;
+  onForget: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      <h1 className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">
+        Open it in the nod app
+      </h1>
+      <p className="text-tx2 m-0 mb-3">
+        nod runs on your machine: <code className="font-mono">nod serve</code> serves the app at
+      </p>
+      <HostName origin={offer.to} />
+      <p className="text-tx3 fs-note m-0 mt-3 leading-[1.55]">
+        It opens {what} there; the link carries no pairing and signs nothing.{" "}
+        {offer.assumed ? (
+          "That is the default port; on another one, use “Open links from GitHub here” in the app’s menu."
+        ) : (
+          <>
+            Not your address?{" "}
+            <button type="button" className={cn(LINK, "phone:min-h-11")} onClick={onForget}>
+              Forget it
+            </button>
+          </>
+        )}
+      </p>
+      <p className="text-tx3 fs-note m-0 mt-3 leading-[1.55]">Not running? In a terminal:</p>
+      <div className="bg-bg border-line text-tx fs-note mt-1.5 flex items-center overflow-x-auto rounded-lg border px-3.5 py-2.5 font-mono phone:select-all">
+        nod serve
+      </div>
+      <Footer noteClass="max-w-[300px]">
+        {children}
+        <a className={PRIMARY} href={offer.url} referrerPolicy="no-referrer">
+          Open in the app
         </a>
       </Footer>
     </>

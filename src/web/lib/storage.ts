@@ -1,7 +1,7 @@
 /**
  * What this browser remembers, besides the pairing (`connection.ts`): the
  * panel, the PRs opened in the UI, the dismissed legend and offers, the last
- * visit, the board's grouping and the repo filter.
+ * visit, the board's grouping, the repo filter and the badge switch.
  * JSON in localStorage under `nod.*`; a broken or blocked storage reads as
  * nothing and never throws.
  */
@@ -19,6 +19,8 @@ export const STORAGE_KEYS = {
   repoFilter: "nod.repoFilter",
   /** The offers put away with "Not now" (`offerKey` in `onboarding.ts`), per repo and step. */
   offers: "nod.offers",
+  /** The app icon's badge: false when turned off (`readBadgeOn` in `badge.ts`). */
+  badge: "nod.badge",
 } as const;
 
 export function browserStorage(): KeyValue | null {

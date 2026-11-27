@@ -7,6 +7,9 @@ import {
   confirmOf,
   forgetForward,
   forwardSetupUrl,
+  forwardOriginOf,
+  isLocalApp,
+  localAppOriginOf,
   forwardUrl,
   forwardsHere,
   hostOf,
@@ -300,10 +303,16 @@ describe("offerFor: what a deep link offers", () => {
     });
   });
 
-  test("not paired, nothing remembered: how to pair", () => {
+  test("not paired, nothing remembered: the hosted UI offers this machine's app on the default port; other pages how to pair", () => {
     expect(offerFor({ paired: false, page: HOSTED, forward: null, route })).toEqual({
-      kind: "pair",
+      kind: "forward",
+      to: "http://127.0.0.1:4518",
+      url: "http://127.0.0.1:4518/#/pr/tallyho/fieldbook/7",
+      local: true,
+      assumed: true,
     });
+    for (const page of [DEV, PHONE, OTHER, null])
+      expect(offerFor({ paired: false, page, forward: null, route })).toEqual({ kind: "pair" });
   });
 
   test("the named host's own page and other https pages never forward", () => {
@@ -388,5 +397,92 @@ describe("pastedHostLink: pairing inside a home-screen app", () => {
     ).toBeNull();
     expect(pastedHostLink("t0k", PHONE)).toBeNull();
     expect(pastedHostLink("javascript:alert(1)", PHONE)).toBeNull();
+  });
+});
+
+describe("this machine's app as a forward's target (ADR 0008 §6)", () => {
+  const route = link("#/batch/tallyho/fieldbook/482,485");
+  const APP = "http://127.0.0.1:4523";
+
+  test("exactly http://127.0.0.1:<port>", () => {
+    expect(localAppOriginOf(APP)).toBe(APP);
+    expect(localAppOriginOf(`${APP}/`)).toBe(APP);
+    expect(forwardOriginOf(APP)).toBe(APP);
+    expect(isLocalApp(APP)).toBe(true);
+    expect(isLocalApp(NAMED)).toBe(false);
+    for (const value of [
+      "http://127.0.0.1",
+      "http://127.0.0.1:0",
+      "http://127.0.0.1:65536",
+      "http://127.0.0.1:04518",
+      "http://localhost:4518",
+      "http://[::1]:4518",
+      "https://127.0.0.1:4518",
+      "http://127.0.0.2:4518",
+      "http://127.0.0.1:4518/x",
+      "http://127.0.0.1:4518#/pr/a/b/1",
+      "http://user@127.0.0.1:4518",
+      "http://127.1:4518",
+    ])
+      expect([value, forwardOriginOf(value)]).toEqual([value, null]);
+  });
+
+  test("remembered like a named host; a forward rebuilds the route, never a token", () => {
+    const storage = memory();
+    expect(saveForward(storage, APP, 7)).toBe(true);
+    expect(loadForward(storage)).toEqual({ to: APP, since: 7 });
+    const forward = loadForward(storage);
+    expect(offerFor({ paired: false, page: HOSTED, forward, route })).toEqual({
+      kind: "forward",
+      to: APP,
+      url: `${APP}/#/batch/tallyho/fieldbook/482,485`,
+      local: true,
+    });
+    const withToken = link(
+      "#/pr/tallyho/fieldbook/7?host=ws%3A%2F%2F127.0.0.1%3A4518&token=secret",
+    );
+    expect(forwardUrl(APP, withToken)).toBe(`${APP}/#/pr/tallyho/fieldbook/7`);
+  });
+
+  test("a remembered named host wins over the default; a paired page never forwards", () => {
+    const named = { to: NAMED, since: 1 };
+    expect(offerFor({ paired: false, page: HOSTED, forward: named, route }).kind).toBe("forward");
+    expect(offerFor({ paired: false, page: HOSTED, forward: named, route })).not.toHaveProperty(
+      "local",
+    );
+    expect(offerFor({ paired: true, page: HOSTED, forward: null, route })).toEqual({
+      kind: "paired",
+    });
+  });
+
+  test("the app never forwards to itself", () => {
+    const app = { protocol: "http:", host: "127.0.0.1:4523" };
+    expect(offerFor({ paired: false, page: app, forward: { to: APP, since: 1 }, route })).toEqual({
+      kind: "pair",
+    });
+  });
+
+  test("the confirmation takes it like a named host", () => {
+    expect(confirmOf(APP, null, HOSTED)).toEqual({ kind: "new", to: APP });
+    expect(confirmOf(APP, { to: NAMED, since: 1 }, HOSTED)).toEqual({
+      kind: "replace",
+      to: APP,
+      was: NAMED,
+    });
+    expect(confirmOf("http://localhost:4523", null, HOSTED).kind).toBe("invalid");
+  });
+
+  test("the app offers 'Open links from GitHub here' only on another port than the default", () => {
+    const app = (port: number) => ({ protocol: "http:", host: `127.0.0.1:${port}` });
+    expect(forwardSetupUrl(app(4523), null, true)).toBe(
+      `https://ui.nod.frebreco.de/next/#/forward?to=${encodeURIComponent(APP)}`,
+    );
+    expect(forwardSetupUrl(app(4523), "1.4.0", true)).toBe(
+      `https://ui.nod.frebreco.de/#/forward?to=${encodeURIComponent(APP)}`,
+    );
+    expect(forwardSetupUrl(app(4518), null, true)).toBeNull();
+    // Not the app (the dev server, a page paired elsewhere): nothing.
+    expect(forwardSetupUrl(app(4523), null, false)).toBeNull();
+    expect(forwardSetupUrl(DEV, null, true)).toBeNull();
   });
 });

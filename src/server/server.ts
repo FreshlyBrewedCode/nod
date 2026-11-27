@@ -1,9 +1,11 @@
 /**
  * `nod serve`'s HTTP side: one WebSocket at `/ws` for the user's own
- * browser (any number of its tabs), `/health`, and nothing else. Loopback
- * only, unless `--allow-host` names the TLS proxy in front of it (ADR 0005):
- * then that name is a second side, with its own token, its own origin and
- * the built web app. The protocol itself is in `session.ts`.
+ * browser (any number of its tabs), `/health`, and the built web app, the
+ * installable app, at `http://127.0.0.1:<port>/` (ADR 0008; `appRoot`, when
+ * there is a build). Loopback only, unless `--allow-host` names the TLS
+ * proxy in front of it (ADR 0005): then that name is a second side, with
+ * its own token, its own origin and the same web app. The protocol itself
+ * is in `session.ts`.
  *
  * Who gets in (canvas ADR 0001, the host-link part):
  * - **The token.** A WebSocket is not subject to CORS, so any page could open
@@ -17,7 +19,12 @@
  *   otherwise, before the upgrade). No `Origin` at all is not a browser page
  *   (a script, a test) and still needs the token.
  * - **The host name.** Only `127.0.0.1`, `localhost` and `[::1]`, so a DNS
- *   rebinding page (whose requests name its own host) gets nothing either.
+ *   rebinding page (whose requests name its own host) gets nothing either:
+ *   no page, no `/health`, no socket. Checked before anything else.
+ * - **One origin for the app.** A page asked for on `localhost` or `[::1]`
+ *   is redirected to `127.0.0.1` (308, the fragment survives), so the app
+ *   has one storage, one pairing and one install; only
+ *   `http://127.0.0.1:<port>` is let in as its origin (ADR 0008).
  *   `--allow-host` adds exactly one name: the TLS proxy's in front of this
  *   port (`tailscale serve`, finding 04). That host gets the built web app
  *   too (`webRoot`), so the page and the socket share its origin.
@@ -69,6 +76,11 @@ export interface ServeOptions {
   /** The origins let in on loopback. */
   readonly allowedOrigins: ReadonlyArray<string>;
   readonly namedHost?: NamedSide | null;
+  /**
+   * The built web app served on loopback, the installable app (ADR 0008);
+   * null or absent: loopback serves no page.
+   */
+  readonly appRoot?: string | null;
   readonly session: Session;
   readonly version: string | null;
 }
@@ -95,6 +107,8 @@ export interface Serving {
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+/** The app's one loopback name; the others are redirected to it (ADR 0008 §2). */
+export const APP_HOST = "127.0.0.1";
 /** What a proxy in front of this port adds; `tailscale serve` sets the first three always. */
 const PROXY_HEADERS = ["x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "forwarded"];
 
@@ -105,8 +119,19 @@ function hostName(host: string | null): string | null {
   return match?.[1] ?? null;
 }
 
+/**
+ * Where a page request on loopback goes instead: the same path on
+ * `127.0.0.1`, when the Host named `localhost` or `[::1]`; null to serve
+ * it here.
+ */
+export function canonicalRedirect(name: string, port: number, url: URL): string | null {
+  if (name === APP_HOST || !LOOPBACK_HOSTS.has(name)) return null;
+  return `http://${APP_HOST}:${port}${url.pathname}${url.search}`;
+}
+
 export function serve(options: ServeOptions): Serving {
   const named = options.namedHost ?? null;
+  const appRoot = options.appRoot ?? null;
   const sides = {
     loopback: { allowed: new Set(options.allowedOrigins), token: options.token },
     "named-host": named && { allowed: new Set([named.origin]), token: named.token },
@@ -170,8 +195,14 @@ export function serve(options: ServeOptions): Serving {
           : new Response("expected a WebSocket upgrade", { status: 426 });
       }
 
-      if (side === "named-host" && named && (req.method === "GET" || req.method === "HEAD"))
-        return serveStatic(named.webRoot, url.pathname);
+      if (req.method === "GET" || req.method === "HEAD") {
+        if (side === "named-host" && named) return serveStatic(named.webRoot, url.pathname);
+        if (side === "loopback" && appRoot) {
+          const to = canonicalRedirect(name!, server.port ?? options.port, url);
+          if (to) return new Response(null, { status: 308, headers: { Location: to } });
+          return serveStatic(appRoot, url.pathname);
+        }
+      }
 
       return new Response("nod serve: open the link printed in your terminal", { status: 404 });
     },
@@ -197,6 +228,9 @@ export function serve(options: ServeOptions): Serving {
       },
     },
   });
+
+  // The app's own origin, once the port is known (port 0 in tests).
+  if (appRoot) sides.loopback.allowed.add(`http://${APP_HOST}:${server.port ?? options.port}`);
 
   return {
     server,

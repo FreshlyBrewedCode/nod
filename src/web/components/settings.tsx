@@ -11,7 +11,12 @@
  * done); adding (with suggestions) and removing. A `fixed` list (`nod serve
  * --dir`) is shown read-only, with why and what to run instead.
  *
- * Adding a section (#54: Inbox, Signing, App, Server, Other device): its id
+ * **App** (ADR 0008 §10, §11): installing the app where this browser can
+ * (the browser's own dialog, or how it is done here, or the app's address
+ * when this page is not the app), what it does without `nod serve`, and the
+ * switch for the badge on its icon (the tab title always counts).
+ *
+ * Adding a section (#54: Inbox, Signing, Server, Other device): its id
  * in `SETTINGS_SECTIONS` (`lib/route.ts`), its words in `SECTIONS`
  * (`lib/settings.ts`) and its page in `SECTION_PAGES` below. A section is
  * listed only once it has something in it.
@@ -23,7 +28,12 @@ import type { Account, RepoInfo, RepoKey, RepoList, SignerState } from "../../sh
 import type { Actions } from "@/hooks/use-connection";
 import { keyStateOf, offerWords, offersOf, type Rung } from "@/lib/onboarding";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/route";
-import { SECTIONS, repoFacts, repoListError } from "@/lib/settings";
+import { SECTIONS, badgeLine, repoFacts, repoListError } from "@/lib/settings";
+import { useBadgeOn } from "@/hooks/use-badge";
+import { useInstall } from "@/hooks/use-install";
+import { installHelp, installStateOf } from "@/lib/app";
+import { canBadge, titleFor, type BadgeApi } from "@/lib/badge";
+import { isStandalone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { AddRepo, SMALL_BUTTON } from "./add-repo";
 import { CommandBox, ENFORCE_COMMAND, NoteBox, useRequest } from "./onboarding";
@@ -43,11 +53,18 @@ export interface SettingsPageProps {
   readonly onSetup: (repo: RepoKey, step?: Rung) => void;
   /** Back to the dashboard; null while there is none (an empty list). */
   readonly onLeave: (() => void) | null;
+  /** The page is the app `nod serve` serves (`isServedApp`). */
+  readonly servedApp: boolean;
+  /** The app's address, `http://127.0.0.1:<port>`, for a page that is not the app. */
+  readonly appAddress: string;
+  /** My tier 1 rows now (the badge); null before a snapshot. */
+  readonly badge: number | null;
 }
 
 /** Each section's page, by id: adding a section is one entry here (and its id and words). */
 const SECTION_PAGES: Readonly<Record<SettingsSection, (props: SettingsPageProps) => ReactNode>> = {
   repositories: (props) => <Repositories {...props} />,
+  app: (props) => <AppSection {...props} />,
 };
 
 const QUIET =
@@ -189,6 +206,98 @@ function Repositories({ me, repos, repoList, signer, actions, onSetup }: Setting
           <AddRepo actions={actions} />
         </section>
       )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// App
+
+const CARD = "border-line bg-panel mb-4 rounded-xl border px-5 pt-4 pb-5 phone:px-4";
+const H2 = "m-0 mb-1.5 text-[15px] font-bold";
+const LINE = "text-tx2 m-0 text-[13.5px] leading-[1.55]";
+
+function AppSection({ servedApp, appAddress, badge }: SettingsPageProps) {
+  const install = useInstall();
+  const [badgeOn, setBadgeOn] = useBadgeOn();
+  const state = installStateOf({
+    standalone: isStandalone(window),
+    installed: install.installed,
+    prompt: install.available,
+    servedApp,
+  });
+  const help = installHelp(navigator.userAgent);
+  const iconBadge = canBadge(navigator as BadgeApi);
+  return (
+    <>
+      <Heading title={SECTIONS.app.title}>
+        nod is an app <Code>nod serve</Code> serves on this machine, so it always matches the
+        server. Installed, it has its own window, opens even when <Code>nod serve</Code> is not
+        running (it says so and waits), and shows on its icon how much needs you.
+      </Heading>
+
+      <section aria-labelledby="install-title" className={CARD}>
+        <h2 id="install-title" className={H2}>
+          Install
+        </h2>
+        {state === "running" && (
+          <p className={LINE}>
+            This window is the installed app. Open it from your dock, launcher or home screen.
+          </p>
+        )}
+        {state === "installed" && (
+          <p className={LINE}>Installed. Open it from your dock, launcher or home screen.</p>
+        )}
+        {state === "prompt" && (
+          <>
+            <p className={cn(LINE, "mb-3")}>This browser can install nod as an app.</p>
+            <button type="button" className={SMALL_BUTTON} onClick={() => void install.install()}>
+              Install app
+            </button>
+          </>
+        )}
+        {state === "manual" && (
+          <p className={LINE}>
+            <b className="text-tx font-semibold">{help.browser}:</b> {help.how}
+          </p>
+        )}
+        {state === "elsewhere" && (
+          <>
+            <p className={cn(LINE, "mb-3")}>
+              This page is not the app: it is a page that talks to <Code>nod serve</Code> from
+              elsewhere. The app is at this address, which the link <Code>nod serve</Code> prints
+              opens and pairs:
+            </p>
+            <CommandBox command={`${appAddress}/`} />
+          </>
+        )}
+      </section>
+
+      <section aria-labelledby="badge-title" className={CARD}>
+        <h2 id="badge-title" className={H2}>
+          Badge
+        </h2>
+        <p className={cn(LINE, "mb-3")}>
+          The number of pull requests that need you most (the prominent rows, in every repository)
+          shows in the tab’s title, like <Code>{titleFor(3)}</Code>, and on the app’s icon.{" "}
+          {badgeLine(badge)}
+        </p>
+        <label className="text-tx flex items-center gap-2.5 text-[13.5px] phone:min-h-11">
+          <input
+            type="checkbox"
+            checked={badgeOn}
+            onChange={(event) => setBadgeOn(event.target.checked)}
+            className="accent-need size-4"
+          />
+          Show the count on the app’s icon
+        </label>
+        <p className="text-tx3 fs-note m-0 mt-2 leading-[1.55]">
+          {iconBadge
+            ? "It changes while the app runs, minimized too; nod sends no notifications."
+            : "This browser shows no badge on an app’s icon; the tab’s title still counts."}{" "}
+          This choice is kept in this browser only.
+        </p>
+      </section>
     </>
   );
 }

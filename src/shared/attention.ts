@@ -664,3 +664,12 @@ export function countByTier(prs: ReadonlyArray<PrView>): Readonly<Record<Tier, n
   for (const p of prs) counts[tier(p)]++;
   return counts;
 }
+
+/**
+ * The app's badge (ADR 0008 §10): my tier 1 rows, across every repo (the
+ * repo filter does not narrow it), open ones only. What the icon and the
+ * tab title `(n) nod` show.
+ */
+export function badgeCount(prs: ReadonlyArray<PrView>): number {
+  return prs.filter((p) => !isDone(p) && tier(p) === 1).length;
+}
