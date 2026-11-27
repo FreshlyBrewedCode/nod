@@ -8,9 +8,15 @@
  *   the failing one gets fixed, and those PRs merge.
  * - Scenarios start it in the states the r3 UI has: `team` (the mockup),
  *   `clear` (nothing needs you), `first-run` (setup PR open, key pending),
- *   `fresh` (onboarding from step 1, no key), `join` (a set-up repo, no key),
+ *   `fresh` (no repo picked yet, no key), `join` (a set-up repo, no key),
  *   `inbox` (the ladder's step 0: no `.nod/`, no key, the PRs classified
- *   locally and "needs me" from review requests, `fake-inbox.ts`).
+ *   locally and "needs me" from review requests, `fake-inbox.ts`), `shared`
+ *   (the ladder's step 1 with my key active: a set-up repo whose `nod` check
+ *   is not required yet, and I am an admin, so enforcing is what is offered).
+ * - Who I am in the repo: an admin everywhere but in `join`, where a
+ *   teammate with write access joins.
+ * - Only an enforced repo merges on its own: at `inbox` and `shared` a
+ *   person merges, the fake leaves the PRs open.
  * - Without an active key (`fresh`, `join`, `inbox`) the asks are GitHub
  *   approvals (ADR 0006); approving answers the review request and fills a
  *   slot that takes approvals. In `join` Ines approved #485 already.
@@ -24,6 +30,8 @@ import type {
   PrLink,
   RepoChoice,
   RepoName,
+  LadderStep,
+  RepoPermission,
   SetupCheck,
   SetupStatus,
   Signature,
@@ -55,7 +63,15 @@ import {
 } from "./source";
 import { canFill, sameLogin, toViews, type PrFacts } from "./view";
 
-export const FAKE_SCENARIOS = ["team", "clear", "first-run", "fresh", "join", "inbox"] as const;
+export const FAKE_SCENARIOS = [
+  "team",
+  "clear",
+  "first-run",
+  "fresh",
+  "join",
+  "inbox",
+  "shared",
+] as const;
 export type FakeScenario = (typeof FAKE_SCENARIOS)[number];
 
 /** Whether the scenario starts with a signing key (the fake signer's `hasKey`). */
@@ -99,6 +115,9 @@ export class FakeSource implements Source {
   private repoName: RepoName | null;
   private setupState: SetupState;
   private setupPr: PrLink | null = null;
+  /** A set-up repo's step: `enforced` but in `shared`. */
+  private readonly setUpStep: LadderStep;
+  private readonly permission: RepoPermission;
   /** By `publicKeyId`: the key, not its comment. */
   private readonly enrolments = new Map<string, Enrolment>();
   private readonly listeners = new Set<(change: SourceChange) => void>();
@@ -126,6 +145,8 @@ export class FakeSource implements Source {
         : scenario === "inbox"
           ? "missing"
           : "ready";
+    this.setUpStep = scenario === "shared" ? "shared-policy" : "enforced";
+    this.permission = scenario === "join" ? "write" : "admin";
     this.ready =
       scenario === "inbox"
         ? inboxFacts(this.started, repo).then((facts) => {
@@ -135,7 +156,7 @@ export class FakeSource implements Source {
           })
         : Promise.resolve();
 
-    if (scenario === "team" || scenario === "clear" || scenario === "join")
+    if (scenario === "team" || scenario === "clear" || scenario === "join" || scenario === "shared")
       this.facts = SEEDS.map((s) => seedFacts(s, this.started, repo));
     const myKey = publicKeyId(options.myKey ?? FAKE_KEY.publicKey);
     this.myKey = myKey;
@@ -146,7 +167,7 @@ export class FakeSource implements Source {
           ? this.withApproval(f, FAKE_PEOPLE.ines.login, f.headSha, this.started - 2 * 60 * SECOND)
           : f,
       );
-    if (scenario === "team" || scenario === "clear")
+    if (scenario === "team" || scenario === "clear" || scenario === "shared")
       this.enrolments.set(myKey, { state: "active" });
     if (scenario === "clear") this.facts = this.facts.map((f) => this.alreadyDone(f));
     if (scenario === "first-run") {
@@ -315,7 +336,10 @@ export class FakeSource implements Source {
   }
 
   async setup(): Promise<SetupStatus> {
-    return setupStatus(this.repoName, this.setupState, this.setupPr);
+    return setupStatus(this.repoName, this.setupState, this.setupPr, {
+      step: this.setUpStep,
+      permission: this.permission,
+    });
   }
 
   async openSetupPr(publicKey: string | null): Promise<PrLink> {
@@ -490,8 +514,9 @@ export class FakeSource implements Source {
   /** Merge once the requirement is met and the checks are green. */
   private whenReady(pr: number) {
     const f = this.facts.find((x) => x.number === pr);
-    // At the inbox step a person merges, not the agent: nothing happens on its own.
+    // Before the check is required a person merges, not the agent: nothing happens on its own.
     if (!f || f.state !== "open" || f.classifiedBy === "local") return;
+    if (this.setupState !== "ready" || this.setUpStep !== "enforced") return;
     if (f.requirement.slots.some((s) => s.state !== "ok")) return;
     if (f.checks.state === "pending" || f.checks.state === "failing") return;
     this.timers.push(this.clock.after(this.mergeDelayMs, () => this.merge(pr)));
@@ -597,13 +622,19 @@ function event(
   return { kind, text, detail, at, phase: "done", tone: "plain" };
 }
 
+/**
+ * The fake's setup checklist. A set-up repo is `enforced` (its required check
+ * on) unless `step` says `shared-policy`; I am an admin unless `permission`
+ * says otherwise.
+ */
 export function setupStatus(
   repo: RepoName | null,
   state: SetupState,
   setupPr: PrLink | null,
+  options: { readonly step?: LadderStep; readonly permission?: RepoPermission | null } = {},
 ): SetupStatus {
   const pending = setupPr ? `in #${setupPr.number}` : "pending";
-  // The fake's set-up repo has the required check on, as its checklist says.
+  const enforced = state === "ready" && (options.step ?? "enforced") === "enforced";
   const check = (
     id: SetupCheck["id"],
     label: string,
@@ -614,7 +645,7 @@ export function setupStatus(
     label,
     detail,
     state:
-      state === "ready"
+      state === "ready" && (adds || enforced)
         ? "ok"
         : state === "pending" && adds
           ? "pending"
@@ -622,7 +653,15 @@ export function setupStatus(
             ? "unknown"
             : "missing",
     note:
-      state === "ready" ? null : !adds ? "after merge" : state === "pending" ? pending : "missing",
+      state === "ready"
+        ? adds || enforced
+          ? null
+          : "run nod init --ruleset"
+        : !adds
+          ? "after merge"
+          : state === "pending"
+            ? pending
+            : "missing",
   });
   return {
     repo,
@@ -639,6 +678,7 @@ export function setupStatus(
       ),
     ],
     setupPr,
-    step: state === "ready" ? "enforced" : "inbox",
+    step: state !== "ready" ? "inbox" : enforced ? "enforced" : "shared-policy",
+    permission: options.permission === undefined ? "admin" : options.permission,
   };
 }

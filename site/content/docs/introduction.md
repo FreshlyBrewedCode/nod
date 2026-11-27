@@ -44,6 +44,10 @@ nod is two things.
 5. You look, select, and nod. nod posts one signed comment per pull request; the verifier checks
    the signature, the check turns green, and auto-merge merges.
 
+You can start with nothing in the repository: `nod serve` in a clone shows the dashboard for you
+alone, and the policy, signing and the required check are steps the dashboard offers, each one
+opt-in (not released). [The ladder](/docs/quick-start#the-ladder)
+
 ## Local-first
 
 - No GitHub App, no backend, nothing hosted that holds your data. `nod serve` runs on your

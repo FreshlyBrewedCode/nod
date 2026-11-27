@@ -41,6 +41,8 @@ order: 4
 | **nod** | A signed statement by a human approving a pull request, posted as a comment. Also the name of the tool and of the check |
 | **nod only** | A slot that only a nod fills, never an approval: `peer({ approvals: false })`, and any change to nod's own setup. Not released. [Policy](/docs/policy#approvals) |
 | **`nod serve`** | The local server on your machine. [CLI](/docs/cli#nod-serve) |
+| **Not now** | What puts an offer away. This browser remembers it, per repository and step; the avatar menu still lists the step. Not released. [Dashboard](/docs/dashboard#offers) |
+| **offer** | A calm card above the list with the next step of the ladder for the repository and you: share one policy, sign your own agent pull requests, let agents merge on their own. One at a time, never in the way; the avatar menu lists every step offered. Not released. [Dashboard](/docs/dashboard#offers) |
 | **patch-id** | A hash of a pull request's diff against its base. It survives a clean rebase. [Nodding](/docs/nodding#when-a-nod-counts) |
 | **payload** | The one line of JSON a nod signs |
 | **peer nod** | A nod by a signer other than the pull request's author |
@@ -52,6 +54,7 @@ order: 4
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
 | **self nod** | A nod by the pull request's author: the prompter attesting their own agent's work |
+| **setup page** | `#/setup`, from **Setup** in the avatar menu: the ladder's four steps, where each stands for the repository and you, and where they are done. Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
 | **setup PR** | The pull request `nod init` opens to add `.nod/` and the workflow. [Quick start](/docs/quick-start) |
 | **shared policy** | The second step of the ladder: the setup PR is merged, and the verifier classifies every pull request the same way for everyone. Its check never blocks until enforced. [Quick start](/docs/quick-start#the-ladder) |
 | **signer** | A person whose public key is in `.nod/allowed_signers` |

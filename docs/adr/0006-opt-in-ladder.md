@@ -44,7 +44,11 @@ nod should be useful to one person on day one with nothing in the repo, and ever
 
 6. **Step 0 classifies locally** (amends "`map.ts` never classifies"). With no verifier summary on a PR, `nod serve` runs the kit's built-in classifiers on what GraphQL returns: display only, no repo code runs, and a verifier summary always wins. Built in #40.
 
-7. **Onboarding stops gating.** Once `gh` is logged in and a repo is picked, the dashboard shows; setup, key and enforcement become offers. A teammate joining a set-up repo needs no key unless they want to sign. Built in #42.
+7. **Onboarding stops gating.** Once `gh` is logged in and a repo is picked, the dashboard shows; setup, key and enforcement become offers. A teammate joining a set-up repo needs no key unless they want to sign. Built in #42:
+   - One card above the list offers the next step of the ladder for this repo and me; the avatar menu lists every step offered; the setup page (`#/setup`) shows the ladder and is where the steps are done.
+   - "Not now" puts a card away for this browser (per host, repo, step and phase). The next step does not take its place, so dismissing never brings up another card; a step that moves on (its pull request opened) is a new card.
+   - Enforcing is offered only to an admin (GitHub's `viewerPermission`, now in `SetupStatus.permission`) of a repo with the shared policy, and the card shows `nod init --ruleset`: the web app never runs it, as it changes who may merge.
+   - The setup PR still carries the opener's public key as its first signer (`nod init` refuses without one), so sharing the policy asks for a key first. A key-less setup PR is left open.
 
 ## Consequences
 

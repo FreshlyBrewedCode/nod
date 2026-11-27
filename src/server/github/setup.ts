@@ -5,7 +5,14 @@
  */
 
 import { parseAllowedSigners } from "../../kit/sshsig.ts";
-import type { Enrolment, LadderStep, PrLink, SetupCheck, SetupStatus } from "../../shared/protocol";
+import type {
+  Enrolment,
+  LadderStep,
+  PrLink,
+  RepoPermission,
+  SetupCheck,
+  SetupStatus,
+} from "../../shared/protocol";
 import { fingerprint, parsePublicKeyLine, publicKeyId, publicKeyLine } from "../signer/ssh-wire";
 import { sameLogin } from "../view";
 import { GitHubApiError, type GitHubApi } from "./api";
@@ -34,6 +41,24 @@ export interface SetupFacts {
   readonly rulesRefused?: boolean;
   readonly autoMerge: boolean | null;
   readonly setupPr: PrLink | null;
+  /** GraphQL's `viewerPermission` (`ADMIN`, `MAINTAIN`, …); null before the first read. */
+  readonly viewerPermission?: string | null;
+}
+
+/** `viewerPermission` as the web app reads it: `maintain` is `write`, `triage` is `read`. */
+export function repoPermission(viewerPermission: string | null | undefined): RepoPermission | null {
+  switch (viewerPermission) {
+    case "ADMIN":
+      return "admin";
+    case "MAINTAIN":
+    case "WRITE":
+      return "write";
+    case "TRIAGE":
+    case "READ":
+      return "read";
+    default:
+      return null;
+  }
 }
 
 /** Whether the default branch has all of nod's setup: the policy, the verifier, the workflow, the signers. */
@@ -108,6 +133,7 @@ export function setupStatusOf(f: SetupFacts): SetupStatus {
     checks,
     setupPr: ready ? null : f.setupPr,
     step: ladderStep(f),
+    permission: repoPermission(f.viewerPermission),
   };
 }
 

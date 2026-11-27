@@ -34,7 +34,7 @@ of the repository.
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
 | `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
-| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join` or `inbox`. Not released: `inbox`, the inbox step, a repository with no `.nod/` and no key, the pull requests classified locally |
+| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox` or `shared`; see [Fake scenarios](#fake-scenarios) |
 | `--frozen` | With `--fake`: nothing changes on its own |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
 | `--new-token` | Replace both tokens: every paired browser pairs again |
@@ -48,6 +48,22 @@ of the repository.
 works with and without it. There is no config file: give `--allow-host` every time.
 
 `NOD_DEBUG=1` logs each poll's queries and their GraphQL cost.
+
+### Fake scenarios
+
+`--fake --scenario <name>` starts the fictional team in one of these states. Where a first open
+lands and which [offer](/docs/dashboard#offers) shows are not released: the released version opens
+onboarding first wherever the setup or the key is not ready.
+
+| Scenario | The repository and you | A first open lands on | The offer |
+| --- | --- | --- | --- |
+| `team` | Enforced, your key active, everyone busy | the dashboard | none |
+| `clear` | As `team`, with everything that needed you done an hour ago | the dashboard, "Nothing needs you" | none |
+| `first-run` | The setup PR open with your key in it, no pull request classified yet | the dashboard, with the legend | **Setup PR #494 is open** |
+| `fresh` | No repository picked, no key | the repository picker, then the dashboard | **Share one policy with the team** |
+| `join` | Enforced, you joining without a key; a teammate approved one pull request on GitHub | the dashboard | **Sign your own agent PRs** |
+| `inbox` | The inbox step: no `.nod/`, no key, the pull requests classified locally. Not released | the dashboard | **Share one policy with the team** |
+| `shared` | The shared policy, its check not required yet; your key active, you an admin. Not released | the dashboard | **Let agents merge on their own** |
 
 ## `nod init`
 

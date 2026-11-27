@@ -926,6 +926,7 @@ export class GitHubSource implements Source {
       rulesRefused: this.rulesRefused,
       autoMerge: info ? info.autoMergeAllowed : null,
       setupPr,
+      viewerPermission: info?.viewerPermission ?? null,
     });
   }
 

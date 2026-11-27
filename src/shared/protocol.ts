@@ -147,7 +147,16 @@ export interface SetupStatus {
    * derives it from `state` for a server that does not send it.
    */
   readonly step?: LadderStep;
+  /**
+   * What I may do in the repo, as GitHub says (`viewerPermission`; `maintain`
+   * reads as `write`, `triage` as `read`): the setup PR needs `write`,
+   * `nod init --ruleset` needs `admin`. Per repo, like `step`. Added after
+   * protocol 1 shipped: absent or null means unknown.
+   */
+  readonly permission?: RepoPermission | null;
 }
+
+export type RepoPermission = "admin" | "write" | "read";
 
 /** The repo's ladder step; from `state` when the server did not say (`ready` reads `shared-policy`). */
 export function ladderStepOf(setup: Pick<SetupStatus, "state" | "step">): LadderStep {

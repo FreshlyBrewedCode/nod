@@ -3,7 +3,8 @@
  * its resizable detail panel, the board with its overlay drawer, the
  * selection bar and the keyboard. Owns the shared state (focus, selection,
  * open clusters, the panel and the drawer) and hands it to rows and cards
- * through `useDashboard`.
+ * through `useDashboard`. Above the list, the offer card: the next step of
+ * the ladder (`offer.tsx`); the avatar menu lists every step offered.
  */
 
 import {
@@ -54,6 +55,16 @@ import {
 } from "@/lib/focus";
 import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs } from "@/lib/panel";
 import { needsYouOrder } from "@/lib/next";
+import {
+  cardOf,
+  dismiss,
+  keyStateOf,
+  offerKey,
+  offerWords,
+  offersOf,
+  readDismissed,
+  type Rung,
+} from "@/lib/onboarding";
 import { isLinkRoute, viewFor, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
 import { actWord, keyNoteOf } from "@/lib/wording";
@@ -72,6 +83,7 @@ import { DetailPage } from "./detail-page";
 import { DetailPanel } from "./detail-panel";
 import { Legend } from "./legend";
 import { LinkLanding } from "./link-landing";
+import { OfferCard } from "./offer";
 import { BucketSection, EmptyLane, LaneHeader, LaneSection } from "./lists";
 import { SelectionBar } from "./selection-bar";
 import { SubBar } from "./sub-bar";
@@ -493,8 +505,25 @@ function DashboardInner({
   };
   const showLegend = legendAsked || (!legendDismissed && (firstRun || setup?.state === "pending"));
 
-  const since = useLastVisit(now);
+  // -- the ladder's offers: one card, every one in the avatar menu -------------
+  const [dismissed, setDismissed] = useState(() =>
+    readDismissed(readJson(browserStorage(), STORAGE_KEYS.offers)),
+  );
+  const ladder = welcome && setup && signer ? { me: welcome.me, setup, signer } : null;
+  const offers = ladder ? offersOf(ladder) : [];
   const github = githubOf(welcome);
+  const card = ladder ? cardOf(ladder, dismissed, github.host) : null;
+  const dismissCard = () => {
+    if (!card || !setup?.repo) return;
+    const next = dismiss(dismissed, offerKey(github.host, setup.repo, card));
+    writeJson(browserStorage(), STORAGE_KEYS.offers, next);
+    setDismissed(next);
+  };
+  const toSetup = (rung?: Rung) => go(rung ? { view: "setup", step: rung } : { view: "setup" });
+  const keyState = signer ? keyStateOf(signer) : "none";
+  const menuOffers = offers.map((o) => ({ rung: o.rung, ...offerWords(o, keyState) }));
+
+  const since = useLastVisit(now);
   const state: DashboardState = {
     snapshot,
     github,
@@ -544,7 +573,16 @@ function DashboardInner({
         )}
       >
         {showLegend && <Legend onDismiss={dismissLegend} />}
-        <KeyNote signer={signer} setup={setup} onSetup={() => go({ view: "setup" })} />
+        {card && setup && signer && (
+          <OfferCard
+            key={offerKey(github.host, setup.repo ?? "", card)}
+            offer={card}
+            setup={setup}
+            signer={signer}
+            onTake={() => toSetup(card.rung)}
+            onDismiss={dismissCard}
+          />
+        )}
         {view === "chrono" && !firstRun ? (
           buckets.map((b) => <BucketSection key={b.id} bucket={b} />)
         ) : firstRun ? (
@@ -630,7 +668,8 @@ function DashboardInner({
           <Me
             login={me}
             people={snapshot.people}
-            onSetup={() => go({ view: "setup" })}
+            offers={menuOffers}
+            onSetup={toSetup}
             onLegend={askLegend}
             fake={welcome?.fake}
             linksHere={forwardSetupUrl(window.location, welcome?.version ?? null)}
@@ -909,62 +948,5 @@ function SignColumn({ column }: { column: Column }) {
     >
       {picked.length ? `${verb} ${picked.length}…` : `${verb}…`}
     </button>
-  );
-}
-
-/**
- * The pending-key note (r3 `17`): my key waits for the PR that enrols it, or
- * is not enrolled at all. Read everything, sign nothing, until it merges.
- */
-function KeyNote({
-  signer,
-  setup,
-  onSetup,
-}: {
-  signer: SignerState | null;
-  setup: SetupStatus | null;
-  onSetup: () => void;
-}) {
-  if (!signer) return null;
-  const box =
-    "border-line2 text-tx2 mb-[26px] rounded-[10px] border border-dashed px-3.5 py-2.5 text-[13px] leading-[1.55] phone:mx-4 phone:mt-4 phone:mb-0";
-  const link = "underline underline-offset-2 hover:text-tx";
-  if (signer.state === "no-key")
-    return (
-      <div className={box} role="note">
-        <b className="text-tx font-semibold">You have no signing key yet.</b> You can read
-        everything and approve on GitHub; to nod, create a key and enrol it in this repository.{" "}
-        <button type="button" className={link} onClick={onSetup}>
-          Create it
-        </button>
-      </div>
-    );
-  const enrolment = signer.key.enrolment;
-  if (enrolment.state === "active") return null;
-  if (enrolment.state === "not-enrolled")
-    return (
-      <div className={box} role="note">
-        <b className="text-tx font-semibold">Your key is not enrolled.</b> Until a pull request adds
-        it to <code className="font-mono text-xs">.nod/allowed_signers</code> you can read
-        everything and approve on GitHub, but sign nothing.{" "}
-        <button type="button" className={link} onClick={onSetup}>
-          Enrol it
-        </button>
-      </div>
-    );
-  const pr = enrolment.pr;
-  const viaSetup = pr !== null && setup?.setupPr?.number === pr.number;
-  return (
-    <div className={box} role="note">
-      <b className="text-tx font-semibold">Your key is pending.</b>{" "}
-      {viaSetup
-        ? `Setup PR #${pr.number} adds the policy, the verifier and your public key. Until it merges nothing is gated and your signatures do not count yet.`
-        : `${pr ? `Enrolment PR #${pr.number}` : "A pull request"} adds your public key to .nod/allowed_signers, and a teammate has to nod it. Until it merges you can read everything and your signatures do not count yet.`}{" "}
-      {pr && (
-        <a href={pr.url} target="_blank" rel="noreferrer" className={link}>
-          Open #{pr.number}
-        </a>
-      )}
-    </div>
   );
 }

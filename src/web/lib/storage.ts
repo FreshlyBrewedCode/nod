@@ -1,6 +1,7 @@
 /**
  * What this browser remembers, besides the pairing (`connection.ts`): the
- * panel, the PRs opened in the UI, the dismissed legend, the last visit.
+ * panel, the PRs opened in the UI, the dismissed legend and offers, the last
+ * visit.
  * JSON in localStorage under `nod.*`; a broken or blocked storage reads as
  * nothing and never throws.
  */
@@ -14,8 +15,8 @@ export const STORAGE_KEYS = {
   lastVisit: "nod.lastVisit",
   /** The board's group-by: "wait" or "state". */
   board: "nod.board",
-  /** The repo whose key step was put off ("Look around first"): read now, enrol later. */
-  keySkipped: "nod.keySkipped",
+  /** The offers put away with "Not now" (`offerKey` in `onboarding.ts`), per repo and step. */
+  offers: "nod.offers",
 } as const;
 
 export function browserStorage(): KeyValue | null {

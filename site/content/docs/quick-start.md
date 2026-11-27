@@ -1,6 +1,6 @@
 ---
 title: Quick start
-description: Look at nod with fake data, then set it up on a repository of your own.
+description: Look at nod with fake data, then use it on a repository of your own, one opt-in step at a time.
 section: Start
 order: 2
 ---
@@ -12,8 +12,8 @@ order: 2
 
 ## The ladder
 
-Adopting nod is four steps, and each one is opt-in. Nobody who skips a step loses their normal
-GitHub workflow.
+Adopting nod is four steps, and each one is opt-in. The first needs nothing in the repository;
+nobody who skips a step loses their normal GitHub workflow.
 
 | Step | Who opts in | What the repository sees | What you get |
 | --- | --- | --- | --- |
@@ -22,19 +22,25 @@ GitHub workflow.
 | **Signing** | each person | nod comments from those who enrolled | nodding your own agents' pull requests |
 | **Enforced** | the repository, `nod init --ruleset` | a required `nod` check, zero required approvals | agents merge on their own |
 
-Not released: the check that never blocks, approvals counting toward the policy, and the
-[inbox](/docs/dashboard#the-inbox) on its own: without the shared policy, your `nod serve`
-classifies the pull requests itself. The first visit still opens onboarding; **Look around first**
-leads to the dashboard.
+Nothing stands between `nod serve` and the dashboard. Each further step is an
+[offer](/docs/dashboard#offers): a calm card above the list for the next one, which **Not now**
+puts away, and the same steps in the avatar menu. **Setup** in the avatar menu opens the setup
+page, where the steps are done.
+
+Not released: the [inbox](/docs/dashboard#the-inbox) on its own (without the shared policy your
+`nod serve` classifies the pull requests itself), the offers and the setup page as the ladder, the
+check that never blocks, and approvals counting toward the policy. The released version opens
+onboarding first.
 
 ## What you need
 
-- [Bun](https://bun.sh) 1.4.1 or newer, `git`, and OpenSSH's `ssh-keygen`.
+- [Bun](https://bun.sh) 1.4.1 or newer and `git`.
 - The GitHub CLI, logged in: `gh auth status`. nod uses that login and asks for no other.
+- For signing, OpenSSH's `ssh-keygen`.
 - For the last step, enforced, admin rights on the repository. On a private repository, rulesets
   need GitHub Pro, Team or Enterprise.
 
-## 1. Get nod and look around
+## 1. Look around with fake data
 
 ```sh
 git clone https://github.com/FreshlyBrewedCode/nod
@@ -50,9 +56,11 @@ bun src/cli.ts serve --fake
 ```
 
 It prints a link. Open it: this is the [dashboard](/docs/dashboard) with fake data. Any passphrase
-except `wrong` unlocks signing. Stop it with Ctrl-C when you have seen enough.
+except `wrong` unlocks signing. `--scenario inbox` shows the first step, `--scenario join` a
+teammate joining; the [CLI reference](/docs/cli#nod-serve) lists them all. Stop it with Ctrl-C when
+you have seen enough.
 
-## 2. Serve your repository
+## 2. Day one: your inbox
 
 Run `nod serve` in a clone of the repository you want to try it on. From the nod checkout:
 
@@ -62,29 +70,35 @@ bun src/cli.ts serve --dir ~/code/your-repo
 
 ```
 nod serve on ws://127.0.0.1:4518 · GitHub · you/your-repo
-
   open the dashboard:
   http://localhost:4517/#host=…&token=…
 
   keep this link to yourself: while signing is unlocked, it can sign.
 ```
 
-Open the link. `nod serve` reads the repository from the clone's `origin` and polls GitHub every
-60 seconds. It fetches pull request commits into the clone as `refs/nod/*` and never checks
-anything out.
+Open the link. That is all: the dashboard shows at once, with nothing added to the repository and
+no key. `nod serve` reads the repository from the clone's `origin` and polls GitHub every 60
+seconds. It fetches pull request commits into the clone as `refs/nod/*` and never checks anything
+out.
 
-## 3. Onboarding
+**Needs you** holds the reviews asked of you or your team and your own stuck pull requests;
+**Approve** answers a review request on GitHub, without a key
+([The inbox](/docs/dashboard#the-inbox)). If `gh` is not logged in, the page says so and names the
+command.
 
-The first visit walks through four steps. Each is mostly a list of checks.
+![Day one: the inbox, with the offer to share a policy above it](./screenshots/offer.webp)
 
-1. **GitHub and repository.** Shows the `gh` account and the repository of the clone.
-2. **Repository setup.** Lists what is missing: the policy file, the verifier workflow, the
-   allowed signers, the required check. One setup PR adds the files.
-3. **Your signing key.** Choose a passphrase of at least 12 characters and create the key. Then
-   press **Open the setup PR**: your public key is part of it.
-4. **Test signature.** Unlocks the key, signs a test message and verifies it. Nothing is posted.
+## 3. Share one policy
 
-![Onboarding, step 2: what the setup PR adds](./screenshots/onboarding-setup.webp)
+When you want the team to see the same classification, take the offer **Share one policy with the
+team**, or open **Setup** in the avatar menu. The setup page shows the ladder and what the setup PR
+adds: the policy file, the verifier and its workflow, the allowed signers.
+
+The setup PR names its first allowed signer, so the page asks for your signing key first (the next
+section), then **Open the setup PR** opens it with your public key in it. Opening it needs write
+access to the repository.
+
+![The setup page: the ladder, on the shared policy](./screenshots/setup-ladder.webp)
 
 The setup PR is titled "chore: set up nod (.nod/ and the verifier workflow)". Its description
 explains every file and the limits. It adds:
@@ -99,20 +113,30 @@ explains every file and the limits. It adds:
 .github/workflows/nod.yml         runs the verifier
 ```
 
-## 4. Merge the setup PR
-
 The verifier does not exist until the setup PR is merged, so that PR cannot be gated by it.
 Review it and merge it the way your repository merges today.
 
-From then on every pull request gets a `nod` check that says what it needs. Until the next step
-it never blocks a merge (not released): a pull request that still needs someone shows a grey,
-neutral check, and the verifier posts no comment. A teammate's plain GitHub approval fills a slot
-just like a nod (not released), except for changes to nod's own setup.
+From then on every pull request gets a `nod` check that says what it needs. Until the repository
+is enforced it never blocks a merge (not released): a pull request that still needs someone shows
+a grey, neutral check, and the verifier posts no comment. A teammate's plain GitHub approval fills
+a slot just like a nod (not released), except for changes to nod's own setup.
 
-## 5. Require the check
+## 4. Signing
 
-When the team is ready, a repository admin makes `nod` the gate of the default branch, from the
-clone:
+Signing is each person's own step. GitHub does not let you approve your own pull request; a nod
+can attest it. The offer **Sign your own agent PRs** (or the **Signing** step of the setup page)
+creates your [signing key](/docs/keys): choose a passphrase of at least 12 characters. Whoever
+opens the setup PR enrols their key with it; a teammate who joins later opens a one-line
+enrolment PR that a signer nods ([A teammate joining](/docs/keys#a-teammate-joining)). **Test
+signature** then unlocks the key, signs a test message and verifies it. Nothing is posted.
+
+Without a key you keep approving on GitHub; the policy counts approvals wherever it takes them.
+
+## 5. Enforced: require the check
+
+When the team is ready, a repository admin makes `nod` the gate of the default branch. An admin's
+dashboard offers it, **Let agents merge on their own**, with the command; nod does not run it from
+the browser. From the clone:
 
 ```sh
 bun ~/code/nod/src/cli.ts init --ruleset

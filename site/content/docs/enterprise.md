@@ -73,8 +73,8 @@ Use a throwaway repository, e.g. `acme/nod-trial` on `acme.ghe.com`.
 4. `NOD_DEBUG=1 nod serve` in the clone. Expect
    `nod serve on ws://127.0.0.1:4518 · GitHub on acme.ghe.com · acme/nod-trial` and the pull
    request in the dashboard.
-5. In onboarding, create the key and open the setup PR. Its description names the command for
-   step 7 with `--host`.
+5. On the setup page (**Setup** in the avatar menu), create the key and open the setup PR. Its
+   description names the command for step 7 with `--host`.
 6. Merge it under the repository's current rules.
 7. `nod init --ruleset`. Expect "created the ruleset" with the app id that
    `gh api --hostname acme.ghe.com apps/github-actions --jq .id` prints.

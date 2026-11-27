@@ -43,6 +43,10 @@ Built and not released yet, among others:
   classifies the pull requests itself, and Needs you holds the reviews asked of you or your team
   and your own stuck pull requests. Not tried on a real repository yet.
   [Dashboard](/docs/dashboard#the-inbox)
+- **No onboarding in the way.** The dashboard shows as soon as `gh` is logged in; the shared
+  policy, signing and enforcing are offered one at a time, as a card above the list that **Not
+  now** puts away, and in the avatar menu. The setup page shows the ladder.
+  [Offers](/docs/dashboard#offers)
 - **Approving without a key.** With no key that signs in the repository, the batch dialog posts
   GitHub approvals instead of nods, at the inbox step and where the policy lets approvals count.
   Tried on a fake GitHub only. [Approve or nod](/docs/nodding#approve-or-nod)

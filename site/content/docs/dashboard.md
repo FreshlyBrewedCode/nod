@@ -122,8 +122,32 @@ Not released. A repository with no `.nod/` (the first step of the
 - A **Reviews** section (who is asked, who approved, who requested changes) takes the place of
   Signatures.
 
-`nod serve --fake --scenario inbox` shows it with the fictional team. The first visit still opens
-onboarding; **Look around first** leads to the dashboard.
+`nod serve --fake --scenario inbox` shows it with the fictional team.
+
+## Offers
+
+Not released. The dashboard is the first thing you see: nothing has to be set up, in the
+repository or on your machine, once `gh` is logged in (if it is not, a page says so and names the
+command). Every further step of the [ladder](/docs/quick-start#the-ladder) is offered instead.
+
+- **One card above the list**, for the next step for this repository and you:
+
+  | Card | When | Leads to |
+  | --- | --- | --- |
+  | **Share one policy with the team** | The repository has no `.nod/` yet, and you can push to it | The setup page's shared policy: the setup PR |
+  | **Setup PR #494 is open** | The setup PR is open | The pull request on GitHub |
+  | **Sign your own agent PRs** | The repository has its shared policy, and your key is not enrolled | The setup page's signing: create or enrol your key |
+  | **Your key is pending** | The pull request that enrols your key is open | The pull request on GitHub |
+  | **Let agents merge on their own** | The repository has its shared policy, its check is not required yet, and you are an admin | The command, `nod init --ruleset`, to run in a clone. nod never runs it from the browser |
+
+- **Not now** puts the card away. This browser remembers it, per repository and step, and the next
+  step does not take its place: nothing nags. A step that moves on, such as the setup PR opening,
+  shows a card of its own.
+- **The avatar menu** lists every step offered under "Next steps", put away or not, and **Setup**
+  opens the setup page: the four steps of the ladder, who takes each one, where each stands, and
+  the place where they are done.
+
+![An admin's dashboard at the shared policy: the offer to enforce, with the command](./screenshots/offer-enforce.webp)
 
 ## Keyboard
 
@@ -144,7 +168,7 @@ onboarding; **Look around first** leads to the dashboard.
 ## First run and empty states
 
 A new setup shows a legend of the four sizes and the three lanes above the lanes, until you
-dismiss it. Pull requests the verifier has not run on yet are counted below the lanes as "not
+dismiss it, and the [offer](#offers) of the next step under it. Pull requests the verifier has not run on yet are counted below the lanes as "not
 classified". When nothing waits for you, the top lane says so.
 
 ![The first-run dashboard with the legend](./screenshots/first-run.webp)
