@@ -4,7 +4,10 @@
  * and prints; tests call this with a temp token file and port 0.
  */
 
+import { unsupportedManager } from "../service/manager";
+import { AppControl, type AppSeams } from "./app-control";
 import { systemClock, type Clock } from "./clock";
+import { fakeApp, type FakeInstall, type FakeService, type FakeUpdate } from "./fake-app";
 import { FakeSource, scenarioHasKey, type FakeScenario } from "./fake-source";
 import { githubSource } from "./github-source";
 import type { NamedHost } from "../shared/named-host";
@@ -15,6 +18,7 @@ import { KeyFileSigner } from "./signer/key-file-signer";
 import { defaultKeyFile } from "./signer/key-store";
 import type { Source } from "./source";
 import { loadOrCreateToken, remoteTokenFile } from "./token";
+import { createInstaller, FakeReleaseFeed, memoryChannelStore } from "./update";
 import { allowedOrigins, appUrl, hostLink, isRelease, serverUrl } from "./web-url";
 
 export interface StartOptions {
@@ -58,6 +62,35 @@ export interface StartOptions {
    * `appLink` then pairs a browser with it. null: loopback serves no page.
    */
   readonly appRoot?: string | null;
+  /**
+   * The app's side (ADR 0008): updates, the channel, the background service.
+   * `seams` gives the real ones and is called only without `fake` (a fake run
+   * gets fakes, `fake-app.ts`); without it, a server that checks nothing and
+   * has no service (tests). `serveArgs`: the flags this server was started
+   * with, for setting the service up and the restart command.
+   */
+  readonly app?: {
+    readonly seams?: () => AppSeams;
+    readonly serveArgs?: ReadonlyArray<string>;
+    /** A plain `nod serve` set the service up from the page: stop now (`cli.ts` exits). */
+    readonly onHandOver?: () => void;
+    /** With `fake`: the state the fake app starts in. */
+    readonly fake?: {
+      readonly update?: FakeUpdate;
+      readonly service?: FakeService;
+      readonly install?: FakeInstall;
+    };
+  };
+}
+
+/** No feed, no install method, no service: what `start()` gets without `app.seams`. */
+export function inertAppSeams(): AppSeams {
+  return {
+    feed: new FakeReleaseFeed({ releases: [] }),
+    installer: createInstaller({ method: null }),
+    channelStore: memoryChannelStore(),
+    service: unsupportedManager(process.platform),
+  };
 }
 
 export interface Started {
@@ -74,6 +107,8 @@ export interface Started {
   readonly session: Session;
   readonly source: Source;
   readonly signer: Signer;
+  readonly app: AppControl;
+  readonly appSeams: AppSeams;
   stop(): Promise<void>;
 }
 
@@ -107,8 +142,29 @@ export function start(options: StartOptions): Started {
         },
       });
   const version = isRelease(options.version) ? options.version : null;
-  const session = new Session({ source, signer, clock, version, fake: fake !== null });
   const named = options.namedHost ?? null;
+  // A fake run never calls the real seams: they are not even built.
+  const fakeAppState = fake ? fakeApp({ clock, ...options.app?.fake }) : null;
+  const appSeams = fakeAppState?.seams ?? options.app?.seams?.() ?? inertAppSeams();
+  let serving: Serving | null = null;
+  let deviceLink: string | null = null;
+  const app = new AppControl({
+    ...appSeams,
+    version: fakeAppState?.version ?? version,
+    clock,
+    serveArgs: options.app?.serveArgs ?? [],
+    ...(fakeAppState && { isThisNod: fakeAppState.isThisNod }),
+    namedOrigin: named?.host.origin ?? null,
+    deviceLink: named
+      ? async () => ({
+          origin: named.host.origin,
+          qr: (await import("./qr")).qrRows(deviceLink ?? named.host.origin),
+        })
+      : null,
+    ...(options.app?.onHandOver && { onHandOver: options.app.onHandOver }),
+    simulate: fake ? { onRestarted: () => serving?.reconnectAll() } : null,
+  });
+  const session = new Session({ source, signer, clock, version, fake: fake !== null, app });
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });
   // Renewed even without a named host, so a lost phone's token is dead
   // before the next `--allow-host`.
@@ -117,9 +173,9 @@ export function start(options: StartOptions): Started {
     named || renewRemote
       ? loadOrCreateToken(remoteTokenFile(options.tokenFile), { fresh: renewRemote })
       : null;
-  let serving: Serving;
+  let served: Serving;
   try {
-    serving = serve({
+    served = serve({
       port: options.port,
       token,
       allowedOrigins: allowedOrigins(options.webUrl),
@@ -135,24 +191,31 @@ export function start(options: StartOptions): Started {
     });
   } catch (error) {
     session.stop();
+    app.stop();
     source.stop();
     signer.stop();
     throw error;
   }
-  const wsUrl = serverUrl(serving.port);
+  serving = served;
+  app.start();
+  const wsUrl = serverUrl(served.port);
+  deviceLink = named ? hostLink(named.host.origin, named.host.wsUrl, remoteToken!) : null;
   return {
-    serving,
+    serving: served,
     token,
     wsUrl,
     link: hostLink(options.webUrl, wsUrl, token),
-    appLink: options.appRoot ? hostLink(appUrl(serving.port), wsUrl, token) : null,
+    appLink: options.appRoot ? hostLink(appUrl(served.port), wsUrl, token) : null,
     remoteToken: named ? remoteToken : null,
-    deviceLink: named ? hostLink(named.host.origin, named.host.wsUrl, remoteToken!) : null,
+    deviceLink,
     session,
     source,
     signer,
+    app,
+    appSeams,
     async stop() {
-      await serving.stop();
+      await served.stop();
+      app.stop();
       source.stop();
       signer.stop();
     },

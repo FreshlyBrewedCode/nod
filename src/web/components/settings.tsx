@@ -16,16 +16,30 @@
  * when this page is not the app), what it does without `nod serve`, and the
  * switch for the badge on its icon (the tab title always counts).
  *
- * Adding a section (#54: Inbox, Signing, Server, Other device): its id
- * in `SETTINGS_SECTIONS` (`lib/route.ts`), its words in `SECTIONS`
- * (`lib/settings.ts`) and its page in `SECTION_PAGES` below. A section is
- * listed only once it has something in it.
+ * **Signing** (`settings-signing.tsx`), **Server** (`settings-server.tsx`:
+ * version, channel, updates with their notes, the service) and **Other
+ * device** (`settings-device.tsx`), #54. The Server entry in the nav has a
+ * dot while an update waits, and the top bar carries the update's pill
+ * everywhere but there. Inbox comes with epic B.
+ *
+ * Adding a section: its id in `SETTINGS_SECTIONS` (`lib/route.ts`), its
+ * words in `SECTIONS` (`lib/settings.ts`) and its page in `SECTION_PAGES`
+ * below. A section is listed only once it has something in it.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { Account, RepoInfo, RepoKey, RepoList, SignerState } from "../../shared/protocol";
+import type {
+  Account,
+  AppState,
+  RepoInfo,
+  RepoKey,
+  RepoList,
+  SignerState,
+} from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
+import type { UpdateView } from "@/hooks/use-update";
+import { serverNeedsLook } from "@/lib/update";
 import { keyStateOf, offerWords, offersOf, type Rung } from "@/lib/onboarding";
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/lib/route";
 import { SECTIONS, badgeLine, repoFacts, repoListError } from "@/lib/settings";
@@ -37,7 +51,11 @@ import { isStandalone } from "@/lib/phone";
 import { cn } from "@/lib/utils";
 import { AddRepo, SMALL_BUTTON } from "./add-repo";
 import { CommandBox, ENFORCE_COMMAND, NoteBox, useRequest } from "./onboarding";
-import { Logo, TopBarShell } from "./top-bar";
+import { CARD, Code, H2, Heading, LINE, QUIET } from "./settings-bits";
+import { DeviceSection } from "./settings-device";
+import { ServerSection } from "./settings-server";
+import { SigningSection } from "./settings-signing";
+import { Logo, TopBarShell, UpdatePill } from "./top-bar";
 
 export interface SettingsPageProps {
   readonly section: SettingsSection;
@@ -59,25 +77,36 @@ export interface SettingsPageProps {
   readonly appAddress: string;
   /** My tier 1 rows now (the badge); null before a snapshot. */
   readonly badge: number | null;
+  /** The app: version, channel, updates, the service; null from an older server. */
+  readonly app: AppState | null;
+  /** The update's indicator and "updated to x" (`useUpdate`). */
+  readonly update: UpdateView;
 }
 
 /** Each section's page, by id: adding a section is one entry here (and its id and words). */
 const SECTION_PAGES: Readonly<Record<SettingsSection, (props: SettingsPageProps) => ReactNode>> = {
   repositories: (props) => <Repositories {...props} />,
+  signing: (props) => (
+    <SigningSection {...props} otherSide={props.app ? !props.app.mayChange : false} />
+  ),
   app: (props) => <AppSection {...props} />,
+  server: (props) => (
+    <ServerSection app={props.app} update={props.update} actions={props.actions} />
+  ),
+  "other-device": (props) => <DeviceSection app={props.app} actions={props.actions} />,
 };
 
-const QUIET =
-  "text-tx3 hover:text-tx2 inline-flex h-8 flex-none items-center justify-center rounded-lg px-2.5 text-[13px] phone:h-11";
-
 export function SettingsPage(props: SettingsPageProps) {
-  const { section, onSection, onLeave } = props;
+  const { section, onSection, onLeave, app, update } = props;
   return (
     <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
         <Logo />
         <span className="text-tx3 min-w-0 truncate text-[13px]">Settings</span>
         <span className="flex-1" />
+        {section !== "server" && (
+          <UpdatePill indicator={update.indicator} onOpen={() => onSection("server")} />
+        )}
         {onLeave && (
           <button
             type="button"
@@ -90,7 +119,11 @@ export function SettingsPage(props: SettingsPageProps) {
         )}
       </TopBarShell>
       <div className="mx-auto my-12 grid w-full max-w-[940px] grid-cols-[200px_1fr] gap-11 px-6 phone:my-4 phone:grid-cols-1 phone:gap-4 phone:px-4">
-        <SettingsNav section={section} onSection={onSection} />
+        <SettingsNav
+          section={section}
+          onSection={onSection}
+          marked={serverNeedsLook(app) ? "server" : null}
+        />
         <main className="min-w-0" aria-labelledby="settings-title">
           {SECTION_PAGES[section](props)}
         </main>
@@ -106,10 +139,18 @@ export function SettingsPage(props: SettingsPageProps) {
 function SettingsNav({
   section,
   onSection,
+  marked,
 }: {
   section: SettingsSection;
   onSection: (section: SettingsSection) => void;
+  /** The section with something waiting (an update): a dot. */
+  marked: SettingsSection | null;
 }) {
+  // A phone's row of tabs scrolls: the open one is in view.
+  const current = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    current.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [section]);
   return (
     <nav aria-label="Settings" className={cn(SETTINGS_SECTIONS.length < 2 && "phone:hidden")}>
       <h2 className="text-tx3 m-0 mt-1.5 mb-1 text-[11px] font-semibold tracking-[0.08em] uppercase phone:sr-only">
@@ -122,6 +163,7 @@ function SettingsNav({
             <li key={id} className="phone:flex-none">
               <button
                 type="button"
+                ref={on ? current : undefined}
                 aria-current={on ? "page" : undefined}
                 onClick={() => onSection(id)}
                 className={cn(
@@ -129,7 +171,15 @@ function SettingsNav({
                   on ? "text-tx font-semibold phone:bg-panel2" : "text-tx3",
                 )}
               >
-                <span className="block text-[13.5px]">{SECTIONS[id].title}</span>
+                <span className="flex items-center gap-1.5 text-[13.5px]">
+                  {SECTIONS[id].title}
+                  {marked === id && (
+                    <>
+                      <i aria-hidden className="bg-need size-1.5 flex-none rounded-full" />
+                      <span className="sr-only">: something waits</span>
+                    </>
+                  )}
+                </span>
                 <span className="text-tx3 block fs-note font-normal phone:hidden">
                   {SECTIONS[id].line}
                 </span>
@@ -139,17 +189,6 @@ function SettingsNav({
         })}
       </ul>
     </nav>
-  );
-}
-
-function Heading({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <>
-      <h1 id="settings-title" className="m-0 mb-1.5 text-[22px] font-bold tracking-[-0.01em]">
-        {title}
-      </h1>
-      <p className="text-tx2 m-0 mb-[22px] leading-[1.55]">{children}</p>
-    </>
   );
 }
 
@@ -212,10 +251,6 @@ function Repositories({ me, repos, repoList, signer, actions, onSetup }: Setting
 
 // ---------------------------------------------------------------------------
 // App
-
-const CARD = "border-line bg-panel mb-4 rounded-xl border px-5 pt-4 pb-5 phone:px-4";
-const H2 = "m-0 mb-1.5 text-[15px] font-bold";
-const LINE = "text-tx2 m-0 text-[13.5px] leading-[1.55]";
 
 function AppSection({ servedApp, appAddress, badge }: SettingsPageProps) {
   const install = useInstall();
@@ -301,10 +336,6 @@ function AppSection({ servedApp, appAddress, badge }: SettingsPageProps) {
     </>
   );
 }
-
-const Code = ({ children }: { children: ReactNode }) => (
-  <code className="font-mono fs-code whitespace-nowrap">{children}</code>
-);
 
 /**
  * One repo: its key, its host, step and my key there; its next step of the

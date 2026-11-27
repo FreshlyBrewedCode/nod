@@ -5,7 +5,7 @@ section: Using nod
 order: 5
 ---
 
-> **Not released.** `nod service` is on `main`, so in the pre-release `@frebreco/nod@next`, not in
+> **Not released.** `nod service` and its part of Settings → Server are on `main`, so in the pre-release `@frebreco/nod@next`, not in
 > a stable release yet. It has been tested against fake `systemctl` and `launchctl` only, never on
 > a real one. Run it with `bunx @frebreco/nod@next service …`, or from a checkout
 > (`bun src/cli.ts service …`).
@@ -37,6 +37,22 @@ clone, is the one repository it reads, as with `nod serve`. With a repo list it 
 wherever it started, and a `nod repo add` is picked up while it runs. It gets the `PATH` you installed with, so it finds `gh`
 and `git`, and `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `GH_CONFIG_DIR` and `NOD_WEB_URL` if you set
 them. A token in your environment is never copied into the unit: `gh` keeps its own login.
+
+## From the page
+
+When `nod serve` runs in a terminal, [Settings → Server](/docs/settings#server) offers
+**Run nod in the background**. It sets the service up as `nod service install` would, with the
+options that `nod serve` was started with (not `--open`, `--new-token` or `--new-remote-token`,
+which would repeat at every start), and shows them before you click.
+
+Then that `nod serve` hands over: it stops by itself, so the service can take its port, and the
+terminal says so. The service, which could not start while the port was taken, starts on its next
+try a few seconds later. The page stays paired (the same token file) and reconnects to it by itself.
+
+From then on an [update](/docs/updates) restarts nod through the service: no terminal needed. The
+section also shows the service's unit file, the command it runs and where its output goes, and
+**Remove the service…** stops and removes it. These buttons are only on this machine's page,
+never on another device's.
 
 ## Pair a browser
 

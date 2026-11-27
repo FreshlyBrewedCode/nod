@@ -31,6 +31,7 @@ import {
   type RequestError,
   type RequestResult,
   type RequestType,
+  type AppState,
   type RepoInfo,
   type ServerToClient,
   type SignerState,
@@ -274,6 +275,8 @@ export interface ConnectionState {
   readonly signer: SignerState | null;
   /** The repos it reads, with their setup and my enrolment (ADR 0007); from the welcome and `repos` pushes. */
   readonly repos: ReadonlyArray<RepoInfo> | null;
+  /** The app: version, channel, updates, the service (ADR 0008); null from a server without it. */
+  readonly app: AppState | null;
   /** The last error the server pushed on its own (a failed poll, …). */
   readonly lastError: { readonly code: ErrorCode; readonly message: string } | null;
   /** How many times the socket closed since the page loaded. */
@@ -286,6 +289,7 @@ export const INITIAL_STATE: ConnectionState = {
   snapshot: null,
   signer: null,
   repos: null,
+  app: null,
   lastError: null,
   reconnects: 0,
 };
@@ -533,6 +537,7 @@ export class NodClient {
           welcome: message,
           signer: message.signer,
           repos: message.repos,
+          app: message.app ?? null,
           // A snapshot of other repos would be wrong; the next one follows.
           snapshot: sameKeys(this.state.repos, message.repos) ? this.state.snapshot : null,
         });
@@ -544,6 +549,8 @@ export class NodClient {
         return this.set({ signer: message.signer });
       case "repos":
         return this.set({ repos: message.repos });
+      case "app":
+        return this.set({ app: message.app });
       case "error":
         return this.set({ lastError: { code: message.code, message: message.message } });
       case "reply": {

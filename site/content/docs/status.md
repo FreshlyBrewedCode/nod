@@ -66,10 +66,16 @@ Built and not released yet, among others:
   [The app](/docs/app)
 - **The settings page** with its Repositories section: each repository's step, its next step and
   its ladder; adding (with suggestions) and removing; the repo filter and the board grouped by
-  repository. With `--dir` the list is the one clone and cannot be changed there.
-  [Settings](/docs/settings)
+  repository. With `--dir` the list is the one clone and cannot be changed there. Its Signing,
+  Server and Other device sections too. [Settings](/docs/settings)
+- **Updates from the page.** An update shows in the top bar; Settings → Server has its release
+  notes, the stable or next channel, and **Update**, which installs it on your click with the
+  package manager nod came with, and restarts nod through the service. Tried with fakes only
+  (`nod serve --fake`): never a real install, a real channel switch or a real restart.
+  [Updates](/docs/updates)
 - **`nod service`.** `nod serve` as a systemd user unit or a LaunchAgent, so it runs without a
-  terminal. Tested against fakes only; never run on a real systemd or launchd. Not on Windows.
+  terminal; also set up from Settings → Server. Tested against fakes only; never run on a real
+  systemd or launchd. Not on Windows.
   [In the background](/docs/background)
 
 ## Not built

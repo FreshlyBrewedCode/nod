@@ -21,7 +21,6 @@
 import type {
   Account,
   ClientToServer,
-  ErrorCode,
   PrRef,
   RepoInfo,
   RepoKey,
@@ -47,6 +46,8 @@ import {
   type SourceRepo,
 } from "./source";
 import { sameLogin } from "./view";
+import type { AppControl } from "./app-control";
+import { RequestFailure } from "./request-failure";
 
 /**
  * One open tab. `send` takes the serialised message. `side` is where it is
@@ -65,18 +66,14 @@ export interface SessionOptions {
   /** The published version; null for a checkout. */
   readonly version: string | null;
   readonly fake: boolean;
+  /**
+   * The app: updates, the channel, the service (ADR 0008). Absent: the
+   * welcome has no `app` and its requests answer `not-implemented`.
+   */
+  readonly app?: AppControl | null;
 }
 
-/** A request that failed in a way the user should see. */
-export class RequestFailure extends Error {
-  constructor(
-    readonly code: ErrorCode,
-    message: string,
-    readonly details?: RequestError["details"],
-  ) {
-    super(message);
-  }
-}
+export { RequestFailure };
 
 /** The most PRs one batch of nods (or of approvals) may cover, across its repos. */
 export const MAX_BATCH = 100;
@@ -106,6 +103,7 @@ export class Session {
         else void this.pushRepos();
       }),
       signer.subscribe(() => this.pushSigner()),
+      ...(options.app ? [options.app.subscribe(() => this.pushApp())] : []),
     ];
     this.handlers = this.makeHandlers();
   }
@@ -113,6 +111,7 @@ export class Session {
   /** A tab connected: welcome, then the snapshot; from then on every push. */
   async attach(client: Client): Promise<void> {
     this.joining.add(client);
+    this.options.app?.refreshService();
     const welcome = await this.welcome(client.side);
     if (!this.joining.delete(client)) return; // closed meanwhile
     client.send(JSON.stringify(welcome));
@@ -253,6 +252,21 @@ export class Session {
     }
   }
 
+  /** Every tab hears the app's state as its side sees it (`mayChange`). */
+  private pushApp() {
+    const app = this.options.app;
+    if (!app) return;
+    const states = new Map<Side, string>();
+    for (const client of this.clients) {
+      let data = states.get(client.side);
+      if (data === undefined) {
+        data = JSON.stringify({ t: "app", app: app.state(client.side) } satisfies ServerToClient);
+        states.set(client.side, data);
+      }
+      client.send(data);
+    }
+  }
+
   private async me(): Promise<Account | null> {
     if (this.account === undefined) this.account = await this.options.source.account();
     return this.account;
@@ -269,6 +283,7 @@ export class Session {
       repos: await this.repoInfos(),
       repoList: this.options.source.repoList,
       signer: this.signerState(side),
+      ...(this.options.app && { app: this.options.app.state(side) }),
     };
   }
 
@@ -373,6 +388,24 @@ export class Session {
           "forbidden",
           "nod serve reads one clone (`--dir`, or the clone it was started in). Add repositories with `nod repo add` and start it without `--dir` to manage the list.",
         );
+    };
+    /** The app, when this server has one. */
+    const needApp = (): AppControl => {
+      if (!this.options.app)
+        throw new RequestFailure("not-implemented", "This nod serve does not manage updates.");
+      return this.options.app;
+    };
+    /**
+     * Machine-changing requests (an install, the channel, the service): this
+     * machine's own side only, never the other device's (ADR 0008 §12).
+     */
+    const needThisMachine = (side: Side, what: string) => {
+      if (side !== "loopback")
+        throw new RequestFailure(
+          "forbidden",
+          `${what} happens on the machine nod runs on, not from another device.`,
+        );
+      return needApp();
     };
     const needKey = (side: Side = "loopback") => {
       const status = signer.status(side);
@@ -562,6 +595,28 @@ export class Session {
         const signature = await signer.sign(line, side);
         return { payload: line, signature, verified: await signer.verify(line, signature) };
       },
+      "check-update": async () => {
+        await needApp().checkNow();
+        return {};
+      },
+      "set-channel": async ({ channel }, { side }) => {
+        await needThisMachine(side, "Choosing the channel").setChannel(channel);
+        return {};
+      },
+      "install-update": async ({ version }, { side }) => {
+        needThisMachine(side, "Installing an update").installUpdate(version);
+        return {};
+      },
+      "service-install": async (_, { side }) => {
+        await needThisMachine(side, "Setting up the background service").installService();
+        return {};
+      },
+      "service-uninstall": async (_, { side }) => {
+        await needThisMachine(side, "Removing the background service").uninstallService();
+        return {};
+      },
+      "device-link": async (_, { side }) =>
+        needThisMachine(side, "Showing the other device's link").deviceLink(),
     };
   }
 }
@@ -616,6 +671,12 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   "create-key": true,
   "open-enrol-pr": true,
   "test-signature": true,
+  "check-update": true,
+  "set-channel": true,
+  "install-update": true,
+  "service-install": true,
+  "service-uninstall": true,
+  "device-link": true,
 };
 
 /** A repo key: `owner/name`, or `host/owner/name` off github.com (ADR 0007). */
@@ -705,11 +766,25 @@ export function parseRequest(data: string): ClientToServer {
       const path = str(m, "path", true);
       return { t: "create-key", id, passphrase, ...(path !== undefined && { path }) };
     }
+    case "set-channel": {
+      if (m.channel !== "stable" && m.channel !== "next") fail("channel is stable or next");
+      return { t: "set-channel", id, channel: m.channel as "stable" | "next" };
+    }
+    case "install-update": {
+      const version = str(m, "version")!;
+      if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || version.length > 64)
+        fail("version must be a release version");
+      return { t: "install-update", id, version };
+    }
     case "lock":
     case "ping":
     case "refresh":
     case "suggest-repos":
     case "test-signature":
+    case "check-update":
+    case "service-install":
+    case "service-uninstall":
+    case "device-link":
       return { t: t as "lock", id };
   }
 }

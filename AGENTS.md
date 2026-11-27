@@ -156,6 +156,25 @@ nod
       `in-incognito`); `Page.getInstallabilityErrors` over CDP; stop the server and reload for
       the offline page. Two builds for the takeover: copy `dist/web` twice, swap the build id in
       one copy's `index.html` and `sw.js`, serve each with `--web-dir`
+  - updates, channel, service on the wire (ADR 0008 §8, §9, §12): `src/server/app-control.ts`
+    (`AppControl` over `UpdateChecker`, the installer, the channel store and the
+    `ServiceManager`; `toAppState` is the wire mapping, `AppState` in `protocol.ts`, pushed as
+    `app` per side). Requests `check-update` (either side), `set-channel`, `install-update`
+    (the version the user saw, else `stale`), `service-install`/`-uninstall`, `device-link`
+    (QR rows, carries the remote token): all but the first `forbidden` from the named host
+    (`needThisMachine` in `session.ts`). After an install: the service restarts nod when this
+    process is it (`isThisNod`: running with our pid), else `restart-by-hand` with
+    `serveCommand`; set up from the page, a plain `nod serve` hands over (`onHandOver` in
+    `cli.ts` exits). `cli.ts` builds the real seams (`realAppSeams`) only without `--fake`;
+    `--fake` gets `fake-app.ts` (`--fake-update|-service|-install`) and plays restart and
+    hand-over (`simulate`, `Serving.reconnectAll`). Never a real install or `systemctl`
+  - web: `lib/update.ts` (the pill `indicatorOf`, "updated to x" via sessionStorage across the
+    restart, wording), `hooks/use-update.ts`, `UpdatePill` in `top-bar.tsx` (dashboard and
+    settings), `settings-server.tsx`, `settings-signing.tsx`, `settings-device.tsx` (shared
+    bits in `settings-bits.tsx`); release notes through `lib/markdown.ts` +
+    `components/markdown.tsx` (React nodes only, http(s) links only; no `dangerouslySetInnerHTML`
+    anywhere). `check:phone` states `APP_STATES` (31*), the remote side by `routeRemote` with a
+    fresh `serve --allow-host nod.example.test` (`State.serveArgs`)
   - the real source without touching `~/.config/nod`: start it from a script calling `start()`
     (`src/server/start.ts`) with `keyFile` and `tokenFile` in a temp folder
   - stale and posting-failure states can't be produced by `--fake`: in a browser check, route

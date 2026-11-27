@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { parseArgs, printedLinks, type ServeFlags } from "./cli";
+import { parseArgs, printedLinks, serviceArgsOf, type ServeFlags } from "./cli";
 
 const serveFlags = (argv: string[]): ServeFlags => {
   const cmd = parseArgs(["serve", ...argv]);
@@ -53,6 +53,10 @@ test("serve defaults: GitHub, port 4518, no browser", () => {
     fake: false,
     scenario: "team",
     frozen: false,
+    fakeUpdate: "available",
+    fakeService: "not-installed",
+    fakeInstall: "npm",
+    args: [],
     port: 4518,
     repo: null,
     host: null,
@@ -89,6 +93,25 @@ test("serve flags", () => {
     fake: true,
     scenario: "first-run",
     frozen: true,
+    fakeUpdate: "available",
+    fakeService: "not-installed",
+    fakeInstall: "npm",
+    args: [
+      "--fake",
+      "--scenario",
+      "first-run",
+      "--frozen",
+      "--port",
+      "4600",
+      "--repo",
+      "acme/widgets",
+      "--web-url",
+      "https://ui.example.test/next",
+      "--token-file",
+      "/tmp/t",
+      "--new-token",
+      "--open",
+    ],
     port: 4600,
     repo: "acme/widgets",
     host: null,
@@ -116,6 +139,57 @@ test("serve flags", () => {
     webDir: "/w",
   });
   expect(serveFlags(["--new-remote-token"]).newRemoteToken).toBe(true);
+});
+
+test("the fake app's flags: every state, only with --fake", () => {
+  expect(
+    serveFlags([
+      "--fake",
+      "--fake-update",
+      "downgrade",
+      "--fake-service",
+      "running",
+      "--fake-install",
+      "unknown",
+    ]),
+  ).toMatchObject({ fakeUpdate: "downgrade", fakeService: "running", fakeInstall: "unknown" });
+  for (const update of ["available", "none", "failing", "downgrade"])
+    expect(serveFlags(["--fake", "--fake-update", update]).fakeUpdate).toBe(update as never);
+  for (const service of ["not-installed", "running", "stopped", "unsupported"])
+    expect(serveFlags(["--fake", "--fake-service", service]).fakeService).toBe(service as never);
+  for (const install of ["npm", "bun", "unknown", "fail"])
+    expect(serveFlags(["--fake", "--fake-install", install]).fakeInstall).toBe(install as never);
+  for (const bad of [
+    ["--fake-update", "available"],
+    ["--fake-service", "running"],
+    ["--fake-install", "bun"],
+    ["--fake", "--fake-update", "soon"],
+    ["--fake", "--fake-service", "maybe"],
+    ["--fake", "--fake-install", "pip"],
+  ])
+    expect(parseArgs(["serve", ...bad]).kind).toBe("error");
+});
+
+test("the service set up from the page runs with this nod serve's flags, minus the one-off ones", () => {
+  expect(
+    serviceArgsOf([
+      "--port",
+      "4520",
+      "--open",
+      "--new-token",
+      "--token-file",
+      "/tmp/t",
+      "--new-remote-token",
+      "--no-open",
+      "--allow-host=laptop.example-tailnet.ts.net:8445",
+    ]),
+  ).toEqual([
+    "--port",
+    "4520",
+    "--token-file",
+    "/tmp/t",
+    "--allow-host=laptop.example-tailnet.ts.net:8445",
+  ]);
 });
 
 test("init", () => {

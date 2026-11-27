@@ -63,6 +63,11 @@ describe("parseRoute", () => {
       section: "repositories",
     });
     expect(parseRoute("#/settings/app")).toEqual({ view: "settings", section: "app" });
+    for (const section of ["signing", "server", "other-device"] as const) {
+      expect(parseRoute(`#/settings/${section}`)).toEqual({ view: "settings", section });
+      expect(formatRoute({ view: "settings", section })).toBe(`#/settings/${section}`);
+    }
+    expect(parseRoute("#/settings/inbox")).toEqual({ view: "settings" });
     expect(parseRoute("#/settings/nope")).toEqual({ view: "settings" });
     expect(parseRoute("#/settings/repositories/extra")).toEqual({ view: "settings" });
     expect(viewOf({ view: "settings" })).toBe("list");
