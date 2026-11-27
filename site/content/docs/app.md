@@ -61,8 +61,8 @@ It tries again on its own, every few seconds and at once when you come back to t
 shows the dashboard as soon as `nod serve` answers. Nothing else works offline: the dashboard
 is what `nod serve` reads from GitHub.
 
-To keep `nod serve` running in the background, `nod service install` sets it up as a service.
-Not released, and not on `main` yet.
+To keep `nod serve` running in the background, `nod service install` sets it up as a service
+that starts at login: [In the background](/docs/background). It is as unreleased as the app.
 
 When `nod serve` comes back as another version, the open app loads that version's files once,
 by itself.

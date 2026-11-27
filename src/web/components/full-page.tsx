@@ -200,7 +200,8 @@ export function NotRunningPage({ host, app }: { host: string | null; app: boolea
       after={
         <p className="text-tx3 fs-note m-0 mt-4 leading-[1.55]">
           To keep it running in the background, <code className="font-mono">{SERVICE_HINT}</code>{" "}
-          sets it up as a service (not released yet).
+          sets it up as a service that starts at login. Like this app, it is not in a stable release
+          yet.
         </p>
       }
     >
