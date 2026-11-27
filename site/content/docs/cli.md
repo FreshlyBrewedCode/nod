@@ -9,6 +9,7 @@ order: 1
 nod <command>
 
   serve        start the local server for the dashboard
+  repo         add, remove or list the repositories nod serve reads
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key
 
@@ -22,15 +23,26 @@ repository, `nod` is `bun src/cli.ts`; see [Quick start](/docs/quick-start). The
 
 ## `nod serve`
 
-Starts the local server the dashboard pairs with, and prints the link to open. Run it in a clone
-of the repository.
+Starts the local server the dashboard pairs with, and prints the link to open. Not released: it
+reads every repository of the [repo list](#nod-repo), each from its clone in the
+[clone cache](#files-and-environment), on whatever GitHub host it is:
+
+- **With a repo list**, it reads the list, wherever you start it. A change made with `nod repo`
+  while it runs is picked up before its next poll.
+- **With an empty list, in a clone**, it reads that clone's repository, as `--dir` does. This is
+  how it always worked; the released version only does this.
+- **With an empty list, outside a clone**, it starts with no repository: the dashboard's first
+  page offers your suggestions to add: repositories where you have open pull requests or review
+  requests.
+- **`--dir <clone>`** (or `--repo`, `--host`) serves that one clone instead of the list, and never
+  changes the list. Repositories cannot be added from the dashboard then.
 
 | Flag | Meaning |
 | --- | --- |
 | `--port <n>` | Port on `127.0.0.1`. Default 4518 |
-| `--dir <path>` | A clone of the repository. Default: this folder. nod fetches pull request objects into it (`refs/nod/*`) to compute patch-ids, and never checks anything out |
-| `--repo <owner/name>` | The repository. Default: the clone's `origin` |
-| `--host <host>` | Its GitHub host: `github.com`, `<name>.ghe.com` or a GitHub Enterprise Server. Default: the host of the clone's `origin`. Needed when `origin` names an ssh alias |
+| `--dir <path>` | Serve this one clone instead of the repo list. Default, with an empty list: this folder, when it is a clone. nod fetches pull request objects into it (`refs/nod/*`) to compute patch-ids, and never checks anything out |
+| `--repo <owner/name>` | With a clone: the repository. Default: the clone's `origin` |
+| `--host <host>` | With a clone: its GitHub host, `github.com`, `<name>.ghe.com` or a GitHub Enterprise Server. Default: the host of the clone's `origin`. Needed when `origin` names an ssh alias |
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
 | `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
@@ -45,9 +57,14 @@ of the repository.
 | `--no-open` | Do not. The default |
 
 `--dir`, `--host` and `--poll` read GitHub and cannot be combined with `--fake`. `--allow-host`
-works with and without it. There is no config file: give `--allow-host` every time.
+works with and without it. The config file holds only the repo list: give `--allow-host` every
+time.
 
-`NOD_DEBUG=1` logs each poll's queries and their GraphQL cost.
+`nod serve` reads GitHub with one query per host and poll, whatever the number of repositories
+on it (up to ten share a query; more take one more per ten). Each host has its own `gh` login and
+its own rate limit: a host that is not logged in, or rate-limited, waits on its own while the others
+read. A repository GitHub cannot read (gone, or no access) says so, and the others show as usual.
+`NOD_DEBUG=1` logs each host's poll: its queries, their GraphQL cost and the time it took.
 
 ### Fake scenarios
 
@@ -65,6 +82,29 @@ onboarding first wherever the setup or the key is not ready.
 | `inbox` | The inbox step: no `.nod/`, no key, the pull requests classified locally. Not released | the dashboard | **Share one policy with the team** |
 | `shared` | The shared policy, its check not required yet; your key active, you an admin. Not released | the dashboard | **Let agents merge on their own** |
 | `repos` | [Three repositories](/docs/dashboard#many-repositories): `tallyho/fieldbook` enforced, `tallyho/field-app` at the inbox step, `finance/ledger` on the fictional host `acme.ghe.com` with the shared policy; your key active in the first and the last. Not released | the dashboard, with a repo chip on every row | **Share one policy with the team**, for `tallyho/field-app` |
+
+## `nod repo`
+
+Not released. The repo list `nod serve` reads, from a terminal. It lives in
+`$XDG_CONFIG_HOME/nod/config.json`.
+
+| Command | Does |
+| --- | --- |
+| `nod repo list` | The repositories of the list, in order, with where each is cloned |
+| `nod repo add <repo>` | Add one: `owner/name` (on github.com), `host/owner/name` or its URL. Checks it on GitHub with `gh`'s login for its host, then clones it (blobless) into the [clone cache](#files-and-environment) |
+| `nod repo add --no-clone <repo>` | Add it without cloning now: `nod serve` clones it on first use |
+| `nod repo remove <repo>` | Take one off the list. Its clone stays in the cache; delete it by hand if you like |
+
+```sh
+nod repo add tallyho/fieldbook
+nod repo add acme.ghe.com/finance/ledger
+nod repo add https://github.com/tallyho/field-app/pull/12
+nod repo list
+```
+
+The list's order is the dashboard's wherever it needs one: the offer card shows the first
+repository's next step. Adding a repository needs `gh auth login` for its host
+(`gh auth login --hostname acme.ghe.com`) and read access to it.
 
 ## `nod init`
 
@@ -118,6 +158,8 @@ The signing key from a terminal. The passphrase is read without echo and never p
 | `$XDG_CONFIG_HOME/nod/signing-key.json` | The encrypted signing key. `~/.config/nod/` when the variable is unset |
 | `$XDG_CONFIG_HOME/nod/serve-token` | The pairing token of `nod serve` |
 | `$XDG_CONFIG_HOME/nod/serve-token-remote` | The remote token, the named host's (`--allow-host`) |
+| `$XDG_CONFIG_HOME/nod/config.json` | The repo list. Not released. Keys nod does not know are kept when it writes the file |
+| `$XDG_CACHE_HOME/nod/clones/` | The clone cache: `<host>/<owner>/<repo>.git` per repository of the list. `~/.cache/nod/` when the variable is unset. Not released |
 | `NOD_WEB_URL` | The web app to pair with, as `--web-url` |
 | `NOD_DEBUG=1` | Log each poll |
-| `gh auth token` | Where the GitHub token comes from. `gh` keeps its login under `$XDG_CONFIG_HOME/gh`, so a changed `XDG_CONFIG_HOME` also needs `GH_CONFIG_DIR` |
+| `gh auth token --hostname <host>` | Where the GitHub token of each host comes from; it is sent to that host only. `gh` keeps its login under `$XDG_CONFIG_HOME/gh`, so a changed `XDG_CONFIG_HOME` also needs `GH_CONFIG_DIR` |

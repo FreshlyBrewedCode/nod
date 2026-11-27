@@ -16,6 +16,7 @@ order: 4
 | **brief** | The pull request description an agent writes: what, why, risk, verified, look at. [Agents](/docs/agents#the-brief) |
 | **category** | Where the policy puts a pull request: `auto`, `decide` or `fyi`. [Policy](/docs/policy#requirements) |
 | **check** | The check run named `nod` on a pull request's head commit. Once enforced, a ruleset requires it; before that, a pull request that still needs someone gets a neutral check that blocks nothing. [Verifier](/docs/verifier#the-check) |
+| **clone cache** | Where nod keeps its own clone of each repository of the repo list: `$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`, blobless and bare, made on first use. `nod serve` computes patch-ids there. Deleting it costs a new clone, nothing else. Not released. [CLI](/docs/cli#files-and-environment) |
 | **classifier** | A function in the policy that looks at a pull request and reports findings. [Policy](/docs/policy#built-in-classifiers) |
 | **cluster** | Folded pull requests shown as one row, "7 low-risk changes", that expands in place |
 | **dashboard** | The web app, paired with `nod serve`. [Dashboard](/docs/dashboard) |
@@ -49,17 +50,15 @@ order: 4
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |
 | **review request** | GitHub asking a person or a team to review a pull request. At the inbox step, one asked of you, or of a team you are in, puts the pull request in Needs you. A mention is not one. Not released. [Dashboard](/docs/dashboard#the-inbox) |
-| **repo filter** | The control next to "By attention / Chronological" (and on the board, next to the grouping), once the dashboard shows more than one repository: all repositories, or one. The list, the board and what you can select follow it; this browser remembers it. Not released. [Dashboard](/docs/dashboard#many-repositories) |
+| **repo list** | The repositories `nod serve` reads into one dashboard, in order, kept in `$XDG_CONFIG_HOME/nod/config.json`. Changed in Settings → Repositories (add, with suggestions, and remove) or with `nod repo add`, `remove` and `list`; a repository from any GitHub host can be in it. With `--dir` it is that one clone and cannot be changed. Not released. [Settings](/docs/settings#repositories), [CLI](/docs/cli#nod-repo) |
 | **repo chip** | A repository's short name on each row, card and panel, once the dashboard shows more than one repository. With one, there is none and the top bar names it. Not released. [Dashboard](/docs/dashboard#many-repositories) |
 | **remote token** | The pairing token of the named host, kept apart from the host link's. [On your phone](/docs/phone#a-lost-phone) |
-| **repository list** | The repositories `nod serve` reads into one dashboard. Changed in Settings → Repositories (add, with suggestions, and remove). With `--dir` it is that one clone and cannot be changed there. Not released. [Settings](/docs/settings#repositories) |
 | **requirement** | What a pull request needs before it may merge: nothing, or slots for the author (self), someone else (peer) and named people, each filled by a nod or an approval. [Policy](/docs/policy#requirements) |
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
 | **self nod** | A nod by the pull request's author: the prompter attesting their own agent's work |
 | **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right. This version has one, Repositories. Not released. [Settings](/docs/settings) |
 | **setup page** | `#/setup`: one repository's ladder, its four steps, where each stands for the repository and you, and where they are done. Reached from an offer, the avatar menu's next steps, or the repository's row in Settings → Repositories (**The ladder ›**). Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
-| **suggestion** | A repository Settings offers to add: one where you have open pull requests or a review requested, that the repository list does not have. Not released. [Settings](/docs/settings#adding-a-repository) |
 | **setup PR** | The pull request `nod init` opens to add `.nod/` and the workflow. [Quick start](/docs/quick-start) |
 | **shared policy** | The second step of the ladder: the setup PR is merged, and the verifier classifies every pull request the same way for everyone. Its check never blocks until enforced. [Quick start](/docs/quick-start#the-ladder) |
 | **signer** | A person whose public key is in `.nod/allowed_signers` |
@@ -69,6 +68,7 @@ order: 4
 | **stale** | A nod whose pull request changed after it was made. It no longer counts |
 | **sticky comment** | The verifier's one comment on a pull request, updated in place. Posted only once the check is enforced. [Verifier](/docs/verifier#the-sticky-comment) |
 | **stuck** | A check is failing, the pull request conflicts with its base, a reviewer requested changes, or it has waited on a person for 12 hours or more. Not released: the conflict and the requested changes. [Dashboard](/docs/dashboard#attention-tiers) |
+| **suggestion** | A repository nod offers to add to the repo list (Settings, `nod repo add`): one where you have open pull requests or review requests, on each GitHub host you are logged in to, that the list does not have. Not released. [Settings](/docs/settings#adding-a-repository) |
 | **summary** | The machine-readable result in the check run's output, read by `nod serve`. [Verifier](/docs/verifier#the-summary) |
 | **tailnet** | Your private Tailscale network: the devices logged in to it. [On your phone](/docs/phone) |
 | **trust root** | `.nod/allowed_signers` on the default branch |

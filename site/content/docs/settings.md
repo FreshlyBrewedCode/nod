@@ -5,9 +5,9 @@ section: Using nod
 order: 5
 ---
 
-> **Not released.** The settings page is on `main`. The GitHub side still reads only the clone
-> `nod serve` runs in, so with real repositories the list is [fixed](#a-fixed-list) for now;
-> `nod serve --fake --scenario repos` shows a list you can change.
+> **Not released.** The settings page is on `main`. It changes the same repo list as
+> [`nod repo`](/docs/cli#nod-repo); with `--dir` the list is [fixed](#a-fixed-list).
+> `nod serve --fake --scenario repos` shows a list you can change without GitHub.
 
 **Settings** in the avatar menu opens the settings page, `#/settings`. Its sections are listed on
 the left (on a phone, as a row of tabs once there is more than one); each one has its own address,
@@ -15,7 +15,7 @@ the left (on a phone, as a row of tabs once there is more than one); each one ha
 
 ## Repositories
 
-`#/settings/repositories`: the [repository list](/docs/glossary), the repositories whose pull
+`#/settings/repositories`: the [repo list](/docs/glossary), the repositories whose pull
 requests share your dashboard. Reading a repository changes nothing in it.
 
 Each row shows:
@@ -56,7 +56,6 @@ With no repository at all, the dashboard is a page with the same field and sugge
 
 ## A fixed list
 
-`nod serve --dir <clone>` (or `nod serve` in a clone, today always) reads that one clone. The
-section then shows it read-only, with a note that says why and what to run instead. Adding and
-removing repositories from the page comes with the repository list on the GitHub side, which is not
-built yet.
+`nod serve --dir <clone>` (or `nod serve` in a clone while the repo list is empty) reads that one
+clone. The section then shows it read-only, with a note that says why and what to run instead:
+[`nod repo add`](/docs/cli#nod-repo), then `nod serve` without `--dir`.

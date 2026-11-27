@@ -82,6 +82,22 @@ no key. `nod serve` reads the repository from the clone's `origin` and polls Git
 seconds. It fetches pull request commits into the clone as `refs/nod/*` and never checks anything
 out.
 
+### More than one repository
+
+Not released. One `nod serve` can read every repository you work in, into one dashboard. Put them
+in its [repo list](/docs/cli#nod-repo), then start it anywhere, without `--dir`:
+
+```sh
+bun src/cli.ts repo add you/your-repo
+bun src/cli.ts repo add acme.ghe.com/finance/ledger    # another GitHub host is fine
+bun src/cli.ts serve
+```
+
+`nod repo add` checks each repository on GitHub and clones it into nod's
+[clone cache](/docs/cli#files-and-environment); you need no clone of your own. Started outside a
+clone with an empty list, `nod serve` shows the repositories where you have open pull requests or
+review requests, to pick one. The rows then carry a [repo chip](/docs/dashboard#many-repositories).
+
 **Needs you** holds the reviews asked of you or your team and your own stuck pull requests;
 **Approve** answers a review request on GitHub, without a key
 ([The inbox](/docs/dashboard#the-inbox)). If `gh` is not logged in, the page says so and names the
