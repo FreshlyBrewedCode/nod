@@ -28,7 +28,6 @@ import {
   localNeed,
   neededFromYou,
   ownPrHint,
-  reasonsSummary,
   reviewsSummary,
   riskWords,
   rowTag,
@@ -44,12 +43,15 @@ import {
   FilesBody,
   FyiBody,
   JourneyList,
+  MyChip,
   OwnPrNote,
   ReasonsBody,
   ReviewsBody,
   SignaturesBody,
+  whySummary,
 } from "./detail-panel";
 import { DiffIndicator } from "./diff-indicator";
+import { InsightsSection } from "./insights/insights-section";
 
 const BUTTON =
   "border-line2 bg-panel2 text-tx inline-flex h-[46px] min-w-0 items-center justify-center gap-2 rounded-[11px] border px-4 text-[15px] font-semibold whitespace-nowrap";
@@ -150,6 +152,7 @@ export function DetailPage({
             </span>
             {tag && <Tag tag={tag} />}
             {checks && <Tag tag={checks} />}
+            <MyChip pr={pr} />
           </div>
 
           {pr.brief ? (
@@ -189,13 +192,14 @@ export function DetailPage({
           {own && (
             <OwnPrNote text={own} repo={chips.size ? pr.repo : undefined} className="mt-1 mb-3.5" />
           )}
+          <InsightsSection pr={pr} className="mt-2 mb-5" />
         </div>
 
         <div className="mt-1">
           <PageFold id="journey" title="Journey" summary={journeySummary(pr.journey, now, offset)}>
             <JourneyList events={pr.journey} className="mt-0.5 mb-0" />
           </PageFold>
-          <PageFold id="reasons" title="Why this needs you" summary={reasonsSummary(pr)}>
+          <PageFold id="reasons" title="Why this needs you" summary={whySummary(pr)}>
             <ReasonsBody pr={pr} />
           </PageFold>
           {pr.classifiedBy === "local" ? (

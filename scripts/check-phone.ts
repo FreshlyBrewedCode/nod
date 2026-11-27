@@ -32,7 +32,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,6 +49,8 @@ export const SCENARIOS = [
   "shared",
   "repos",
   "dir",
+  "insights",
+  "insights-error",
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -70,6 +72,7 @@ const ROUTES = [
   "#/settings/signing",
   "#/settings/server",
   "#/settings/other-device",
+  "#/settings/inbox",
   "#/setup",
   "#/setup/inbox",
   "#/setup/enforced",
@@ -1606,7 +1609,210 @@ const APP_STATES: ReadonlyArray<State> = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// my own inbox (ADR 0009): insights on the detail page, the personal tag, the banner
+
+/** Opens a PR's detail page from its row in the list. */
+const openRow = async (page: Page, n: number) => {
+  await page
+    .getByRole("option", { name: new RegExp(`^#${n} `) })
+    .first()
+    .click();
+  await page.getByLabel(`Details of #${n}`).waitFor();
+};
+
+/** Grows the screen to the detail page's whole height, so a shot shows every insight. */
+const growToPage = async (page: Page) => {
+  const height = await page.evaluate(() => {
+    const scroller = document.querySelector("section[aria-label^='Details of'] .overflow-y-auto");
+    if (!scroller) return 0;
+    return Math.ceil(window.innerHeight - scroller.clientHeight + scroller.scrollHeight);
+  });
+  if (height > 0) await page.setViewportSize({ width: page.viewportSize()!.width, height });
+};
+
+/** Grows the screen to the document's height (a settings page scrolls the document). */
+const growToDocument = async (page: Page) => {
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  await page.setViewportSize({ width: page.viewportSize()!.width, height });
+};
+
+const insight = (page: Page, title: string) => page.locator(`article[aria-label="${title}"]`);
+
+const INSIGHTS_STATES: ReadonlyArray<State> = [
+  {
+    name: "insights: every block type on the detail page",
+    route: "#/",
+    scenarios: ["insights"],
+    act: async (page) => {
+      await openRow(page, 482);
+      await insight(page, "Notes").waitFor({ timeout: 15000 });
+      await growToPage(page);
+    },
+    assert: async (page) => {
+      for (const title of [
+        "What changed",
+        "Hotspots",
+        "Size",
+        "Biggest files",
+        "Where it changes",
+        "Churn",
+        "Notes",
+      ])
+        await must(insight(page, title).isVisible(), `no "${title}" insight`);
+      for (const sel of ["svg[role=img]", "figure ul", "dl"])
+        await must(
+          page.locator(`section[aria-label="Insights"] ${sel}`).first().isVisible(),
+          `the insights draw no ${sel}`,
+        );
+      await must(
+        page
+          .locator(
+            "section[aria-label='Insights'] [style*='url('], section[aria-label='Insights'] script",
+          )
+          .count()
+          .then((n) => n === 0),
+        "an insight drew something it must not",
+      );
+    },
+    shot: "33a-insights-detail-page",
+  },
+  {
+    name: "insights: running, on a fresh nod serve",
+    route: "#/",
+    scenarios: ["insights"],
+    fresh: true,
+    act: async (page) => {
+      await openRow(page, 482);
+      await insight(page, "When opened").waitFor({ timeout: 15000 });
+      await insight(page, "When opened").scrollIntoViewIfNeeded();
+    },
+    assert: async (page) => {
+      await must(
+        insight(page, "When opened").getByText("running…").isVisible(),
+        "the open analyzer does not say it is running",
+      );
+    },
+    shot: "33b-insights-running",
+  },
+  {
+    name: "insights: failed",
+    route: "#/",
+    scenarios: ["insights"],
+    act: async (page) => {
+      await openRow(page, 485);
+      await insight(page, "Coverage").getByText("failed").waitFor({ timeout: 15000 });
+      await insight(page, "Coverage").scrollIntoViewIfNeeded();
+    },
+    assert: async (page) => {
+      await must(
+        insight(page, "Coverage")
+          .getByText(/no coverage report/)
+          .isVisible(),
+        "the failed analyzer's error is not in its block",
+      );
+    },
+    shot: "33c-insights-failed",
+  },
+  {
+    name: "insights: timed out",
+    route: "#/",
+    scenarios: ["insights"],
+    act: async (page) => {
+      await openRow(page, 490);
+      await insight(page, "Stuck analyzer")
+        .getByText(/did not finish/)
+        .waitFor({ timeout: 30000 });
+      await insight(page, "Stuck analyzer").scrollIntoViewIfNeeded();
+    },
+    shot: "33d-insights-timed-out",
+  },
+  {
+    name: "insights: the repo's reasons and your inbox's, apart",
+    route: "#/",
+    scenarios: ["insights"],
+    act: async (page) => {
+      await openRow(page, 476);
+      await page.getByRole("button", { name: /^Why this needs you/ }).click();
+      await page.getByRole("region", { name: "Your inbox" }).scrollIntoViewIfNeeded();
+    },
+    assert: async (page) => {
+      await must(page.getByText("The repo", { exact: true }).isVisible(), "no repo group");
+      await must(
+        page.getByRole("region", { name: "Your inbox" }).getByText("watch(auth)").isVisible(),
+        "the classifier that said it is missing",
+      );
+    },
+    shot: "33e-insights-your-inbox",
+  },
+  {
+    name: "insights: the personal tag on rows, a muted one in Background",
+    route: "#/",
+    scenarios: ["insights"],
+    act: async (page) => {
+      await page.getByRole("option", { name: /low-risk changes/ }).click();
+      await page.getByLabel("your inbox: muted").waitFor();
+    },
+    assert: async (page) => {
+      await must(page.getByLabel("your inbox: auth").first().isVisible(), "no personal tag");
+    },
+    shot: "33f-insights-list",
+    full: true,
+  },
+  {
+    name: "insights: settings, inbox",
+    route: "#/settings/inbox",
+    scenarios: ["insights"],
+    act: async (page) => {
+      await page.getByText("What it loaded").waitFor();
+      await growToDocument(page);
+    },
+    assert: async (page) => {
+      await must(page.getByText("quiet-ci").isVisible(), "a classifier of mine is not listed");
+    },
+    shot: "33g-settings-inbox",
+  },
+  {
+    name: "insights-error: the banner",
+    route: "#/",
+    scenarios: ["insights-error"],
+    act: async (page) => {
+      await page.getByText("Your inbox does not load.").waitFor({ timeout: 30000 });
+    },
+    shot: "33h-inbox-banner",
+  },
+  {
+    name: "insights-error: the banner put away",
+    route: "#/",
+    scenarios: ["insights-error"],
+    act: async (page) => {
+      await page.getByText("Your inbox does not load.").waitFor({ timeout: 30000 });
+      await page.getByRole("button", { name: "Put this error away" }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByText("Your inbox does not load.")
+          .count()
+          .then((n) => n === 0),
+        "the banner stays after it was put away",
+      );
+    },
+  },
+  {
+    name: "insights-error: settings, inbox",
+    route: "#/settings/inbox",
+    scenarios: ["insights-error"],
+    act: async (page) => {
+      await page.getByRole("alert").waitFor({ timeout: 30000 });
+      await growToDocument(page);
+    },
+    shot: "33i-settings-inbox-error",
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
+  ...INSIGHTS_STATES,
   ...FORWARD_STATES,
   ...APP_STATES,
   ...REPOS_STATES,
@@ -2059,6 +2265,13 @@ export async function startServe(
     mkdirSync(web, { recursive: true });
     writeFileSync(join(web, "index.html"), "<!doctype html><title>nod</title>");
     extra = [...extra, "--web-dir", web];
+  }
+  // `insights` runs a copy of its fixture inbox from the temp config folder, where a
+  // user's would be: the page shows that path, never this checkout's.
+  if (scenario === "insights") {
+    const inbox = join(dir, `inbox-${name}`, "nod", "inbox");
+    cpSync(join("src", "server", "inbox", "fixture"), inbox, { recursive: true });
+    extra = [...extra, "--inbox", inbox];
   }
   const child = new Child(
     "bun",

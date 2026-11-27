@@ -80,6 +80,23 @@
   --on-need: #15120a;
   --shadow: 0 24px 70px #000b;
 
+  /* Insights (ADR 0009): the tones an analyzer may name, never a colour of its
+     own (`lib/insights.ts`). The six meanings are r3's; c1…c6 are series slots
+     in a fixed order, stepped for this dark panel and checked for colour-vision
+     separation of neighbours (CVD ΔE ≥ 9, normal ≥ 19, ≥ 3:1 on --panel). */
+  --insight-neutral: var(--tx2);
+  --insight-muted: #586173;
+  --insight-info: var(--know);
+  --insight-good: var(--ok);
+  --insight-warn: var(--need);
+  --insight-bad: var(--bad);
+  --insight-c1: #3987e5;
+  --insight-c2: #199e70;
+  --insight-c3: #d95926;
+  --insight-c4: #9085e9;
+  --insight-c5: #c98500;
+  --insight-c6: #d55181;
+
   --background: var(--bg);
   --foreground: var(--tx);
   --card: var(--panel);

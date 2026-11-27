@@ -33,6 +33,7 @@ import { idOf } from "../../shared/repo-key";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { clusterKey, prKey } from "@/lib/focus";
+import { personalTag, youLine } from "@/lib/personal";
 import { ago, whenText } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import {
@@ -46,7 +47,7 @@ import {
   statusText,
   whoOf,
 } from "@/lib/wording";
-import { Avatar, RepoChip, RiskBars, Tag } from "./bits";
+import { Avatar, PersonalChip, RepoChip, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import { DiffIndicator } from "./diff-indicator";
 
@@ -322,6 +323,8 @@ export function PrRow({
   );
   const activate = () => focusRow(key, { open: true });
   const hasAction = Boolean(pr.ask || pr.fyiForMe);
+  // My own inbox's tag (ADR 0009), apart from the repo's.
+  const mine = personalTag(pr);
 
   if (form >= 3) {
     // Two texts, the desktop's whole and the phone's without the name (the avatar says who,
@@ -377,6 +380,13 @@ export function PrRow({
               </span>
             ))}
             {checks && <Tag tag={checks} className="ml-1.5 phone:ml-0" />}
+            {mine && (
+              <PersonalChip
+                text={mine}
+                title={youLine(pr) ?? undefined}
+                className="ml-1.5 align-middle phone:ml-0"
+              />
+            )}
             <PhoneStats pr={pr} />
             {chrono && <PhoneActivity text={pr.lastActivity.text} />}
             {hints.length > 0 && (
@@ -448,6 +458,7 @@ export function PrRow({
           </span>
           <RepoChip repo={pr.repo} chips={chips} />
           {tag && <Tag tag={tag} />}
+          {mine && <PersonalChip text={mine} title={youLine(pr) ?? undefined} />}
           <PhoneStats pr={pr} />
           {chrono && <PhoneActivity text={pr.lastActivity.text} />}
           {hints.length > 0 && (

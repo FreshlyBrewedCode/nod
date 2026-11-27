@@ -38,7 +38,9 @@ order: 4
 | **hosted web app** | The dashboard published at `ui.nod.frebreco.de`, where deep links point: the stable release's at the root, `main`'s at `/next`. Not paired, it hands a link over to the app or to your named host (link forwarding). [Status](/docs/status#released) |
 | **installed app** | The app installed from the browser: a window and an icon of its own, it opens even when `nod serve` is not running and says so. Not released. [The app](/docs/app#install-it) |
 | **inbox** | The first step of the ladder: the dashboard for you alone, with nothing in the repository. Your `nod serve` classifies the pull requests itself (local classification), and Needs you holds your review requests and your own stuck pull requests. Not released. [Dashboard](/docs/dashboard#the-inbox) |
+| **inbox banner** | The quiet line above the list when your `inbox.ts` does not load: the error, a link to Settings → Inbox, and a button to put that error away. What your inbox said before stays meanwhile. Not released. [Your own inbox](/docs/inbox#when-it-does-not-load) |
 | **insight** | What an analyzer shows in the panel: a title and blocks (a breakdown, numbers, a series, files, text), never HTML. Labelled default or yours. Not released. [Your own inbox](/docs/inbox#insights) |
+| **Insights** | The section of the detail panel, after the brief and the journey, with one insight per analyzer of your own inbox: ready, running or failed, each in its own block. Not released. [Your own inbox](/docs/inbox#on-your-dashboard) |
 | **kit** | `@frebreco/nod/kit`: the helpers the policy and the verifier import. [Architecture](/docs/architecture#the-kit) |
 | **ladder** | The four steps of adopting nod, each one opt-in: inbox, shared policy, signing, enforced. [Quick start](/docs/quick-start#the-ladder) |
 | **local classification** | At the inbox step, your `nod serve` classifying a pull request itself, with the built-in classifiers, on the file list and brief GitHub returns. For your dashboard only: nothing is posted, nothing is required. A verifier summary always wins. The panel says "classified by your nod, not the repo". Not released. [Dashboard](/docs/dashboard#the-inbox) |
@@ -54,6 +56,7 @@ order: 4
 | **patch-id** | A hash of a pull request's diff against its base. It survives a clean rebase. [Nodding](/docs/nodding#when-a-nod-counts) |
 | **payload** | The one line of JSON a nod signs |
 | **personal layer** | Your own inbox, as opposed to the repo layer, the repository's policy. [Your own inbox](/docs/inbox) |
+| **personal tag** | Your own inbox's tag on a row: outlined, with a person glyph, never the repository's tag (filled). "muted" for a pull request your inbox muted. Not released. [Your own inbox](/docs/inbox#on-your-dashboard) |
 | **peer nod** | A nod by a signer other than the pull request's author |
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |

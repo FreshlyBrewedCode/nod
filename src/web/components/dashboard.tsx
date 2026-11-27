@@ -41,6 +41,7 @@ import {
   type StateColumnId,
 } from "../../shared/attention";
 import type {
+  InboxStatus,
   PrId,
   PrView,
   RepoInfo,
@@ -110,6 +111,7 @@ import { Board, BoardBar, type BoardColumnView, type GroupBy } from "./board";
 import { DetailPage } from "./detail-page";
 import { DetailPanel } from "./detail-panel";
 import { Legend } from "./legend";
+import { InboxBanner } from "./inbox-banner";
 import { LinkLanding } from "./link-landing";
 import { OfferCard } from "./offer";
 import { RepoFilter } from "./repo-filter";
@@ -136,6 +138,8 @@ export interface DashboardProps {
   readonly servedApp?: boolean;
   /** The update at the top level (ADR 0008 §9): leads to Settings → Server. */
   readonly update?: Indicator | null;
+  /** My own inbox (ADR 0009): null when this nod serve runs none. */
+  readonly inbox?: InboxStatus | null;
 }
 
 export function Dashboard(props: DashboardProps) {
@@ -197,6 +201,8 @@ function DashboardInner({
   go,
   servedApp = false,
   update = null,
+  // My own inbox (the personal layer), not the inbox step below.
+  inbox: myInbox = null,
   openPrRef,
 }: DashboardProps & { openPrRef: { current: (pr: PrId) => void } }) {
   const { openBatch } = useBatch();
@@ -598,6 +604,21 @@ function DashboardInner({
   );
 
   const since = useLastVisit(now);
+  // -- my inbox's `open` analyzers: asked for once per PR and head -----------
+  const askedInsights = useRef(new Set<string>());
+  const openInsights = useCallback(
+    (pr: PrView) => {
+      const key = `${idOf(pr)}@${pr.headSha}`;
+      if (askedInsights.current.has(key)) return;
+      askedInsights.current.add(key);
+      // The states arrive as `insights` pushes; a failed ask is tried again next time.
+      actions
+        .request("open-insights", { repo: pr.repo, pr: pr.number })
+        .catch(() => askedInsights.current.delete(key));
+    },
+    [actions],
+  );
+
   const state: DashboardState = {
     snapshot,
     repos,
@@ -618,6 +639,8 @@ function DashboardInner({
     ackFyi,
     openBatch,
     signingIn: (pr) => canSignWith(signer, enrolmentIn(repos, pr.repo)),
+    inbox: myInbox,
+    openInsights,
   };
 
   const needs = lanes[0]!;
@@ -806,6 +829,10 @@ function DashboardInner({
             {snapshot.sync.at ? clockTime(snapshot.sync.at, utcOffsetMinutes) : "earlier"}.
           </output>
         )}
+        <InboxBanner
+          inbox={myInbox}
+          onSettings={() => go({ view: "settings", section: "inbox" })}
+        />
         {landing ? (
           <div className="min-h-0 flex-1 overflow-auto">
             <LinkLanding

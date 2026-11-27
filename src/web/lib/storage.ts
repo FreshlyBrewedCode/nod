@@ -21,6 +21,8 @@ export const STORAGE_KEYS = {
   offers: "nod.offers",
   /** The app icon's badge: false when turned off (`readBadgeOn` in `badge.ts`). */
   badge: "nod.badge",
+  /** My inbox's errors put away from the banner (`readDismissed` in `personal.ts`), by text. */
+  inboxErrors: "nod.inboxErrors",
 } as const;
 
 export function browserStorage(): KeyValue | null {
