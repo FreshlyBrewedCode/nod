@@ -11,3 +11,4 @@ Decisions go here as `NNNN-title.md`, one per file: context, decision, consequen
 | [0005](0005-named-host.md) | Another device reaches `nod serve` through one named host, same origin |
 | [0006](0006-opt-in-ladder.md) | The opt-in ladder: approvals count, the check is neutral until enforced |
 | [0007](0007-many-repositories.md) | Many repositories: the repo list, own clones, hosts side by side, protocol 2 |
+| [0008](0008-the-app.md) | The app is the one `nod serve` serves on loopback: Host check, service worker, service, updates, badge |
