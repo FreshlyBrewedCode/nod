@@ -222,6 +222,62 @@ async function smokeTestWebUrl(installed: string): Promise<void> {
   }
 }
 
+/**
+ * My own inbox (ADR 0009): the staged `nod inbox init` writes the staged
+ * `templates/inbox/` into a scratch folder, and the staged subprocess entry
+ * (`src/server/inbox/child.ts`) loads that `inbox.ts`, its kit import
+ * rewritten to the installed kit, and says hello.
+ */
+async function smokeTestInbox(installed: string, work: string): Promise<void> {
+  const folder = join(work, "inbox");
+  const env = { PATH: process.env.PATH ?? "", HOME: work, XDG_CONFIG_HOME: join(work, "config") };
+  const init = Bun.spawnSync({
+    cmd: [process.execPath, join(installed, "src", "cli.ts"), "inbox", "init", "--inbox", folder],
+    cwd: work,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (init.exitCode !== 0 || !(await Bun.file(join(folder, "inbox.ts")).exists())) {
+    fail(`\`nod inbox init\` did not write inbox.ts.\n${init.stderr}`);
+  }
+  const child = Bun.spawn({
+    cmd: [
+      process.execPath,
+      "--no-install",
+      join(installed, "src", "server", "inbox", "child.ts"),
+      folder,
+    ],
+    cwd: folder,
+    env,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const timer = setTimeout(() => child.kill(), 20_000);
+  try {
+    const reader = child.stdout.getReader();
+    let text = "";
+    while (!text.includes("\n")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += new TextDecoder().decode(value);
+    }
+    const hello = JSON.parse(text.split("\n")[0] || "{}") as {
+      t?: string;
+      inbox?: { config?: string };
+      error?: string;
+    };
+    if (hello.t !== "hello" || hello.inbox?.config !== "yours") {
+      const stderr = await new Response(child.stderr).text().catch(() => "");
+      fail(`the inbox subprocess did not load the template: ${text.trim()}\n${stderr}`);
+    }
+  } finally {
+    clearTimeout(timer);
+    child.kill();
+  }
+}
+
 async function smokeTest(dependencies: Record<string, string>): Promise<void> {
   const node = Bun.spawnSync(["node", join(PKG, "bin", "nod.js")], {
     stdout: "pipe",
@@ -238,6 +294,7 @@ async function smokeTest(dependencies: Record<string, string>): Promise<void> {
     run([process.execPath, join(installed, "bin", "nod.js")], work);
     await smokeTestKit(work);
     await smokeTestTemplates(installed);
+    await smokeTestInbox(installed, work);
     await smokeTestWebUrl(installed);
     await smokeTestWebApp(installed);
   } finally {
