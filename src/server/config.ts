@@ -124,6 +124,19 @@ export function readConfig(file: string): ConfigRead {
   return { repos, skipped, unreadable: null };
 }
 
+/**
+ * One top-level key of the file, as JSON: undefined when the key, the file or
+ * the file's JSON is missing. Never throws. For the keys other parts of nod
+ * keep in this file, such as the update channel.
+ */
+export function readConfigValue(file: string, key: string): unknown {
+  try {
+    return load(file)?.[key];
+  } catch {
+    return undefined;
+  }
+}
+
 /** The file's modification time (ms), or null when there is none: to notice another writer. */
 export function configStamp(file: string): number | null {
   try {

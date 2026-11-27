@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ManualClock } from "../clock";
+import { addConfigRepo, keyOf, readConfig, removeConfigRepo } from "../config";
 import { defaultChannel, jsonFileChannelStore, memoryChannelStore } from "./channel-store";
 import { FakeInstaller } from "./fake-installer";
 import {
@@ -200,8 +201,55 @@ test("channel stores: memory, and a JSON file that keeps the other keys", () => 
   writeFileSync(shared, JSON.stringify({ port: 4518, channel: "bogus" }));
   expect(jsonFileChannelStore(shared).get()).toBeNull();
   jsonFileChannelStore(shared).set("stable");
-  expect(JSON.parse(readFileSync(shared, "utf8"))).toEqual({ port: 4518, channel: "stable" });
+  expect(JSON.parse(readFileSync(shared, "utf8"))).toEqual({
+    nod: "config",
+    version: 1,
+    port: 4518,
+    channel: "stable",
+  });
 
   writeFileSync(shared, "not json");
   expect(jsonFileChannelStore(shared).get()).toBeNull();
+});
+
+test("the channel and the repo list share config.json and keep each other", () => {
+  const dir = mkdtempSync(join(tmpdir(), "nod-channel-"));
+  const path = join(dir, "config.json");
+  const repo = { host: "github.com", repo: "tallyho/fieldbook" };
+  const other = { host: "acme.ghe.com", repo: "finance/ledger" };
+
+  // a channel written first, then repos: the channel survives `nod repo add` and `remove`
+  const store = jsonFileChannelStore(path);
+  store.set("next");
+  expect(addConfigRepo(path, repo)).toBe(true);
+  expect(addConfigRepo(path, other)).toBe(true);
+  expect(store.get()).toBe("next");
+  expect(removeConfigRepo(path, keyOf(repo))).toBe(true);
+  expect(jsonFileChannelStore(path).get()).toBe("next");
+
+  // a channel written over a repo list: the repos survive, nothing else changes
+  jsonFileChannelStore(path).set("stable");
+  expect(readConfig(path).repos).toEqual([other]);
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+    nod: "config",
+    version: 1,
+    repos: [other],
+    channel: "stable",
+  });
+  expect(readdirSync(dir)).toEqual(["config.json"]); // no temp file left behind
+});
+
+test("the channel store never writes over a config file nod cannot read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "nod-channel-"));
+  const path = join(dir, "config.json");
+  const newer = JSON.stringify({ nod: "config", version: 99, repos: [] });
+  writeFileSync(path, newer);
+  const store = jsonFileChannelStore(path);
+  store.set("next");
+  expect(readFileSync(path, "utf8")).toBe(newer);
+  expect(store.get()).toBe("next"); // kept in memory for this run
+
+  writeFileSync(path, "{ not json");
+  jsonFileChannelStore(path).set("next");
+  expect(readFileSync(path, "utf8")).toBe("{ not json");
 });
