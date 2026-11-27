@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { parseArgs } from "../cli";
 import { FakeServiceManager } from "./fake";
-import { describeStatus, runService, type ServiceFlags } from "./cli";
+import { describeStatus, portOf, runService, type ServiceFlags } from "./cli";
 
 const service = (...argv: string[]) => parseArgs(["service", ...argv]);
 const flags = (...argv: string[]): ServiceFlags => {
@@ -110,4 +110,70 @@ test("uninstall says what happened", async () => {
     { manager: new FakeServiceManager(), io: d.io },
   );
   expect(d.out.join("")).toBe("nod service: it was not installed\n");
+});
+
+test("status names the gh the unit runs and what the running service sees of GitHub", async () => {
+  const running = new FakeServiceManager({
+    state: "running",
+    unitPath: "/home/mara/.config/systemd/user/nod.service",
+    command: ["/b/bun", "/n/cli.ts", "serve", "--port", "4600"],
+    env: { PATH: "/nonexistent" },
+    pid: 4242,
+  });
+  const asked: number[] = [];
+  const c = capture();
+  await runService(
+    { command: "status", serveArgs: [] },
+    {
+      manager: running,
+      io: c.io,
+      health: async (port) => {
+        asked.push(port);
+        return {
+          host: "github.com",
+          state: "signed-out",
+          detail: "no oauth token found for github.com",
+        };
+      },
+    },
+  );
+  expect(asked).toEqual([4600]);
+  expect(c.out.join("")).toContain(
+    "  gh:      not found on the service's PATH (nod service install pins it)\n  GitHub:  github.com: gh is not logged in (no oauth token found for github.com)\n",
+  );
+  const quiet = capture();
+  await runService(
+    { command: "status", serveArgs: [] },
+    { manager: running, io: quiet.io, health: async () => null },
+  );
+  expect(quiet.out.join("")).toContain("GitHub:  the service does not answer on its port yet");
+});
+
+test("install warns about what the service's nod would not see", async () => {
+  const c = capture();
+  const code = await runService(
+    { command: "install", serveArgs: [] },
+    {
+      manager: new FakeServiceManager(),
+      io: c.io,
+      entry: "/x/cli.ts",
+      preflight: () => ({
+        gh: "/opt/tools/bin/gh",
+        git: "/usr/bin/git",
+        hosts: [{ host: "github.com", ok: false, detail: "no oauth token found for github.com" }],
+        tokenVars: ["GH_TOKEN"],
+        droppedProxies: [],
+      }),
+    },
+  );
+  expect(code).toBe(0);
+  expect(c.err.join("")).toContain(
+    "nod service: warning: `gh` is not logged in to github.com without GH_TOKEN",
+  );
+});
+
+test("the port of a service's command", () => {
+  expect(portOf(["bun", "cli.ts", "serve"])).toBe(4518);
+  expect(portOf(["bun", "cli.ts", "serve", "--port", "4600"])).toBe(4600);
+  expect(portOf(["bun", "cli.ts", "serve", "--port=4601"])).toBe(4601);
 });

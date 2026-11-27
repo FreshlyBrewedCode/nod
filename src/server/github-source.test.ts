@@ -791,7 +791,8 @@ describe("setup and enrolment", () => {
     const pr = await source.openEnrolPr(keyOf(source), mine);
     expect(pr).toEqual({ number: 77, url: `https://github.com/${REPO}/pull/77` });
     const rest = t.gh.rests().map((c) => `${c.method} ${c.path.split("?")[0]}`);
-    expect(rest.filter((r) => !r.includes("/rules/"))).toEqual([
+    // `GET /user`: the account, read once a poll reached GitHub.
+    expect(rest.filter((r) => !r.includes("/rules/") && r !== "GET /user")).toEqual([
       `GET /repos/${REPO}/git/ref/heads/main`,
       `GET /repos/${REPO}/contents/.nod/allowed_signers`,
       `POST /repos/${REPO}/git/refs`,

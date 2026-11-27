@@ -27,6 +27,7 @@ const manager = (platform: NodeJS.Platform) =>
     nod,
     cwd: "/home/mara/code/widgets",
     env,
+    findGh: () => "/home/mara/.local/bin/gh",
   });
 
 const systemctlShow = (active: boolean) =>
@@ -43,6 +44,8 @@ test("systemd: install writes the unit under the given home and starts it", asyn
     'ExecStart="/home/mara/.bun/bin/bun" "/home/mara/nod/src/cli.ts" "serve" "--port" "4600"',
   );
   expect(unit).toContain('Environment="PATH=/home/mara/.bun/bin:/usr/bin"');
+  expect(unit).toContain('Environment="NOD_GH=/home/mara/.local/bin/gh"');
+  expect(unit).toContain('Environment="NOD_SERVICE=1"');
   expect(unit).not.toContain("never-written");
   expect(runner.lines).toEqual([
     "systemctl --user daemon-reload",
@@ -54,6 +57,11 @@ test("systemd: install writes the unit under the given home and starts it", asyn
     state: "running",
     unitPath,
     command: ["/home/mara/.bun/bin/bun", "/home/mara/nod/src/cli.ts", "serve", "--port", "4600"],
+    env: {
+      PATH: "/home/mara/.bun/bin:/usr/bin",
+      NOD_GH: "/home/mara/.local/bin/gh",
+      NOD_SERVICE: "1",
+    },
     pid: 812,
   });
 });

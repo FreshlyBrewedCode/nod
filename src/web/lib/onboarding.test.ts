@@ -12,7 +12,9 @@ import { Session } from "../../server/session";
 import { FakeSigner } from "../../server/signer";
 import type {
   Account,
+  AppState,
   Enrolment,
+  GhLogin,
   PrLink,
   RepoInfo,
   RepoPermission,
@@ -26,6 +28,8 @@ import {
   DISMISSED_LIMIT,
   cardOf,
   dismiss,
+  ghLine,
+  isServiceNod,
   landingOf,
   offerKey,
   offerWords,
@@ -39,6 +43,7 @@ import {
   shortFingerprint,
   shortPath,
   signerLine,
+  signInViewOf,
   teammates,
   type Landing,
   type ServerState,
@@ -97,6 +102,10 @@ describe("where a first open lands: nothing gates but gh and a repo", () => {
 
   test("an empty repo list (fake fresh): add a repository", () => {
     expect(landingOf({ me: ME, repos: [] })).toBe("add-repo");
+  });
+
+  test("an empty repo list with no account: the sign-in page, never the add page", () => {
+    expect(landingOf({ me: null, repos: [] })).toBe("sign-in");
   });
 
   test("a repo with nothing in it and no key: the dashboard", () => {
@@ -449,7 +458,7 @@ describe("words", () => {
         "`gh` is not logged in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com`.",
       ),
     ).toBe(
-      "nod serve is not signed in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com` in a terminal, then restart nod serve.",
+      "nod serve is not signed in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com` in a terminal; nod serve picks the login up by itself.",
     );
     expect(say("key-exists")).toContain("never replaces");
     // No key is never about the setup PR any more (#61).
@@ -523,5 +532,80 @@ describe("many repos (ADR 0007): one card, the menu per repo, the setup page's r
     expect(setupRepoOf(all, null)?.repo.key).toBe("tallyho/field-app");
     expect(setupRepoOf([fieldbook], null)?.repo.key).toBe(REPO);
     expect(setupRepoOf([], null)).toBeNull();
+  });
+});
+
+describe("the sign-in page: why there is no account, and what to do", () => {
+  const gh = (over: Partial<GhLogin> = {}): GhLogin => ({
+    host: "github.com",
+    state: "signed-out",
+    path: "/opt/tools/bin/gh",
+    detail: "no oauth token found for github.com",
+    checkedAt: 0,
+    service: false,
+    ...over,
+  });
+  const view = (g: GhLogin | null, service = false, host = "github.com") =>
+    signInViewOf({ host, gh: g, service });
+
+  test("not logged in: the login command; it looks again by itself", () => {
+    const v = view(gh());
+    expect(v).toMatchObject({ kind: "signed-out", title: "Sign in to GitHub", retries: true });
+    expect(v.commands).toEqual(["gh auth login"]);
+    expect(v.after).toEqual(["nod looks again every 15 s and moves on by itself."]);
+    expect(v.facts).toEqual([
+      { label: "gh", value: "/opt/tools/bin/gh" },
+      { label: "gh said", value: "no oauth token found for github.com" },
+    ]);
+  });
+
+  test("as the service: its environment counts; log in, then install the service again", () => {
+    const v = view(gh(), true);
+    expect(v.commands).toEqual(["gh auth login", "nod service install"]);
+    expect(v.lines.join(" ")).toContain("not your terminal’s");
+    expect(v.lines.join(" ")).toContain("`GH_TOKEN`");
+  });
+
+  test("no gh: install it, or, as the service, set it up again where gh works", () => {
+    const none = gh({ state: "no-gh", path: null, detail: null });
+    expect(view(none)).toMatchObject({ kind: "no-gh", title: "nod can’t find gh" });
+    expect(view(none).commands).toEqual(["gh auth login"]);
+    expect(view(none).facts).toEqual([{ label: "gh", value: "not found on nod serve's PATH" }]);
+    expect(view(none, true).commands).toEqual(["nod service install"]);
+  });
+
+  test("GitHub not reachable: no command, what GitHub said, the host named", () => {
+    const v = view(gh({ state: "unreachable", host: "acme.ghe.com", detail: "Unable to connect" }));
+    expect(v).toMatchObject({ kind: "unreachable", title: "Can’t reach acme.ghe.com yet" });
+    expect(v.commands).toEqual([]);
+    expect(v.facts.at(-1)).toEqual({ label: "GitHub said", value: "Unable to connect" });
+  });
+
+  test("off github.com: the host's login command and title", () => {
+    const v = view(gh({ host: "acme.ghe.com" }));
+    expect(v.title).toBe("Sign in to acme.ghe.com");
+    expect(v.commands).toEqual(["gh auth login --hostname acme.ghe.com"]);
+  });
+
+  test("an older server: the old words, with the restart", () => {
+    const v = view(null, false, "acme.ghe.com");
+    expect(v).toMatchObject({ kind: "older-server", retries: false });
+    expect(v.commands).toEqual(["gh auth login --hostname acme.ghe.com"]);
+    expect(v.lines[0]).toContain("restart `nod serve`");
+  });
+
+  test("the service: as it says, or by its pid (a unit from before)", () => {
+    const app = (thisNod: boolean) => ({ service: { thisNod } }) as unknown as AppState;
+    expect(isServiceNod(gh({ service: true }), null)).toBe(true);
+    expect(isServiceNod(gh(), app(true))).toBe(true);
+    expect(isServiceNod(gh(), app(false))).toBe(false);
+    expect(isServiceNod(null, null)).toBe(false);
+  });
+
+  test("Settings → Server's line", () => {
+    expect(ghLine(gh({ state: "signed-in", detail: null }), ME)).toBe(
+      `Signed in to github.com as ${ME.login}, with the login of \`gh\`.`,
+    );
+    expect(ghLine(gh({ state: "no-gh" }), null)).toContain("finds no `gh`");
   });
 });

@@ -28,8 +28,9 @@ import { REPO_HELP, parseRepoArgs, type RepoFlags } from "./server/repo-cli";
 import { INBOX_HELP, parseInboxArgs, type InboxFlags } from "./server/inbox/cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 import type { AppSeams } from "./server/app-control";
-import { defaultConfigFile } from "./server/config";
+import { defaultConfigFile, readConfig } from "./server/config";
 import { createServiceManager } from "./service/manager";
+import { hostsToCheck, servicePreflight } from "./service/preflight";
 import { GitHubReleaseFeed, createInstaller, jsonFileChannelStore } from "./server/update";
 
 // Placeholder: the release task (semantic-release) stamps the real version.
@@ -436,6 +437,7 @@ function realAppSeams(): AppSeams {
     installer: createInstaller({ entryPath }),
     channelStore: jsonFileChannelStore(defaultConfigFile()),
     service: createServiceManager(),
+    preflight: (hosts) => servicePreflight({ env: process.env, hosts }),
   };
 }
 
@@ -464,8 +466,18 @@ async function main(argv: readonly string[]): Promise<number> {
       return (await import("./server/signer/key-cli")).runKey(cmd.flags);
     case "repo":
       return (await import("./server/repo-cli")).runRepo(cmd.flags);
-    case "service":
-      return (await import("./service/cli")).runService(cmd.flags);
+    case "service": {
+      const { runService, fetchHealth } = await import("./service/cli");
+      const listed = () => readConfig(defaultConfigFile()).repos.map((r) => r.host);
+      return runService(cmd.flags, {
+        preflight: () =>
+          servicePreflight({
+            env: process.env,
+            hosts: hostsToCheck(cmd.flags.serveArgs, listed()),
+          }),
+        health: fetchHealth,
+      });
+    }
     case "inbox":
       return (await import("./server/inbox/cli")).runInbox(cmd.flags, { version: VERSION });
     case "init": {

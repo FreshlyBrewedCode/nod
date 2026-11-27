@@ -34,9 +34,31 @@ paths, so install it from a checkout or a global install, not from a `bunx` run,
 cleaned up (nod warns if it looks like one). It starts in the folder you installed from, which
 matters only while the [repo list](/docs/cli#nod-repo) is empty: then that folder, if it is a
 clone, is the one repository it reads, as with `nod serve`. With a repo list it reads the list,
-wherever it started, and a `nod repo add` is picked up while it runs. It gets the `PATH` you installed with, so it finds `gh`
-and `git`, and `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `GH_CONFIG_DIR` and `NOD_WEB_URL` if you set
-them. A token in your environment is never copied into the unit: `gh` keeps its own login.
+wherever it started, and a `nod repo add` is picked up while it runs.
+
+## What the service gets
+
+A service does not start from your terminal, so it does not get your shell's environment. It
+gets what you installed it with, written into the unit:
+
+- the `PATH`, and `NOD_GH`, the absolute path of the `gh` that `PATH` finds: the service runs
+  that `gh`, and finds `git` on the same `PATH`;
+- `HOME`, and `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `GH_CONFIG_DIR` and `NOD_WEB_URL` if you set
+  them;
+- a proxy (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`) and extra CA certificates (`SSL_CERT_FILE`,
+  `SSL_CERT_DIR`, `NODE_EXTRA_CA_CERTS`) if you set them, but not a proxy address with a password
+  in it;
+- `NOD_SERVICE=1`, so its pages know they talk to the service.
+
+A token in your environment (`GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`) is never copied
+into the unit: it would sit in a file on disk. The service reads GitHub with the login `gh` keeps
+itself (`gh auth login`), in its config or the system's keyring.
+
+Before it installs anything, `nod service install` runs `gh auth token` the way the service will,
+for each host of the repo list (github.com with an empty list), and warns when the service would
+not be signed in: no `gh` on that `PATH`, no `git`, or a `gh` that is logged in only through
+`GH_TOKEN` in your shell. **Run nod in the background** checks the same and, rather than hand the
+port to a service that could not read GitHub, does not set it up and says why.
 
 ## From the page
 
@@ -50,9 +72,27 @@ terminal says so. The service, which could not start while the port was taken, s
 try a few seconds later. The page stays paired (the same token file) and reconnects to it by itself.
 
 From then on an [update](/docs/updates) restarts nod through the service: no terminal needed. The
-section also shows the service's unit file, the command it runs and where its output goes, and
-**Remove the service…** stops and removes it. These buttons are only on this machine's page,
-never on another device's.
+section also shows the service's unit file, the command it runs and where its output goes, what it
+sees of GitHub (the `gh` it runs and its login), and **Remove the service…** stops and removes it.
+These buttons are only on this machine's page, never on another device's.
+
+## When the page says "Sign in"
+
+The service's `nod serve` reads GitHub with what its own environment finds, which can differ from
+your terminal. Its page says which of three it is, names the host, and says what to do:
+
+- **nod can't find gh**: no `gh` on the service's `PATH`. Run `nod service install` again in a
+  terminal where `gh auth status` works.
+- **Sign in to GitHub** (or to your host): `gh` is there, but not logged in for the service. If
+  `gh auth status` in your terminal works through `GH_TOKEN`, the service does not get it: run
+  `gh auth login`, then `nod service install` again. On Linux, `gh` may keep its login in the
+  keyring, which a service reaches only while your login session has unlocked it.
+- **Can't reach GitHub yet**: `gh` has a login, GitHub did not answer, for example right after
+  login before the network is up, or behind a proxy the service was not given.
+
+In each case `nod serve` looks again every 15 seconds and the page moves on by itself once it is
+signed in; **Try again** looks at once. No restart is needed. `nod service status` and
+Settings → Server show what the service sees, and its log (below) has a line for each change.
 
 ## Pair a browser
 
@@ -63,7 +103,8 @@ since the pairing token is kept in `$XDG_CONFIG_HOME/nod/serve-token`.
 ## Look, change, remove
 
 ```sh
-nod service status      # not installed, installed but not running, or running; unit and command
+nod service status      # not installed, installed but not running, or running; unit, command,
+                        # the gh it runs and, while it runs, what it sees of GitHub
 nod service install …   # again, with other options: replaces the unit and restarts
 nod service uninstall   # stop it and remove the unit
 ```

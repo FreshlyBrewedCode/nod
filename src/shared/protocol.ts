@@ -110,6 +110,35 @@ export interface Account {
 }
 
 /**
+ * What `nod serve` itself sees of `gh` and its login, on the account's host
+ * (the first repo's; github.com without a repo). It is this process's view:
+ * a service has its own environment, which may differ from the terminal's.
+ * While it is not `signed-in`, nod serve checks again by itself (every
+ * {@link GH_RETRY_MS}) and pushes `account` when it changes.
+ */
+export interface GhLogin {
+  /** Lowercase host name, as `gh auth login --hostname` takes it. */
+  readonly host: string;
+  /**
+   * `signed-in`: the account is read. `no-gh`: no `gh` on nod serve's PATH.
+   * `signed-out`: `gh` has no login for the host (or GitHub refused its
+   * token). `unreachable`: `gh` has a login, GitHub did not answer (yet).
+   */
+  readonly state: "signed-in" | "no-gh" | "signed-out" | "unreachable";
+  /** The `gh` nod serve runs, absolute; null when it finds none. */
+  readonly path: string | null;
+  /** Why, in one line from `gh` or GitHub (never a token); null when signed in. */
+  readonly detail: string | null;
+  /** When it was last checked (ms since the epoch); null: not yet. */
+  readonly checkedAt: number | null;
+  /** This nod serve runs as the background service (`nod service install`). */
+  readonly service: boolean;
+}
+
+/** How often nod serve asks `gh` and GitHub again while it is not signed in. */
+export const GH_RETRY_MS = 15_000;
+
+/**
  * The GitHub host `nod serve` reads, from its clone's origin: github.com,
  * `<name>.ghe.com` or a GitHub Enterprise Server. PR and repo links start
  * at `webUrl`.
@@ -997,6 +1026,15 @@ export interface Requests {
    */
   "device-link": { body: Record<never, never>; result: DeviceLink };
   /**
+   * Ask `gh` and GitHub again now, for the sign-in page's "Try again" (nod
+   * serve also does by itself). Resolves with what it found; a change also
+   * arrives as an `account` push. Either side.
+   */
+  "check-github": {
+    body: Record<never, never>;
+    result: { readonly me: Account | null; readonly gh: GhLogin };
+  };
+  /**
    * My inbox (ADR 0009): run the `when: "open"` analyzers of a PR, as the
    * panel opens on it. Answers at once with the PR's insights as they are
    * now (a result cached for its patch-id is `ready` already, the rest
@@ -1137,6 +1175,8 @@ export interface Welcome {
    * is not logged in (onboarding step 1 says so).
    */
   readonly me: Account | null;
+  /** What nod serve sees of `gh` and the login (added within protocol 2; absent from an older server). */
+  readonly gh?: GhLogin;
   /** Every repo it reads, in its order; empty while a `managed` list has none yet. */
   readonly repos: ReadonlyArray<RepoInfo>;
   /** Whether the list can be changed from the web app (`managed`), or is the one `--dir` clone (`fixed`). */
@@ -1155,6 +1195,8 @@ export type ServerToClient =
   | Welcome
   | ({ readonly t: "snapshot" } & Snapshot)
   | { readonly t: "signer"; readonly signer: SignerState }
+  /** The account or what nod serve sees of `gh` changed (signed in after all, `gh` found…): the welcome's `me` and `gh`. */
+  | { readonly t: "account"; readonly me: Account | null; readonly gh: GhLogin }
   /** The app's state changed (an update found, an install's progress, the service). */
   | { readonly t: "app"; readonly app: AppState }
   /** Every repo again, on a change of one's setup, my enrolment in one, or the list. */

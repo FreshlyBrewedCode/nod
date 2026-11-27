@@ -17,6 +17,13 @@
  *   blobless bare clone under `$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`,
  *   made on the first patch-id (`github/clone.ts`). Removing a repo leaves
  *   its clone: a cache, deleted by hand.
+ * - **The login** (`account`, `gh()`): the account of the first repo's host
+ *   (github.com without a repo) through `gh`'s token there. A missing `gh`,
+ *   a host `gh` is not logged in to, or a GitHub that does not answer is
+ *   asked again every `GH_RETRY_MS` (and on `check-github`), never kept as
+ *   "not logged in": a service that starts before the network or the
+ *   keyring, or a `gh auth login` made meanwhile, needs no restart. Each
+ *   change is logged once and pushed as `account`.
  * - **Pushes.** `repos` when the list or my login on a repo's host changed
  *   (before the `prs` that follows it), `prs` only when the user's view
  *   changed, `setup` and `enrolment` when a repo's setup or my enrolment did.
@@ -28,18 +35,20 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { GITHUB_COM, githubHost, type GitHubHost } from "../kit/host.ts";
-import type {
-  Account,
-  Enrolment,
-  Person,
-  PrLink,
-  RepoKey,
-  RepoList,
-  RepoName,
-  RepoSuggestion,
-  SetupStatus,
-  Snapshot,
-  SyncStatus,
+import {
+  GH_RETRY_MS,
+  type Account,
+  type Enrolment,
+  type GhLogin,
+  type Person,
+  type PrLink,
+  type RepoKey,
+  type RepoList,
+  type RepoName,
+  type RepoSuggestion,
+  type SetupStatus,
+  type Snapshot,
+  type SyncStatus,
 } from "../shared/protocol";
 import { parseRepoInput, repoKey, sameRepo } from "../shared/repo-key";
 import type { Clock, Timer } from "./clock";
@@ -55,7 +64,8 @@ import {
   type ConfigRepo,
 } from "./config";
 import { gitEnv } from "../kit/patch-id.ts";
-import { GitHubApi } from "./github/api";
+import { GitHubApi, GitHubApiError } from "./github/api";
+import { findGh, ghToken as askGh, isToken, type GhFailure } from "./github/gh";
 import {
   CloneError,
   OwnClone,
@@ -101,8 +111,19 @@ export interface GitHubSourceOptions {
   readonly clock: Clock;
   /** The repos at the start, in order. */
   readonly repos: ReadonlyArray<RepoSpec>;
-  /** The API for a host; null: `gh` is not logged in there. Asked once per host. */
-  readonly api: (host: GitHubHost) => GitHubApi | null;
+  /**
+   * The API for a host, or why there is none (null: `gh` is not logged in
+   * there). An API is kept; a failure is asked again later (`force`: now,
+   * past any cache of the token).
+   */
+  readonly api: (
+    host: GitHubHost,
+    options: { readonly force: boolean },
+  ) => GitHubApi | GhFailure | null;
+  /** The `gh` nod serve runs, for what `gh()` says (default: none named). */
+  readonly ghPath?: () => string | null;
+  /** This nod serve is the background service (`NOD_SERVICE=1`): `GhLogin.service`. */
+  readonly service?: boolean;
   /** A repo's patch-ids, setup PR and commit identity. */
   readonly repoOptions: (spec: RepoSpec) => Omit<RepoOptions, "name">;
   /**
@@ -134,8 +155,14 @@ export class GitHubSource implements Source {
   private readonly log: (line: string) => void;
   private entries: Entry[] = [];
   private readonly hosts = new Map<string, HostPoller>();
-  private readonly apis = new Map<string, GitHubApi | null>();
-  private readonly accounts = new Map<string, Account | null>();
+  private readonly apis = new Map<string, GitHubApi>();
+  /** Why a host has no API, from the last ask. */
+  private readonly failures = new Map<string, GhFailure>();
+  /** Hosts whose token GitHub refused: the next ask goes past the token's cache. */
+  private readonly refused = new Set<string>();
+  private readonly accounts = new Map<string, Account>();
+  private login: GhLogin | null = null;
+  private loginTimer: Timer | null = null;
   private readonly listeners = new Set<(change: SourceChange) => void>();
   private readonly last = { repos: "", prs: "", setup: "", enrolment: "" };
   private stamp: number | null = null;
@@ -160,6 +187,10 @@ export class GitHubSource implements Source {
       this.configTimer = this.clock.every(this.options.pollMs ?? DEFAULT_POLL_MS, () =>
         this.syncConfig(),
       );
+    // Not signed in (no gh, no login, GitHub not reachable yet): look again.
+    this.loginTimer = this.clock.every(GH_RETRY_MS, () => {
+      if (!this.signedIn()) void this.account();
+    });
   }
 
   /** Resolves once every host's first poll ended, well or not. */
@@ -179,9 +210,19 @@ export class GitHubSource implements Source {
 
   // -- the repos and hosts ------------------------------------------------------
 
-  private apiFor(host: GitHubHost): GitHubApi | null {
-    if (!this.apis.has(host.name)) this.apis.set(host.name, this.options.api(host));
-    return this.apis.get(host.name) ?? null;
+  private apiFor(host: GitHubHost, force = false): GitHubApi | null {
+    const had = this.apis.get(host.name);
+    if (had) return had;
+    const got = this.options.api(host, { force: force || this.refused.has(host.name) });
+    // Past the cache once: later asks wait their turn (GH_RETRY_MS) again.
+    this.refused.delete(host.name);
+    if (got instanceof GitHubApi) {
+      this.apis.set(host.name, got);
+      this.failures.delete(host.name);
+      return got;
+    }
+    this.failures.set(host.name, got ?? { state: "signed-out", path: null, detail: null });
+    return null;
   }
 
   private hostFor(host: GitHubHost): HostPoller {
@@ -190,7 +231,7 @@ export class GitHubSource implements Source {
       poller = new HostPoller({
         clock: this.clock,
         host,
-        api: this.apiFor(host),
+        api: () => this.apiFor(host),
         repos: () => this.entries.filter((e) => e.spec.host.name === host.name).map((e) => e.repo),
         beforePoll: () => this.syncConfig(),
         polled: () => this.rebuild(host.name),
@@ -313,16 +354,41 @@ export class GitHubSource implements Source {
   private listChanged(): void {
     for (const host of this.hosts.values()) host.poke();
     this.emitChanges();
+    // The first repo's host may be another one now: its account.
+    if (!this.signedIn()) void this.account();
   }
 
   // -- Source: reading ------------------------------------------------------
 
-  /** The account of the first repo's host (github.com without a repo). */
-  async account(): Promise<Account | null> {
-    const host = this.entries[0]?.spec.host ?? githubHost(GITHUB_COM);
-    if (this.accounts.has(host.name)) return this.accounts.get(host.name)!;
-    const api = this.apiFor(host);
-    if (!api) return null;
+  /** The host of the account: the first repo's, github.com without a repo. */
+  private accountHost(): GitHubHost {
+    return this.entries[0]?.spec.host ?? githubHost(GITHUB_COM);
+  }
+
+  private signedIn(): boolean {
+    return this.accounts.has(this.accountHost().name);
+  }
+
+  /**
+   * The account of the first repo's host (github.com without a repo); null
+   * while there is none, and then `gh()` says why. Kept once read; a
+   * failure is not: the next call asks again (`force`: past the token's
+   * cache, for "Try again").
+   */
+  async account(options: { readonly force?: boolean } = {}): Promise<Account | null> {
+    const host = this.accountHost();
+    const path = () => this.options.ghPath?.() ?? null;
+    const had = this.accounts.get(host.name);
+    if (had) {
+      this.setLogin({ host: host.name, state: "signed-in", path: path(), detail: null });
+      return had;
+    }
+    const api = this.apiFor(host, options.force ?? false);
+    if (!api) {
+      const why = this.failures.get(host.name)!;
+      this.setLogin({ host: host.name, ...why });
+      return null;
+    }
     try {
       const r = await api.rest<{ login: string; name: string | null }>("GET", "/user");
       const scopes = (r.headers.get("x-oauth-scopes") ?? "")
@@ -331,11 +397,55 @@ export class GitHubSource implements Source {
         .filter(Boolean);
       const account = { login: r.data.login, name: r.data.name ?? null, scopes };
       this.accounts.set(host.name, account);
+      this.setLogin({ host: host.name, state: "signed-in", path: path(), detail: null });
+      // Hosts that waited for a login read now.
+      for (const poller of this.hosts.values())
+        if (poller.sync.at === null && poller.sync.error && poller.api) void poller.refresh();
       return account;
     } catch (error) {
-      this.log(`nod serve: reading the gh account on ${host.name} failed: ${message(error)}`);
+      // A token GitHub refuses (expired, revoked): ask gh again next time, it may have a new one.
+      const refused = error instanceof GitHubApiError && error.status === 401;
+      if (refused) {
+        this.apis.delete(host.name);
+        this.refused.add(host.name);
+      }
+      this.setLogin({
+        host: host.name,
+        state: refused ? "signed-out" : "unreachable",
+        path: path(),
+        detail: refused ? `GitHub refused gh's token for ${host.name}` : message(error),
+      });
       return null;
     }
+  }
+
+  /** What this nod serve sees of `gh` and the login (`welcome.gh`). */
+  gh(): GhLogin {
+    return (
+      this.login ?? {
+        host: this.accountHost().name,
+        state: "unreachable",
+        path: this.options.ghPath?.() ?? null,
+        detail: "not checked yet",
+        checkedAt: null,
+        service: this.options.service ?? false,
+      }
+    );
+  }
+
+  /** A new look at the login: logged once per change, pushed as `account`. */
+  private setLogin(next: Omit<GhLogin, "checkedAt" | "service">): void {
+    const before = this.login;
+    this.login = { ...next, checkedAt: this.clock.now(), service: this.options.service ?? false };
+    const same =
+      before !== null &&
+      before.host === next.host &&
+      before.state === next.state &&
+      before.path === next.path &&
+      before.detail === next.detail;
+    if (same || this.stopped) return;
+    this.log(`nod serve: ${loginLine(this.login)}`);
+    for (const listener of this.listeners) listener("account");
   }
 
   snapshot(): Snapshot | null {
@@ -575,6 +685,7 @@ export class GitHubSource implements Source {
   stop(): void {
     this.stopped = true;
     this.configTimer?.clear();
+    this.loginTimer?.clear();
     for (const h of this.hosts.values()) h.stop();
     for (const e of this.entries) e.repo.stop();
     this.listeners.clear();
@@ -591,6 +702,8 @@ export class GitHubSource implements Source {
     if (this.stopped) return;
     for (const e of this.entries) if (e.spec.host.name === host) e.repo.rebuild();
     this.emitChanges();
+    // A poll that read GitHub: the account can be read too, if it was not.
+    if (!this.signedIn() && this.hosts.get(host)?.viewer) void this.account();
   }
 
   private emitChanges() {
@@ -619,6 +732,23 @@ export class GitHubSource implements Source {
 
 const specOf = (e: Entry): ConfigRepo => ({ host: e.spec.host.name, repo: e.spec.name });
 
+/** The log line of a login state: what the journal of a service shows. */
+export function loginLine(login: GhLogin): string {
+  const via = login.path ? ` (${login.path})` : "";
+  const said = login.detail ? `: ${login.detail}` : "";
+  const again = `; nod serve checks again every ${GH_RETRY_MS / 1000} s`;
+  switch (login.state) {
+    case "signed-in":
+      return `signed in to ${login.host} through gh${via}`;
+    case "no-gh":
+      return `no gh on nod serve's PATH (${process.env.PATH ?? "no PATH"})${said}: nod reads GitHub through gh's login${login.service ? "; run `nod service install` again in a terminal where gh works" : ""}${again}`;
+    case "signed-out":
+      return `gh${via} is not logged in to ${login.host}${said}${login.service ? "; the service has its own environment: run `nod service install` again in a terminal where gh works" : ""}${again}`;
+    case "unreachable":
+      return `could not reach GitHub on ${login.host}${said}${again}`;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // putting it together for `nod serve`
 
@@ -640,29 +770,25 @@ export interface GithubSourceSetup {
   readonly version?: string;
   readonly pollMs?: number;
   readonly myKey?: () => string | null;
-  /** Test seams: a host's token, its `fetch`, the clone's patch-ids, where nod clones from. */
-  readonly token?: (host: string) => string | null;
+  /**
+   * Test seams: a host's token (or why there is none), its `fetch`, the
+   * clone's patch-ids, where nod clones from, the environment `gh` runs in.
+   */
+  readonly token?: (host: string) => string | GhFailure | null;
   readonly fetch?: (host: GitHubHost) => typeof fetch;
   readonly patchIds?: PatchIds;
   readonly cloneUrl?: (host: GitHubHost, name: string) => string;
   readonly log?: (line: string) => void;
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 /**
  * The token `gh` holds for `host` (`gh auth token --hostname <host>`); null
- * when it is not logged in there. Never logged.
+ * when it is not logged in there (`github/gh.ts` says why). Never logged.
  */
 export function ghToken(host: string): string | null {
-  try {
-    const r = Bun.spawnSync(["gh", "auth", "token", "--hostname", host], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const token = r.stdout.toString().trim();
-    return r.exitCode === 0 && token ? token : null;
-  } catch {
-    return null;
-  }
+  const r = askGh(host);
+  return isToken(r) ? r.token : null;
 }
 
 /** The commit identity (`user.name`, `user.email`) git would use in `dir`. */
@@ -704,25 +830,49 @@ export function githubSource(setup: GithubSourceSetup): GitHubSource {
   const cwd = resolve(setup.cwd ?? process.cwd());
   const configFile = setup.configFile ?? defaultConfigFile();
   const cache = setup.cacheDir ?? defaultCacheDir();
-  const tokens = new Map<string, string | null>();
-  const tokenOf = (host: string) => {
-    if (!tokens.has(host)) tokens.set(host, setup.token ? setup.token(host) : ghToken(host));
-    return tokens.get(host) ?? null;
+  const env = setup.env ?? process.env;
+  // A token is kept; no token is asked again after GH_RETRY_MS (or at once, `force`).
+  const tokens = new Map<string, string>();
+  const failed = new Map<string, { at: number; why: GhFailure }>();
+  const ask = (host: string): string | GhFailure => {
+    if (setup.token) return setup.token(host) ?? { state: "signed-out", path: null, detail: null };
+    const r = askGh(host, env);
+    return isToken(r) ? r.token : r;
   };
-  const api = (host: GitHubHost) => {
-    const token = tokenOf(host.name);
-    return token
+  const tokenResult = (host: string, force = false): string | GhFailure => {
+    if (!force && tokens.has(host)) return tokens.get(host)!;
+    const last = failed.get(host);
+    if (!force && last && setup.clock.now() - last.at < GH_RETRY_MS) return last.why;
+    const r = ask(host);
+    if (typeof r === "string") {
+      tokens.set(host, r);
+      failed.delete(host);
+    } else {
+      tokens.delete(host);
+      failed.set(host, { at: setup.clock.now(), why: r });
+    }
+    return r;
+  };
+  const tokenOf = (host: string): string | null => {
+    const r = tokenResult(host);
+    return typeof r === "string" ? r : null;
+  };
+  const api = (host: GitHubHost, { force }: { readonly force: boolean }) => {
+    const token = tokenResult(host.name, force);
+    return typeof token === "string"
       ? new GitHubApi({
           token,
           host,
           now: () => setup.clock.now(),
           ...(setup.fetch && { fetch: setup.fetch(host) }),
         })
-      : null;
+      : token;
   };
   const common = {
     clock: setup.clock,
     api,
+    ghPath: () => (setup.token ? null : findGh(env)),
+    service: env.NOD_SERVICE === "1",
     log,
     ...(setup.myKey && { myKey: setup.myKey }),
     ...(setup.pollMs !== undefined && { pollMs: setup.pollMs }),

@@ -37,6 +37,7 @@ import type {
   UpdateChannel,
 } from "../shared/protocol";
 import { ServiceError, type ServiceManager, type ServiceStatus } from "../service/manager";
+import { blocksSignIn, preflightProblems, type Preflight } from "../service/preflight";
 import type { Clock, Timer } from "./clock";
 import { RequestFailure } from "./request-failure";
 import type { Side } from "./signer";
@@ -57,9 +58,17 @@ export interface AppSeams {
   readonly installer: Installer;
   readonly channelStore: ChannelStore;
   readonly service: ServiceManager;
+  /**
+   * What the service's nod would see of `gh` on `hosts`, checked before
+   * "Run nod in the background" installs it (`service/preflight.ts`).
+   * Absent: not checked (tests, `--fake`).
+   */
+  readonly preflight?: (hosts: ReadonlyArray<string>) => Preflight;
 }
 
 export interface AppControlOptions extends AppSeams {
+  /** The hosts nod serve reads (the account's first): what the preflight checks. */
+  readonly hosts?: () => ReadonlyArray<string>;
   /** The running version; a checkout's placeholder or null is a development build. */
   readonly version: string | null;
   readonly clock: Clock;
@@ -310,6 +319,13 @@ export class AppControl {
         "Running nod in the background is built for Linux and macOS only.",
       );
     if (this.service.busy) throw new RequestFailure("bad-request", "The service is busy already.");
+    // A service that could not sign in would take the port from this working nod serve: refuse first.
+    const checked = this.options.preflight?.(this.options.hosts?.() ?? []);
+    if (checked && blocksSignIn(checked)) {
+      const why = preflightProblems(checked).join(" ");
+      this.patchService({ error: why });
+      throw new RequestFailure("service", why);
+    }
     this.patchService({ busy: "installing", error: null });
     let status: ServiceStatus;
     try {

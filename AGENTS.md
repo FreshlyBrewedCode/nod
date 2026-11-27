@@ -201,6 +201,20 @@ nod
     `cli.ts` exits). `cli.ts` builds the real seams (`realAppSeams`) only without `--fake`;
     `--fake` gets `fake-app.ts` (`--fake-update|-service|-install`) and plays restart and
     hand-over (`simulate`, `Serving.reconnectAll`). Never a real install or `systemctl`
+  - the login and the service's environment (finding: a service is not the terminal):
+    `src/server/github/gh.ts` finds `gh` (`NOD_GH`, else `PATH`) and asks `gh auth token`
+    (the failure keeps gh's one line, `oneLine`); `GitHubSource.account()`/`gh()` keep an
+    account once read and never a failure: no `gh`, no login, GitHub unreachable are asked again
+    every `GH_RETRY_MS` (and on `check-github`), each change logged once (`loginLine`) and pushed
+    as `account` (the welcome's `me` and `gh`, `GhLogin`); `HostPoller` takes its API as a
+    function and waits for a login the same way; `/health` carries `gh` (state, no login, no
+    path) for `nod service status`. The unit: `captureEnv` (`spec.ts`: `PATH`, `HOME`, the XDG
+    and gh dirs, proxies without a password, CA vars, `NOD_GH` pinned, `NOD_SERVICE=1`; never a
+    token); `service/preflight.ts` runs `gh auth token` in that environment at install (the CLI
+    warns, the page refuses before the hand-over). Web: `signInViewOf`, `isServiceNod`, `ghLine`
+    in `lib/onboarding.ts`, `SignInPage`, the GitHub card in `settings-server.tsx`; `check:phone`
+    `routeSignedOut(page, gh)` (26h–26k). Tests: a stand-in `gh` (`github/fake-gh.ts`, shell
+    builtins only), `github-login.test.ts`; never the real `gh`
   - web: `lib/update.ts` (the pill `indicatorOf`, "updated to x" via sessionStorage across the
     restart, wording), `hooks/use-update.ts`, `UpdatePill` in `top-bar.tsx` (dashboard and
     settings), `settings-server.tsx`, `settings-signing.tsx`, `settings-device.tsx` (shared

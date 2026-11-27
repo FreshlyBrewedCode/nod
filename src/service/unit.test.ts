@@ -3,11 +3,17 @@ import { expect, test } from "bun:test";
 import {
   LAUNCHD_LABEL,
   parseLaunchctlPrint,
+  parsePlistEnvironment,
   parsePlistProgramArguments,
   renderLaunchdPlist,
 } from "./launchd";
 import { captureEnv, isFragileEntry, serviceCommand, type ServiceSpec } from "./spec";
-import { parseSystemdExecStart, parseSystemdShow, renderSystemdUnit } from "./systemd";
+import {
+  parseSystemdEnvironment,
+  parseSystemdExecStart,
+  parseSystemdShow,
+  renderSystemdUnit,
+} from "./systemd";
 
 const spec: ServiceSpec = {
   command: ["/home/mara/.bun/bin/bun", "/home/mara/nod/src/cli.ts", "serve", "--port", "4600"],
@@ -146,19 +152,55 @@ test("the command is the runtime, the entry, serve and the flags", () => {
   ]);
 });
 
-test("captured environment: PATH and where files are, never tokens", () => {
+test("captured environment: PATH, HOME, where files are, the proxy; gh pinned; never tokens", () => {
+  const found: string[] = [];
   expect(
-    captureEnv({
-      PATH: "/bin",
-      XDG_CONFIG_HOME: "/c",
-      GH_CONFIG_DIR: "/gh",
-      GH_TOKEN: "secret",
-      GITHUB_TOKEN: "secret",
-      HOME: "/home/mara",
-      XDG_CACHE_HOME: "",
-    }),
-  ).toEqual({ PATH: "/bin", XDG_CONFIG_HOME: "/c", GH_CONFIG_DIR: "/gh" });
-  expect(captureEnv({}).PATH).toBe("/usr/local/bin:/usr/bin:/bin");
+    captureEnv(
+      {
+        PATH: "/bin",
+        XDG_CONFIG_HOME: "/c",
+        GH_CONFIG_DIR: "/gh",
+        GH_TOKEN: "secret",
+        GITHUB_TOKEN: "secret",
+        HOME: "/home/mara",
+        XDG_CACHE_HOME: "",
+        HTTPS_PROXY: "http://proxy.example.test:3128",
+        HTTP_PROXY: "http://mara:hunter2@proxy.example.test:3128",
+        NODE_EXTRA_CA_CERTS: "/etc/ssl/extra.pem",
+        DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/1000/bus",
+      },
+      (env) => {
+        found.push(env.PATH!);
+        return "/opt/tools/bin/gh";
+      },
+    ),
+  ).toEqual({
+    PATH: "/bin",
+    HOME: "/home/mara",
+    XDG_CONFIG_HOME: "/c",
+    GH_CONFIG_DIR: "/gh",
+    HTTPS_PROXY: "http://proxy.example.test:3128",
+    NODE_EXTRA_CA_CERTS: "/etc/ssl/extra.pem",
+    NOD_GH: "/opt/tools/bin/gh",
+    NOD_SERVICE: "1",
+  });
+  expect(found).toEqual(["/bin"]);
+  // No gh: none pinned, the PATH as it is.
+  expect(captureEnv({}, () => null)).toEqual({
+    PATH: "/usr/local/bin:/usr/bin:/bin",
+    NOD_SERVICE: "1",
+  });
+});
+
+test("the environment comes back out of the unit and the plist", () => {
+  const env = { PATH: "/a b:/c", NOD_GH: '/x/"gh"', PCT: "100%", DOLLAR: "$HOME" };
+  expect(parseSystemdEnvironment(renderSystemdUnit({ ...spec, env }))).toEqual(env);
+  expect(
+    parsePlistEnvironment(renderLaunchdPlist({ ...spec, env: { ...env, AMP: "a&b<c>" } })),
+  ).toEqual({
+    ...env,
+    AMP: "a&b<c>",
+  });
 });
 
 test("a cache or temp entry point is fragile", () => {

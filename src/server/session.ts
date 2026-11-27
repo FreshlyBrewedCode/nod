@@ -94,7 +94,6 @@ export class Session {
   /** Connected, welcome not sent yet. */
   private readonly joining = new Set<Client>();
   private readonly unsubscribe: Array<() => void>;
-  private account: Account | null | undefined;
   private readonly handlers: Handlers;
   /** A `repos` push being built (it reads every repo's setup); a snapshot waits for it. */
   private reposInFlight: Promise<void> | null = null;
@@ -104,6 +103,7 @@ export class Session {
     this.unsubscribe = [
       source.subscribe((change) => {
         if (change === "prs") this.pushSnapshot();
+        else if (change === "account") void this.pushAccount();
         else void this.pushRepos();
       }),
       signer.subscribe(() => this.pushSigner()),
@@ -307,9 +307,26 @@ export class Session {
     }
   }
 
-  private async me(): Promise<Account | null> {
-    if (this.account === undefined) this.account = await this.options.source.account();
-    return this.account;
+  /** The account: the source keeps it once read, and asks again while there is none. */
+  private me(options: { force?: boolean } = {}): Promise<Account | null> {
+    return this.options.source.account(options);
+  }
+
+  /** Every tab hears the account and what nod serve sees of `gh` (signed in after all, …). */
+  private async pushAccount() {
+    const me = await this.me();
+    const data = JSON.stringify({
+      t: "account",
+      me,
+      gh: this.options.source.gh(),
+    } satisfies ServerToClient);
+    for (const client of this.clients) client.send(data);
+  }
+
+  /** What nod serve sees of `gh`, for `/health` (`nod service status`): no login, no path. */
+  ghHealth(): { host: string; state: string; detail: string | null } {
+    const { host, state, detail } = this.options.source.gh();
+    return { host, state, detail };
   }
 
   private async welcome(side: Side): Promise<Welcome> {
@@ -320,6 +337,7 @@ export class Session {
       version,
       fake,
       me: await this.me(),
+      gh: this.options.source.gh(),
       repos: await this.repoInfos(),
       repoList: this.options.source.repoList,
       signer: this.signerState(side),
@@ -658,6 +676,10 @@ export class Session {
       },
       "device-link": async (_, { side }) =>
         needThisMachine(side, "Showing the other device's link").deviceLink(),
+      "check-github": async () => {
+        const me = await this.me({ force: true });
+        return { me, gh: source.gh() };
+      },
       "open-insights": async ({ repo, pr }) => {
         const key = needRepo(repo).key;
         const inbox = this.options.inbox;
@@ -723,6 +745,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   "service-install": true,
   "service-uninstall": true,
   "device-link": true,
+  "check-github": true,
   "open-insights": true,
 };
 
@@ -837,6 +860,7 @@ export function parseRequest(data: string): ClientToServer {
     case "service-install":
     case "service-uninstall":
     case "device-link":
+    case "check-github":
       return { t: t as "lock", id };
   }
 }

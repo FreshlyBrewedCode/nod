@@ -19,6 +19,7 @@ import type {
   Account,
   Login,
   Enrolment,
+  GhLogin,
   GitHubInfo,
   PrLink,
   PrState,
@@ -106,7 +107,8 @@ export interface PostResult {
  * What changed, for the session's pushes. `repos`: the list itself (a repo
  * added or removed); emitted before the `prs` that follows it.
  */
-export type SourceChange = "prs" | "setup" | "enrolment" | "repos";
+/** `account`: the account or `gh()` changed (signed in after all, `gh` found, GitHub reachable). */
+export type SourceChange = "prs" | "setup" | "enrolment" | "repos" | "account";
 
 export class SourceError extends Error {
   constructor(
@@ -131,8 +133,13 @@ export class SourceError extends Error {
  * it does not read (`repos()`).
  */
 export interface Source {
-  /** The `gh` account; null when `gh` is not logged in. */
-  account(): Promise<Account | null>;
+  /**
+   * The `gh` account; null while there is none (`gh()` says why). A
+   * failure is asked again on the next call (`force`: past any cache).
+   */
+  account(options?: { readonly force?: boolean }): Promise<Account | null>;
+  /** What this nod serve sees of `gh` and the login, as of the last `account()`. */
+  gh(): GhLogin;
   /**
    * Whether the list may be changed (`managed`: the config file's list), or
    * is the one clone of `--dir` (`fixed`). The session refuses `add-repo` and

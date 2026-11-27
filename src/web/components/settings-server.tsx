@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 
-import type { AppState, UpdateChannel } from "../../shared/protocol";
+import type { Account, AppState, GhLogin, UpdateChannel } from "../../shared/protocol";
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow } from "@/hooks/use-clock";
 import type { UpdateView } from "@/hooks/use-update";
@@ -20,7 +20,8 @@ import { CHANNEL_WORDS, releasedLine, serviceLine, updateLine } from "@/lib/upda
 import { cn } from "@/lib/utils";
 import { SMALL_BUTTON } from "./add-repo";
 import { Markdown } from "./markdown";
-import { CommandBox, ErrorNote, NoteBox, PRIMARY, useRequest } from "./onboarding";
+import { ghLine, isServiceNod } from "@/lib/onboarding";
+import { CommandBox, ErrorNote, NoteBox, PRIMARY, Words, useRequest } from "./onboarding";
 import {
   CARD,
   Code,
@@ -40,6 +41,9 @@ export interface ServerSectionProps {
   readonly app: AppState | null;
   readonly update: UpdateView;
   readonly actions: Actions;
+  /** What this nod serve sees of `gh`; null from an older server. */
+  readonly gh?: GhLogin | null;
+  readonly me?: Account | null;
 }
 
 const METHOD_NAMES = { npm: "npm", bun: "bun", pnpm: "pnpm", yarn: "yarn" } as const;
@@ -54,7 +58,7 @@ function ElsewhereNote({ what }: { what: string }) {
   );
 }
 
-export function ServerSection({ app, update, actions }: ServerSectionProps) {
+export function ServerSection({ app, update, actions, gh = null, me = null }: ServerSectionProps) {
   // "Updated to x" is shown here while the section is open, then put away.
   // (also when it happens while the section is open: the restart reconnects under it).
   const [updated, setUpdated] = useState<Updated | null>(update.updated);
@@ -83,7 +87,42 @@ export function ServerSection({ app, update, actions }: ServerSectionProps) {
       <VersionCard app={app} actions={actions} updated={updated} />
       <UpdateCard app={app} actions={actions} updated={updated} />
       <ServiceCard app={app} actions={actions} />
+      {gh && <GitHubCard gh={gh} me={me} service={isServiceNod(gh, app)} />}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// what this nod serve sees of gh: what tells a service's environment from the terminal's
+
+function GitHubCard({ gh, me, service }: { gh: GhLogin; me: Account | null; service: boolean }) {
+  return (
+    <section aria-labelledby="github-title" className={CARD}>
+      <h2 id="github-title" className={H2}>
+        GitHub
+      </h2>
+      <p className={LINE}>
+        <Words text={ghLine(gh, me)} />
+      </p>
+      <Facts className="border-line mt-3 border-t pt-2">
+        <Fact label="gh">
+          {gh.path ? <LongCode>{gh.path}</LongCode> : "not found on nod serve’s PATH"}
+        </Fact>
+        {gh.detail && (
+          <Fact label={gh.state === "unreachable" ? "GitHub said" : "gh said"}>
+            <LongCode>{gh.detail}</LongCode>
+          </Fact>
+        )}
+      </Facts>
+      {service && (
+        <p className={cn(NOTE, "mt-2")}>
+          This <Code>nod serve</Code> is the background service: it runs with the environment{" "}
+          <Code>nod service install</Code> gave it, not your terminal’s. After a change to{" "}
+          <Code>gh</Code> or your PATH, run <Code>nod service install</Code> again in a terminal
+          where <Code>gh auth status</Code> works.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -573,7 +612,7 @@ function ServiceCard({ app, actions }: { app: AppState; actions: Actions }) {
       )}
       {service.error && !setUp.failure && !remove.failure && (
         <p role="alert" className="text-bad m-0 mt-2 fs-note">
-          {service.error}
+          <Words text={service.error} />
         </p>
       )}
       <ErrorNote failure={setUp.failure} lead="The service is not set up." />

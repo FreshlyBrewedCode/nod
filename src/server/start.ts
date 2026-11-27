@@ -170,6 +170,7 @@ export function start(options: StartOptions): Started {
     version: fakeAppState?.version ?? version,
     clock,
     serveArgs: options.app?.serveArgs ?? [],
+    hosts: () => [source.gh().host, ...source.repos().map((r) => r.github.host)],
     ...(fakeAppState && { isThisNod: fakeAppState.isThisNod }),
     namedOrigin: named?.host.origin ?? null,
     deviceLink: named

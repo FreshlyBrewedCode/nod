@@ -32,6 +32,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   Account,
   AppState,
+  GhLogin,
   InboxStatus,
   RepoInfo,
   RepoKey,
@@ -63,6 +64,8 @@ export interface SettingsPageProps {
   readonly section: SettingsSection;
   /** The `gh` account: the offers are mine. */
   readonly me: Account | null;
+  /** What nod serve sees of `gh` (Settings → Server); null from an older server. */
+  readonly gh: GhLogin | null;
   readonly repos: ReadonlyArray<RepoInfo>;
   readonly repoList: RepoList;
   /** My key; null before the server said. */
@@ -96,7 +99,13 @@ const SECTION_PAGES: Readonly<Record<SettingsSection, (props: SettingsPageProps)
   ),
   app: (props) => <AppSection {...props} />,
   server: (props) => (
-    <ServerSection app={props.app} update={props.update} actions={props.actions} />
+    <ServerSection
+      app={props.app}
+      update={props.update}
+      actions={props.actions}
+      gh={props.gh}
+      me={props.me}
+    />
   ),
   "other-device": (props) => <DeviceSection app={props.app} actions={props.actions} />,
 };

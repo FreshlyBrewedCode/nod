@@ -16,7 +16,7 @@
  */
 
 import { ghLoginCommand, type GitHubHost } from "../../kit/host.ts";
-import type { SyncStatus } from "../../shared/protocol";
+import { GH_RETRY_MS, type SyncStatus } from "../../shared/protocol";
 import type { Clock, Timer } from "../clock";
 import { GitHubApiError, RateLimited, type GitHubApi, type GraphQLError } from "./api";
 import {
@@ -51,8 +51,12 @@ const MAX_BACKOFF_MS = 15 * MINUTE;
 export interface HostOptions {
   readonly clock: Clock;
   readonly host: GitHubHost;
-  /** null: `gh` is not logged in to this host; it reads nothing and says so. */
-  readonly api: GitHubApi | null;
+  /**
+   * The host's API now; null: `gh` is not logged in to this host (or not
+   * found). It then reads nothing, says so, and asks again every
+   * `GH_RETRY_MS`: a login made meanwhile is picked up without a restart.
+   */
+  readonly api: () => GitHubApi | null;
   /** The source's repos on this host, in the list's order, now. */
   readonly repos: () => ReadonlyArray<GitHubRepo>;
   /** Before each poll: the source looks at its config file. */
@@ -69,7 +73,6 @@ export interface HostOptions {
 
 export class HostPoller {
   readonly host: GitHubHost;
-  readonly api: GitHubApi | null;
   /** The host's account, from the last poll. */
   viewer: { login: string; name: string | null } | null = null;
   sync: SyncStatus = { at: null, error: null };
@@ -89,30 +92,36 @@ export class HostPoller {
 
   constructor(private readonly options: HostOptions) {
     this.host = options.host;
-    this.api = options.api;
-    if (options.api && options.api.host.name !== options.host.name)
-      throw new Error(`the API is bound to ${options.api.host.name}, not ${options.host.name}`);
+    const api = options.api();
+    if (api && api.host.name !== options.host.name)
+      throw new Error(`the API is bound to ${api.host.name}, not ${options.host.name}`);
     this.pollMs = options.pollMs ?? DEFAULT_POLL_MS;
     this.fastMs = options.fastMs ?? FAST_POLL_MS;
     this.fastForMs = options.fastForMs ?? FAST_FOR_MS;
     this.ready = new Promise((resolve) => (this.markReady = resolve));
-    if (!this.api) {
-      this.sync = {
-        at: null,
-        error: `\`gh\` is not logged in to ${this.host.name}. Run \`${ghLoginCommand(this.host.name)}\`, then restart nod serve.`,
-      };
+    if (!api) {
+      this.sync = { at: null, error: this.noLogin() };
       this.markReady();
     }
+  }
+
+  /** The API now: a login made since the last look counts (`HostOptions.api`). */
+  get api(): GitHubApi | null {
+    const api = this.options.api();
+    if (api && api.host.name !== this.host.name)
+      throw new Error(`the API is bound to ${api.host.name}, not ${this.host.name}`);
+    return api;
+  }
+
+  private noLogin(): string {
+    return `\`gh\` is not logged in to ${this.host.name}. Run \`${ghLoginCommand(this.host.name)}\`; nod serve checks again by itself.`;
   }
 
   /** Start polling: the first read now. Again after a stop: nothing. */
   start(): void {
     if (this.started || this.stopped) return;
     this.started = true;
-    if (!this.api) {
-      this.options.log(`nod serve: ${this.sync.error}`);
-      return;
-    }
+    if (!this.api) this.options.log(`nod serve: ${this.sync.error ?? this.noLogin()}`);
     void this.tick();
   }
 
@@ -122,7 +131,7 @@ export class HostPoller {
 
   /** Read now (after the poll that is running, if one is). */
   async refresh(): Promise<void> {
-    if (!this.api || this.stopped) return;
+    if (this.stopped) return;
     if (this.polling) await this.polling;
     await this.tick();
   }
@@ -156,7 +165,17 @@ export class HostPoller {
     this.timer?.clear();
     this.timer = null;
     const clock = this.options.clock;
-    const api = this.api!;
+    const api = this.api;
+    if (!api) {
+      // Not logged in (yet): nothing to read; look for a login again later.
+      const error = this.noLogin();
+      const changed = this.sync.error !== error;
+      this.sync = { at: this.sync.at, error };
+      if (changed) this.options.polled();
+      this.markReady();
+      this.schedule(GH_RETRY_MS);
+      return Promise.resolve();
+    }
     const run = (async () => {
       let delay: number;
       const started = { at: Date.now(), ...api.calls };

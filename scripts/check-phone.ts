@@ -39,6 +39,8 @@ import { join } from "node:path";
 
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright-core";
 
+import type { GhLogin } from "../src/shared/protocol";
+
 export const SCENARIOS = [
   "team",
   "clear",
@@ -786,13 +788,40 @@ const lookAround = async (page: Page) => {
 const offerCard = (page: Page, title: string) => page.getByRole("region", { name: title });
 
 /** Rewrites the welcome as if `gh` were not logged in: the fake always is. */
-async function routeSignedOut(page: Page) {
+/**
+ * No account: the welcome's `me` is null and its `gh` says why (`--fake`
+ * is always signed in). `check-github` is answered with the same, so "Try
+ * again" finds nothing new.
+ */
+async function routeSignedOut(page: Page, gh: Partial<GhLogin> = {}) {
+  const login: GhLogin = {
+    host: "github.com",
+    state: "signed-out",
+    path: "/usr/bin/gh",
+    detail: "no oauth token found for github.com",
+    checkedAt: Date.now(),
+    service: false,
+    ...gh,
+  };
   await page.routeWebSocket(/\/ws\?/, (ws) => {
     const server = ws.connectToServer();
-    ws.onMessage((raw) => server.send(raw));
+    ws.onMessage((raw) => {
+      const asked = JSON.parse(String(raw)) as { t: string; id: string };
+      if (asked.t === "check-github")
+        ws.send(
+          JSON.stringify({
+            t: "reply",
+            id: asked.id,
+            to: "check-github",
+            ok: true,
+            result: { me: null, gh: login },
+          }),
+        );
+      else server.send(raw);
+    });
     server.onMessage((raw) => {
-      const message = JSON.parse(String(raw)) as { t: string; me?: unknown };
-      if (message.t === "welcome") message.me = null;
+      const message = JSON.parse(String(raw)) as { t: string; me?: unknown; gh?: unknown };
+      if (message.t === "welcome") Object.assign(message, { me: null, gh: login });
       ws.send(JSON.stringify(message));
     });
   });
@@ -948,8 +977,57 @@ const OFFER_STATES: ReadonlyArray<State> = [
     },
     assert: async (page) => {
       await must(page.getByText("gh auth login").isVisible(), "the page names no command");
+      await page.getByRole("button", { name: "Try again" }).click();
+      await page.getByRole("button", { name: "Try again" }).waitFor();
     },
     shot: "26h-sign-in",
+  },
+  {
+    name: "not signed in, as the service",
+    route: "#/",
+    scenarios: ["team"],
+    before: (page) => routeSignedOut(page, { service: true }),
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Sign in to GitHub" }).waitFor();
+    },
+    assert: async (page) => {
+      await must(page.getByText("nod service install").isVisible(), "no `nod service install`");
+      await must(
+        page.getByText(/not your terminal’s/).isVisible(),
+        "the page does not say the service's environment counts",
+      );
+    },
+    shot: "26i-sign-in-service",
+  },
+  {
+    name: "no gh on nod serve's PATH",
+    route: "#/",
+    scenarios: ["fresh"],
+    before: (page) => routeSignedOut(page, { state: "no-gh", path: null, detail: null }),
+    act: async (page) => {
+      await page.getByRole("heading", { name: "nod can’t find gh" }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("heading", { name: "Add a repository" }).isHidden(),
+        "an empty list without gh shows the add page",
+      );
+    },
+    shot: "26j-no-gh",
+  },
+  {
+    name: "GitHub not reachable yet",
+    route: "#/",
+    scenarios: ["team"],
+    before: (page) =>
+      routeSignedOut(page, {
+        state: "unreachable",
+        detail: "Unable to connect. Is the computer able to access the url?",
+      }),
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Can’t reach GitHub yet" }).waitFor();
+    },
+    shot: "26k-github-unreachable",
   },
   {
     name: "an empty repo list",
