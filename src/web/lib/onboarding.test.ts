@@ -373,6 +373,8 @@ describe("every fake scenario: where a first open lands, which card shows", () =
     // The first repo with an offer: the one at the inbox step, the second.
     repos: ["dashboard", "tallyho/field-app shared-policy:offer"],
     dir: ["dashboard", null],
+    insights: ["dashboard", null],
+    "insights-error": ["dashboard", null],
   };
 
   for (const scenario of FAKE_SCENARIOS)

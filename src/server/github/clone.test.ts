@@ -293,3 +293,45 @@ test("a clone that fails leaves nothing that looks like a clone; the next try cl
   await again.ensure();
   expect(again.exists()).toBe(true);
 });
+
+test("my inbox's I/O in nod's own clone: at the patch-id's base tip, contents fetched on demand", async () => {
+  const remote = await tempRepo();
+  cleanups.push(remote.cleanup);
+  await remote.git("config", "uploadpack.allowFilter", "true");
+  await remote.git("config", "uploadpack.allowAnySHA1InWant", "true");
+  await remote.write("app.ts", "export const a = 1;\n");
+  await remote.write("README.md", "readme\n");
+  const base = await remote.commit("base");
+  await remote.git("switch", "-q", "-c", "agent/change");
+  await remote.write("app.ts", "export const a = 2;\n// TODO\n");
+  const head = await remote.commit("change");
+  await remote.git("switch", "-q", "main");
+  const cache = await tempDir();
+  cleanups.push(cache.cleanup);
+  const clone = new OwnClone({
+    dir: ownClonePath(cache.dir, "github.com", "acme/widgets"),
+    host: GITHUB_COM,
+    name: "acme/widgets",
+    token: () => null,
+    url: `file://${remote.dir}`,
+  });
+  const ids = ownClonePatchIds(clone, GITHUB_COM);
+  // Before its patch-id, nothing: the objects are not fetched.
+  expect(await ids.inbox!({ base: "main", headSha: head })).toBeNull();
+  await ids.compute({ base: "main", headSha: head });
+  // The base moves on: the inbox still reads at the tip the patch-id used.
+  await remote.write("README.md", "moved\n");
+  await remote.commit("later");
+  await ids.compute({ base: "main", headSha: base });
+  const got = (await ids.inbox!({ base: "main", headSha: head }))!;
+  expect(got.files.map((f) => [f.path, f.added, f.removed])).toEqual([["app.ts", 2, 1]]);
+  expect(got.io.revs).toEqual({ base, head });
+  expect(await got.io.readBaseFile("README.md")).toBe("readme\n");
+  expect(await got.io.readHeadFile("app.ts")).toBe("export const a = 2;\n// TODO\n");
+  expect(await got.io.diff(["app.ts"])).toContain("+// TODO");
+  expect((await got.io.git(["log", "--format=%s", head])).trim().split("\n")).toEqual([
+    "change",
+    "base",
+  ]);
+  await expect(got.io.git(["push", "origin"])).rejects.toThrow("not allowed");
+});

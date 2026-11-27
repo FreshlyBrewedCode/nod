@@ -27,6 +27,9 @@ import {
   PROTOCOL_VERSION,
   WS_PATH,
   type ErrorCode,
+  type InboxStatus,
+  type InsightState,
+  type RepoKey,
   type RequestBody,
   type RequestError,
   type RequestResult,
@@ -38,6 +41,7 @@ import {
   type Snapshot,
   type Welcome,
 } from "../../shared/protocol";
+import { sameRepo } from "../../shared/repo-key";
 import { STABLE_WEB_URL } from "../../server/web-url";
 import { fragmentOf } from "./route";
 
@@ -281,6 +285,8 @@ export interface ConnectionState {
   readonly lastError: { readonly code: ErrorCode; readonly message: string } | null;
   /** How many times the socket closed since the page loaded. */
   readonly reconnects: number;
+  /** My own inbox's status (ADR 0009); from the welcome and `inbox` pushes. null: none. */
+  readonly inbox: InboxStatus | null;
 }
 
 export const INITIAL_STATE: ConnectionState = {
@@ -292,7 +298,27 @@ export const INITIAL_STATE: ConnectionState = {
   app: null,
   lastError: null,
   reconnects: 0,
+  inbox: null,
 };
+
+/**
+ * An `insights` push (ADR 0009): one PR's insights replace those the
+ * snapshot has, until the next snapshot. A PR the snapshot does not have is
+ * left out; the same snapshot comes back when nothing changes.
+ */
+export function withInsights(
+  snapshot: Snapshot | null,
+  repo: RepoKey,
+  pr: number,
+  insights: ReadonlyArray<InsightState>,
+): Snapshot | null {
+  if (!snapshot) return snapshot;
+  const i = snapshot.prs.findIndex((p) => p.number === pr && sameRepo(p.repo, repo));
+  if (i < 0) return snapshot;
+  const prs = [...snapshot.prs];
+  prs[i] = { ...prs[i]!, insights };
+  return { ...snapshot, prs };
+}
 
 /** A request the server answered with an error, or that never reached it. */
 export class RequestFailed extends Error {
@@ -538,6 +564,7 @@ export class NodClient {
           signer: message.signer,
           repos: message.repos,
           app: message.app ?? null,
+          inbox: message.inbox ?? null,
           // A snapshot of other repos would be wrong; the next one follows.
           snapshot: sameKeys(this.state.repos, message.repos) ? this.state.snapshot : null,
         });
@@ -551,6 +578,12 @@ export class NodClient {
         return this.set({ repos: message.repos });
       case "app":
         return this.set({ app: message.app });
+      case "inbox":
+        return this.set({ inbox: message.inbox });
+      case "insights":
+        return this.set({
+          snapshot: withInsights(this.state.snapshot, message.repo, message.pr, message.insights),
+        });
       case "error":
         return this.set({ lastError: { code: message.code, message: message.message } });
       case "reply": {

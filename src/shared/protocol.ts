@@ -29,11 +29,42 @@
  * - Additions stay inside a version: a new optional field or a new push,
  *   which an older page ignores. The version moves only when a field changes
  *   its meaning or goes away (ADR 0007, 7).
+ * - The personal layer (ADR 0009, "your own inbox"): each PR may carry
+ *   `personal` and `insights`; `welcome.inbox` and the `inbox` push say what
+ *   my inbox loaded, and an `insights` push replaces one PR's insights as
+ *   analyzers start and finish, so a result needs no full snapshot.
  */
 
 import type { PrId, RepoKey } from "./repo-key";
 
 export type { PrId, RepoKey };
+
+// The personal layer's plain-JSON types (ADR 0009), from the kit's pure
+// modules by path: type-only, so the web app imports no kit code.
+import type { InsightState, Origin, PersonalAttention } from "../kit/inbox/types.ts";
+export type {
+  AttentionMark,
+  AttentionValue,
+  InsightState,
+  NamedMark,
+  Origin,
+  PersonalAttention,
+} from "../kit/inbox/types.ts";
+export type {
+  Block,
+  BreakdownBlock,
+  BreakdownItem,
+  FileItem,
+  FilesBlock,
+  Insight,
+  PrRef as InsightPrRef,
+  SeriesBlock,
+  SeriesPoint,
+  Stat,
+  StatsBlock,
+  TextBlock,
+  Tone,
+} from "../kit/inbox/blocks.ts";
 
 /** 2: many repos (ADR 0007). */
 export const PROTOCOL_VERSION = 2;
@@ -585,6 +616,24 @@ export interface PrView {
   readonly waitingOn: ReadonlyArray<WaitingOn>;
   /** Since when it waits on a human; null when it does not. "Oldest waits 5 hours". */
   readonly waitingSince: number | null;
+
+  // -- my own inbox (the personal layer, ADR 0009) ---------------------------
+  /**
+   * What my inbox's attention classifiers say: an adjustment (`1` up a tier,
+   * `-1` down one, `"mute"` into Background, `0`), tags, `fyi`, and every
+   * mark with its classifier. Kept apart from `risk` and `requirement`,
+   * which it never changes; `attention.ts` applies it to the tier. Absent:
+   * no inbox ran on it (yet, or it is not open).
+   */
+  readonly personal?: PersonalAttention;
+  /**
+   * One state per analyzer of my inbox that applies to it, in the inbox's
+   * order: `ready` (with the insight), `empty` (hidden), `running` or
+   * `failed`, each labelled `default` or `yours`. `when: "open"` analyzers
+   * appear once `open-insights` asked for them. Later states arrive as
+   * `insights` pushes. Absent: none yet.
+   */
+  readonly insights?: ReadonlyArray<InsightState>;
 }
 
 /**
@@ -947,6 +996,18 @@ export interface Requests {
    * (the other device's side), `not-found` (no `--allow-host`).
    */
   "device-link": { body: Record<never, never>; result: DeviceLink };
+  /**
+   * My inbox (ADR 0009): run the `when: "open"` analyzers of a PR, as the
+   * panel opens on it. Answers at once with the PR's insights as they are
+   * now (a result cached for its patch-id is `ready` already, the rest
+   * `running`); each later state arrives as an `insights` push. Without an
+   * inbox (or before it loaded) the list is what the PR has. Errors:
+   * `not-found`.
+   */
+  "open-insights": {
+    body: PrRef;
+    result: { readonly insights: ReadonlyArray<InsightState> };
+  };
 }
 
 /** A request about one repo. */
@@ -1022,6 +1083,46 @@ export type Reply = {
 }[RequestType];
 
 // ---------------------------------------------------------------------------
+// my own inbox (the personal layer, ADR 0009)
+
+/** An analyzer my inbox loaded. */
+export interface InboxAnalyzer {
+  readonly id: string;
+  readonly title: string;
+  readonly when: "poll" | "open";
+  /** `default`: from the kit's `defaults()`; `yours`: written by me. */
+  readonly origin: Origin;
+  /** Only for these repos: the `repos` key of `inbox.ts` (`owner/name` or a glob). Absent: every repo. */
+  readonly repos?: string;
+}
+
+/** An attention classifier my inbox loaded. */
+export interface InboxClassifier {
+  readonly name: string;
+  readonly origin: Origin;
+  /** Only for these repos, as for {@link InboxAnalyzer}. */
+  readonly repos?: string;
+}
+
+/**
+ * My inbox: where it is, what it loaded, and whether it loads. With an
+ * error the parts and the results of the last good load stay in effect
+ * (and on screen) until the file loads again.
+ */
+export interface InboxStatus {
+  /** `default`: there is no `inbox.ts`, the built-in defaults run. `yours`: my `inbox.ts`. */
+  readonly config: "default" | "yours";
+  /** The folder (`$XDG_CONFIG_HOME/nod/inbox` unless `--inbox` names another). */
+  readonly path: string;
+  /** `starting`: loading (also after a save); `ready`: loaded; `error`: it does not load. */
+  readonly state: "starting" | "ready" | "error";
+  /** Why it does not load (a syntax error, a bad export) or keeps crashing; one line. */
+  readonly error: string | null;
+  readonly classifiers: ReadonlyArray<InboxClassifier>;
+  readonly analyzers: ReadonlyArray<InboxAnalyzer>;
+}
+
+// ---------------------------------------------------------------------------
 // pushes (server → client)
 
 export interface Welcome {
@@ -1046,6 +1147,8 @@ export interface Welcome {
    * (added within protocol 2; absent from a server without it).
    */
   readonly app?: AppState;
+  /** My inbox (ADR 0009); null: this nod serve runs none. Absent: an older server. */
+  readonly inbox?: InboxStatus | null;
 }
 
 export type ServerToClient =
@@ -1056,6 +1159,18 @@ export type ServerToClient =
   | { readonly t: "app"; readonly app: AppState }
   /** Every repo again, on a change of one's setup, my enrolment in one, or the list. */
   | { readonly t: "repos"; readonly repos: ReadonlyArray<RepoInfo> }
+  /** My inbox's status changed: loaded, reloading after a save, or it does not load. */
+  | { readonly t: "inbox"; readonly inbox: InboxStatus }
+  /**
+   * One PR's insights changed (an analyzer started or finished): they
+   * replace that PR's `insights` until the next snapshot, which carries them too.
+   */
+  | {
+      readonly t: "insights";
+      readonly repo: RepoKey;
+      readonly pr: number;
+      readonly insights: ReadonlyArray<InsightState>;
+    }
   | Reply
   /** Not caused by a request: a failed poll, a failed auto-merge watch, … */
   | { readonly t: "error"; readonly code: ErrorCode; readonly message: string };

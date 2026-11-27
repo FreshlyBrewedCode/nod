@@ -20,6 +20,7 @@ import type { Source } from "./source";
 import { loadOrCreateToken, remoteTokenFile } from "./token";
 import { createInstaller, FakeReleaseFeed, memoryChannelStore } from "./update";
 import { allowedOrigins, appUrl, hostLink, isRelease, serverUrl } from "./web-url";
+import { startInbox, type StartedInbox } from "./inbox/setup";
 
 export interface StartOptions {
   readonly port: number;
@@ -57,6 +58,11 @@ export interface StartOptions {
    * device with it.
    */
   readonly namedHost?: { readonly host: NamedHost; readonly webRoot: string } | null;
+  /**
+   * My own inbox (ADR 0009): its folder (`--inbox`; default
+   * `$XDG_CONFIG_HOME/nod/inbox`, with `fake` the scenario's). null: none.
+   */
+  readonly inbox?: { readonly dir?: string } | null;
   /**
    * The built web app to serve on loopback, the installable app (ADR 0008);
    * `appLink` then pairs a browser with it. null: loopback serves no page.
@@ -109,6 +115,8 @@ export interface Started {
   readonly signer: Signer;
   readonly app: AppControl;
   readonly appSeams: AppSeams;
+  /** My inbox's runner and service; null without one. */
+  readonly inbox: StartedInbox | null;
   stop(): Promise<void>;
 }
 
@@ -142,6 +150,15 @@ export function start(options: StartOptions): Started {
         },
       });
   const version = isRelease(options.version) ? options.version : null;
+  // My own inbox: personal code in a subprocess, never the key or the token.
+  const inbox =
+    options.inbox === null
+      ? null
+      : startInbox({
+          source,
+          fake: fake?.scenario ?? null,
+          ...(options.inbox?.dir !== undefined && { dir: options.inbox.dir }),
+        });
   const named = options.namedHost ?? null;
   // A fake run never calls the real seams: they are not even built.
   const fakeAppState = fake ? fakeApp({ clock, ...options.app?.fake }) : null;
@@ -164,7 +181,15 @@ export function start(options: StartOptions): Started {
     ...(options.app?.onHandOver && { onHandOver: options.app.onHandOver }),
     simulate: fake ? { onRestarted: () => serving?.reconnectAll() } : null,
   });
-  const session = new Session({ source, signer, clock, version, fake: fake !== null, app });
+  const session = new Session({
+    source,
+    signer,
+    clock,
+    version,
+    fake: fake !== null,
+    app,
+    inbox: inbox?.service ?? null,
+  });
   const token = loadOrCreateToken(options.tokenFile, { fresh: options.newToken ?? false });
   // Renewed even without a named host, so a lost phone's token is dead
   // before the next `--allow-host`.
@@ -192,6 +217,7 @@ export function start(options: StartOptions): Started {
   } catch (error) {
     session.stop();
     app.stop();
+    inbox?.stop();
     source.stop();
     signer.stop();
     throw error;
@@ -213,9 +239,11 @@ export function start(options: StartOptions): Started {
     signer,
     app,
     appSeams,
+    inbox,
     async stop() {
       await served.stop();
       app.stop();
+      inbox?.stop();
       source.stop();
       signer.stop();
     },

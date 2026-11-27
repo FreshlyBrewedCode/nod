@@ -84,6 +84,9 @@ async function runtimeDependencies(
     for (const { path } of transpiler.scanImports(code)) {
       if (path.startsWith(".") || path.startsWith("node:") || path.startsWith("bun")) continue;
       if (builtinModules.includes(path)) continue;
+      // Its own name: the inbox fixture imports the kit as a user's inbox does, and the inbox
+      // subprocess maps that to this package's own kit (ADR 0009).
+      if (packageOf(path) === NAME) continue;
       needed.add(packageOf(path));
     }
   }

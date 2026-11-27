@@ -30,6 +30,7 @@ import type {
   ServerToClient,
   SignEntry,
   SignerState,
+  Snapshot,
   Welcome,
 } from "../shared/protocol";
 import { GITHUB_COM, ghLoginCommand } from "../kit/host.ts";
@@ -48,6 +49,7 @@ import {
 import { sameLogin } from "./view";
 import type { AppControl } from "./app-control";
 import { RequestFailure } from "./request-failure";
+import type { InboxService } from "./inbox/service";
 
 /**
  * One open tab. `send` takes the serialised message. `side` is where it is
@@ -71,6 +73,8 @@ export interface SessionOptions {
    * welcome has no `app` and its requests answer `not-implemented`.
    */
   readonly app?: AppControl | null;
+  /** My own inbox (ADR 0009); none: no personal layer (tests, `nod serve` without one). */
+  readonly inbox?: InboxService | null;
 }
 
 export { RequestFailure };
@@ -104,6 +108,7 @@ export class Session {
       }),
       signer.subscribe(() => this.pushSigner()),
       ...(options.app ? [options.app.subscribe(() => this.pushApp())] : []),
+      ...this.watchInbox(),
     ];
     this.handlers = this.makeHandlers();
   }
@@ -116,7 +121,7 @@ export class Session {
     if (!this.joining.delete(client)) return; // closed meanwhile
     client.send(JSON.stringify(welcome));
     this.clients.add(client);
-    const snapshot = this.options.source.snapshot();
+    const snapshot = this.decorated(this.options.source.snapshot());
     if (snapshot)
       client.send(JSON.stringify({ t: "snapshot", ...snapshot } satisfies ServerToClient));
   }
@@ -195,8 +200,43 @@ export class Session {
       void this.reposInFlight.then(() => this.pushSnapshot());
       return;
     }
-    const snapshot = this.options.source.snapshot();
+    const snapshot = this.decorated(this.options.source.snapshot());
     if (snapshot) this.broadcast({ t: "snapshot", ...snapshot });
+  }
+
+  // -- my own inbox (ADR 0009) -------------------------------------------------
+
+  /**
+   * Runs the inbox after every change of the PRs, and pushes what it says:
+   * `inbox` on a status change, `insights` per PR as analyzers finish, and a
+   * snapshot when a round changed someone's personal attention.
+   */
+  private watchInbox(): Array<() => void> {
+    const inbox = this.options.inbox;
+    if (!inbox) return [];
+    inbox.schedule();
+    return [
+      this.options.source.subscribe((change) => {
+        if (change === "prs") inbox.schedule();
+      }),
+      inbox.subscribe((e) => {
+        if (e.t === "status") this.broadcast({ t: "inbox", inbox: inbox.status() });
+        else if (e.t === "personal") this.pushSnapshot();
+        else
+          this.broadcast({
+            t: "insights",
+            repo: e.repo,
+            pr: e.pr,
+            insights: inbox.insights(e.repo, e.pr),
+          });
+      }),
+    ];
+  }
+
+  /** The snapshot with my inbox's `personal` and `insights` on each PR. */
+  private decorated(snapshot: Snapshot | null): Snapshot | null {
+    const inbox = this.options.inbox;
+    return snapshot && inbox ? inbox.decorate(snapshot) : snapshot;
   }
 
   /** Every repo, to every tab; resolves once sent. Pushes stay in the order they were asked for. */
@@ -284,6 +324,7 @@ export class Session {
       repoList: this.options.source.repoList,
       signer: this.signerState(side),
       ...(this.options.app && { app: this.options.app.state(side) }),
+      inbox: this.options.inbox?.status() ?? null,
     };
   }
 
@@ -617,6 +658,11 @@ export class Session {
       },
       "device-link": async (_, { side }) =>
         needThisMachine(side, "Showing the other device's link").deviceLink(),
+      "open-insights": async ({ repo, pr }) => {
+        const key = needRepo(repo).key;
+        const inbox = this.options.inbox;
+        return { insights: inbox ? await inbox.open(key, pr) : [] };
+      },
     };
   }
 }
@@ -677,6 +723,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   "service-install": true,
   "service-uninstall": true,
   "device-link": true,
+  "open-insights": true,
 };
 
 /** A repo key: `owner/name`, or `host/owner/name` off github.com (ADR 0007). */
@@ -749,6 +796,11 @@ export function parseRequest(data: string): ClientToServer {
       const repo = repoOf(m);
       if (!isInt(m.pr)) fail("pr must be a number");
       return { t: "ack-fyi", id, repo, pr: m.pr as number };
+    }
+    case "open-insights": {
+      const repo = repoOf(m);
+      if (!isInt(m.pr)) fail("pr must be a number");
+      return { t: "open-insights", id, repo, pr: m.pr as number };
     }
     case "check-setup":
     case "open-setup-pr":
