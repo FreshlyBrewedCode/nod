@@ -6,6 +6,11 @@
 # PR's author counts as "self", a nod by anyone else listed here as "peer".
 #
 # The verifier reads this file from the default branch on every run, so:
-# - adding a key is a PR to this file; it is under .nod/, so a peer must nod it;
+# - it may be empty: GitHub approvals still count, only what needs a signed nod
+#   (changes under .nod/ and .github/workflows/, rules with approvals: false)
+#   waits until someone is enrolled;
+# - adding a key is a PR to this file; it is under .nod/, so a peer must nod it
+#   (the first one, with nobody to nod it, merges the usual way while the nod
+#   check is not required);
 # - removing a key revokes that key's nods on every open PR at the next run;
 # - `valid-after="20270101"` / `valid-before="…"` options help rotate a key.

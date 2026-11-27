@@ -32,6 +32,13 @@ export function kitAccessNote(host: string, kitSpec: string): string | null {
   return `This repository is on ${host}: the verifier's runner installs the kit pin from ${where}, so the runners need outbound access there, or \`nod init --kit\` must point at a copy they can reach.`;
 }
 
+/**
+ * What an empty `.nod/allowed_signers` means, in one sentence: `nod init`
+ * logs it and the setup PR says it.
+ */
+export const NOBODY_ENROLLED =
+  "approvals count, so the repo works without anyone enrolled, but a change to .nod/** or .github/workflows/** needs a signed nod and waits until someone enrols a key (each person's own step: Signing in nod serve).";
+
 export interface SetupPrContext {
   /** `owner/name`. */
   repo: string;
@@ -56,7 +63,7 @@ export function setupPrBody(ctx: SetupPrContext): string {
   const code = (s: string) => `\`${s.replace(/`/g, "'")}\``;
   const who = signers.length
     ? signers.map((s) => code(s.login)).join(", ")
-    : "nobody yet (add a key before merging, or nothing can ever be nodded)";
+    : "nobody yet. That is fine: approvals count, and each person enrols their own key later";
 
   const lines = [
     "This PR sets up **nod** in this repository: a check named `nod` that turns green once the right humans have looked at a PR, with a plain GitHub approval or a signed nod comment, so that agents can merge their own PRs with auto-merge. The logic lives here, in `.nod/`, readable top to bottom. The npm package only provides helpers.",
@@ -75,6 +82,12 @@ export function setupPrBody(ctx: SetupPrContext): string {
     "| `.nod/.gitignore` | Keeps `.nod/node_modules` out of git. |",
     "| `.github/workflows/nod.yml` | Runs `.nod/verify.ts` on every PR event, PR comment and review. It checks out the default branch only, never code from the PR, and its job is deliberately not named `nod`. |",
     "",
+    ...(signers.length
+      ? []
+      : [
+          "**Nobody can sign yet.** `.nod/allowed_signers` starts empty: GitHub approvals fill every requirement a rule does not reserve for signed nods, so pull requests work as before. The ones that do need a signed nod wait until someone enrols a key: changes to `.nod/**` and `.github/workflows/**`, and any rule that says `approvals: false`. Enrolling is each person's own step: `nod serve` opens a one-line PR that adds their key. While the check is not required, that first enrolment PR merges the usual way (its check is neutral, as nobody can nod it yet).",
+          "",
+        ]),
     ...(kitNote ? [kitNote, ""] : []),
     ...(actionsNote ? [actionsNote, ""] : []),
     "## This PR merges under the current rules",
@@ -83,7 +96,7 @@ export function setupPrBody(ctx: SetupPrContext): string {
     "",
     "## When you want it to block: one step for a repo admin",
     "",
-    `Make \`nod\` the gate of \`${defaultBranch}\` and turn on auto-merge, whenever the team is ready (it needs this PR merged first). Either run`,
+    `Make \`nod\` the gate of \`${defaultBranch}\` and turn on auto-merge, whenever the team is ready (it needs this PR merged first${signers.length ? "" : ", and someone enrolled: with nobody in `.nod/allowed_signers`, a required check means nobody can change `.nod/` any more"}). Either run`,
     "",
     "```sh",
     rulesetCommand(host, repo),
@@ -116,7 +129,7 @@ export function setupPrBody(ctx: SetupPrContext): string {
     "",
     "## One-human repositories",
     "",
-    "Changes to `.nod/**` need a **peer** nod: someone enrolled other than the PR's author. If you are the only human here, nobody can give that nod, so changing the policy, the verifier or the signers then needs a repo admin to lift the ruleset for that one merge and put it back. Enrolling a second person in this PR avoids that.",
+    "Once the check is required, changes to `.nod/**` need a **peer** nod: someone enrolled other than the PR's author. If you are the only human here (or nobody is enrolled), nobody can give that nod, so changing the policy, the verifier or the signers then needs a repo admin to lift the ruleset for that one merge and put it back. Enrolling a second person before requiring the check avoids that.",
     "",
     "## How to nod",
     "",

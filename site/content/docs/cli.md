@@ -72,7 +72,7 @@ Writes the repository's setup, commits it on the branch `nod/setup` and opens th
 
 | Flag | Meaning |
 | --- | --- |
-| `--signer "<login> <key>"` | A first signer: GitHub login and `ssh-ed25519` public key. Repeatable |
+| `--signer "<login> <key>"` | A first signer: GitHub login and `ssh-ed25519` public key. Repeatable. Optional: without one `.nod/allowed_signers` starts empty (not released) |
 | `--signer-key <file>` | A public key file; the login is your `gh` user's |
 | `--repo <owner/name>` | The repository. Default: the one of `--dir` |
 | `--host <host>` | Its GitHub host, e.g. `acme.ghe.com`. Default: the host of `--dir`'s `origin`, else `github.com`. `gh` must be logged in there |
@@ -83,10 +83,14 @@ Writes the repository's setup, commits it on the branch `nod/setup` and opens th
 | `--force` | Replace an existing `.nod/`. With `--ruleset`: apply it before the verifier is on the default branch |
 | `--ruleset` | After the setup PR merged: require `nod` on the default branch and enable auto-merge. Re-runs the verifier on open pull requests whose `nod` check is still neutral (not released). Needs admin rights |
 
-`nod init` refuses to open a setup PR without a signer: nothing could ever be nodded. The clone
-must have no uncommitted changes.
+Without `--signer` or `--signer-key` the setup PR has nobody in `.nod/allowed_signers` (not
+released; the released version refuses): approvals count, and what needs a signed nod waits until
+someone enrols. `nod init --ruleset` warns when nobody is enrolled on the default branch, as a
+required check then means nobody can change `.nod/` any more. The clone must have no uncommitted
+changes.
 
 ```sh
+nod init
 nod init --signer "$(nod key show)"
 nod init --ruleset
 ```

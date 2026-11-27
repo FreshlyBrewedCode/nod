@@ -81,7 +81,8 @@ requests, allow `.github/workflows/nod.yml` under **Settings → Actions → Gen
 3. Compute the changed files and the patch-id with `git`.
 4. Classify with [`.nod/policy.ts`](/docs/policy): findings, risk, category, requirement.
 5. Verify every `nod` block in the pull request's comments with `ssh-keygen -Y verify`, against
-   `.nod/allowed_signers`, and read the pull request's GitHub approvals.
+   `.nod/allowed_signers`, and read the pull request's GitHub approvals. With nobody in
+   `.nod/allowed_signers` no nod verifies, and approvals fill the slots they may (not released).
 6. Evaluate which nods [count](/docs/nodding#when-a-nod-counts), which
    [approvals](/docs/policy#approvals) count, and whether the requirement is met.
 7. Ask GitHub whether the base branch requires the `nod` check: [enforced or not](#enforced-or-not).

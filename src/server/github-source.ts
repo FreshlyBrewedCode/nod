@@ -126,7 +126,7 @@ export interface GitHubSourceOptions {
   /** The git identity for the enrolment commit; null: GitHub's default for the token. */
   readonly identity?: { readonly name: string; readonly email: string } | null;
   /** Opens the setup PR (`nod init`); resolves to its URL. */
-  readonly openSetupPr?: (input: { login: string; publicKey: string }) => Promise<string>;
+  readonly openSetupPr?: (input: { login: string; publicKey: string | null }) => Promise<string>;
   readonly log?: (line: string) => void;
   /** Log one line per poll: queries, REST calls, GraphQL cost, time (`NOD_DEBUG=1`). */
   readonly debug?: boolean;
@@ -480,11 +480,6 @@ export class GitHubSource implements Source {
     if (status.state === "ready")
       throw new SourceError("already-set-up", `${this.repo()} is set up already.`);
     if (status.setupPr) return status.setupPr;
-    if (!publicKey)
-      throw new SourceError(
-        "no-key",
-        "Create your signing key first: the setup PR enrols it as the first signer.",
-      );
     if (!this.viewer || !this.options.openSetupPr)
       throw new SourceError("github", "`gh` is not logged in.");
     let url: string;

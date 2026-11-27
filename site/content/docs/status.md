@@ -50,6 +50,9 @@ Built and not released yet, among others:
 - **Approving without a key.** With no key that signs in the repository, the batch dialog posts
   GitHub approvals instead of nods, at the inbox step and where the policy lets approvals count.
   Tried on a fake GitHub only. [Approve or nod](/docs/nodding#approve-or-nod)
+- **The shared policy without a key.** The setup PR opens without a signing key, with nobody in
+  `.nod/allowed_signers`; signing stays each person's own step. `nod init --ruleset` warns when
+  nobody is enrolled. Not tried on a real repository yet. [Enrolment](/docs/keys#enrolment)
 
 ## Not built
 

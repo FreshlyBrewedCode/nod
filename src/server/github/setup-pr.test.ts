@@ -82,6 +82,23 @@ test("opens the setup PR with my key as the first signer, leaving my clone as it
   expect(calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "create")).toBe(true);
 });
 
+test("without a key the setup PR opens with nobody in allowed_signers", async () => {
+  const url = await openSetupPrWithInit({
+    dir: repo.dir,
+    repo: "acme/widgets",
+    host: "github.com",
+    login: "alice",
+    publicKey: null,
+    version: "0.0.0-development",
+    runner,
+  });
+  expect(url).toBe("https://github.com/acme/widgets/pull/14");
+  const signers = await git(origin.dir, ["show", "nod/setup:.nod/allowed_signers"]);
+  expect(signers).toStartWith("# Who can nod");
+  expect(signers).not.toContain("alice");
+  expect((await repo.git("worktree", "list")).trim().split("\n")).toHaveLength(1);
+});
+
 test("a failing nod init still removes the worktree", async () => {
   const failing: Runner = {
     run: async (cmd, options) =>

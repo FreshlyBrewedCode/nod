@@ -1,7 +1,8 @@
 /**
  * Onboarding's "open the setup PR": `nod init` (src/init), run in a
  * temporary worktree of the user's clone, so the user's working tree and
- * current branch stay as they are. The first signer is the user's key.
+ * current branch stay as they are. The user's key is the first signer when
+ * there is one; without one `.nod/allowed_signers` starts empty (ADR 0006).
  */
 
 import { mkdtemp, rm } from "node:fs/promises";
@@ -18,8 +19,8 @@ export interface SetupPrInput {
   /** The GitHub host of the repo: every `gh` call `nod init` makes names it. */
   readonly host: string;
   readonly login: string;
-  /** `ssh-ed25519 AAAA…`: the first allowed signer. */
-  readonly publicKey: string;
+  /** `ssh-ed25519 AAAA…`: the first allowed signer; null: nobody yet. */
+  readonly publicKey: string | null;
   /** The running CLI's version (pins the kit). */
   readonly version: string;
   readonly runner?: Runner;
@@ -42,7 +43,7 @@ export async function openSetupPrWithInit(input: SetupPrInput): Promise<string> 
         repo: input.repo,
         host: input.host,
         dir: tree,
-        signers: [`${input.login} ${input.publicKey}`],
+        signers: input.publicKey ? [`${input.login} ${input.publicKey}`] : [],
         signerKeys: [],
         kit: null,
         dryRun: false,

@@ -169,6 +169,46 @@ describe("verifyNodBlock", () => {
   });
 });
 
+describe("an allowed_signers with nobody in it (ADR 0006)", () => {
+  // The header `nod init` writes when nobody has a key yet: comments only.
+  const empty = '# Who can nod in this repository\n#\n#   <github-login> namespaces="nod" …\n';
+
+  test("a good signature does not verify, and nothing throws", async () => {
+    const path = join(dir, "allowed_signers.empty");
+    await writeFile(path, empty);
+    const line = serializePayload(payload());
+    const signature = await sshSign(bob.privateKey, line);
+    expect(
+      (await verifyNod({ payloadLine: line, signature, reviewer: "bob", allowedSignersPath: path }))
+        .ok,
+    ).toBe(false);
+    const body = renderNodComment(line, signature, "bob nodded");
+    const r = await verifyNodBlocks(parseNodComments(body), { allowedSignersPath: path });
+    expect(r.verified).toEqual([]);
+    expect(r.rejected).toEqual([
+      { reviewer: "bob", reason: expect.stringMatching(/^signature invalid/) },
+    ]);
+  });
+
+  test("an empty file is the same", async () => {
+    const path = join(dir, "allowed_signers.zero");
+    await writeFile(path, "");
+    const line = serializePayload(payload());
+    const signature = await sshSign(bob.privateKey, line);
+    expect(
+      (await verifyNod({ payloadLine: line, signature, reviewer: "bob", allowedSignersPath: path }))
+        .ok,
+    ).toBe(false);
+  });
+
+  test("nobody is enrolled", () => {
+    expect(parseAllowedSigners(empty)).toEqual([]);
+    expect(enrolledLogins(empty)).toEqual([]);
+    expect(enrolledLogins("")).toEqual([]);
+    expect(principalsForKey(empty, bob.publicKey)).toEqual([]);
+  });
+});
+
 describe("allowed_signers helpers", () => {
   const text = [
     "# comment",

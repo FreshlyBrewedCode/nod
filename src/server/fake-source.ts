@@ -347,12 +347,14 @@ export class FakeSource implements Source {
       throw new SourceError("no-repo", "Pick a repository first.");
     if (this.setupState === "ready")
       throw new SourceError("already-set-up", `${this.repoName} is set up already.`);
-    if (!this.setupPr) {
-      this.setupPr = { number: SETUP_PR, url: prUrl(this.repoName, SETUP_PR) };
-      this.setupState = "pending";
-      this.emit("setup");
-    }
-    if (publicKey) this.keyCreated(publicKey);
+    if (this.setupPr) return this.setupPr;
+    // As `nod init`: my key is the first signer if I have one; else nobody is (ADR 0006).
+    this.setupPr = { number: SETUP_PR, url: prUrl(this.repoName, SETUP_PR) };
+    this.setupState = "pending";
+    if (publicKey && this.enrolment(publicKey).state === "not-enrolled")
+      this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr: this.setupPr });
+    this.emit("setup");
+    this.emit("enrolment");
     return this.setupPr;
   }
 
@@ -363,11 +365,13 @@ export class FakeSource implements Source {
     if (current.state === "active")
       throw new SourceError("already-enrolled", "Your key is enrolled already.");
     if (current.state === "pending" && current.pr) return current.pr;
-    // Setting up the repo: the first key rides in the setup PR.
-    const pr =
-      this.setupState === "pending" && this.setupPr
-        ? this.setupPr
-        : { number: ENROL_PR, url: prUrl(this.repoName, ENROL_PR) };
+    // As the GitHub source: an open setup PR is not changed; the key gets its PR after the merge.
+    if (this.setupState !== "ready")
+      throw new SourceError(
+        "github",
+        `${this.repoName} is not set up yet: the setup PR enrols the first key.`,
+      );
+    const pr = { number: ENROL_PR, url: prUrl(this.repoName, ENROL_PR) };
     this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr });
     this.emit("enrolment");
     return pr;
@@ -377,16 +381,11 @@ export class FakeSource implements Source {
     return this.enrolments.get(publicKeyId(publicKey)) ?? { state: "not-enrolled" };
   }
 
-  keyCreated(publicKey: string): void {
-    if (
-      this.setupState !== "pending" ||
-      !this.setupPr ||
-      this.enrolment(publicKey).state !== "not-enrolled"
-    )
-      return;
-    this.enrolments.set(publicKeyId(publicKey), { state: "pending", pr: this.setupPr });
-    this.emit("enrolment");
-  }
+  /**
+   * Nothing to do: as with GitHub, a key created after the setup PR opened
+   * is not added to it (it gets its own enrolment PR once the setup merged).
+   */
+  keyCreated(_publicKey: string): void {}
 
   subscribe(listener: (change: SourceChange) => void): () => void {
     this.listeners.add(listener);

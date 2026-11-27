@@ -11,7 +11,14 @@ import { dirname, join, resolve } from "node:path";
 
 import { GITHUB_COM, githubHost, parseRemote, type GitHubHost } from "../kit/host.ts";
 import type { InitFlags } from "./args.ts";
-import { rulesetCommand, SETUP_BRANCH, SETUP_PR_TITLE, setupPrBody } from "./pr-body.ts";
+import { enrolledLogins } from "../kit/sshsig.ts";
+import {
+  NOBODY_ENROLLED,
+  rulesetCommand,
+  SETUP_BRANCH,
+  SETUP_PR_TITLE,
+  setupPrBody,
+} from "./pr-body.ts";
 import {
   GITHUB_ACTIONS_APP_ID,
   isPlanRefusal,
@@ -81,12 +88,8 @@ export async function setupRepo(
   const runner = onHost(plain, host.name);
   const info = await repoInfo(runner, host, root, flags.repo);
 
+  // No signer is fine (ADR 0006): approvals count, and signing is each person's own step.
   const signers = await resolveSigners(runner, host, root, flags);
-  if (signers.length === 0 && !flags.dryRun) {
-    throw new Error(
-      'nod needs at least one signer\'s public key: --signer "<login> ssh-ed25519 AAAA…" or --signer-key <file.pub>. Without one, nothing can ever be nodded.',
-    );
-  }
   const kitSpec = flags.kit ?? (await kitSpecFor(runner, deps));
   const files = renderSetup(await loadTemplates(deps.templatesDir ?? TEMPLATES_DIR), {
     kitSpec,
@@ -104,8 +107,7 @@ export async function setupRepo(
     log(`  - create the branch ${SETUP_BRANCH} from origin/${info.defaultBranch}`);
     log("  - run `bun install` in .nod/ to write .nod/bun.lock");
     log(`  - commit, push, and open the setup PR on ${info.repo}: "${SETUP_PR_TITLE}"`);
-    if (signers.length === 0)
-      log("  (it refuses to without a signer: pass --signer or --signer-key)");
+    if (signers.length === 0) log(`  (with nobody in .nod/allowed_signers: ${NOBODY_ENROLLED})`);
     log("");
     log("The PR description would be:\n");
     log(body);
@@ -206,6 +208,7 @@ export async function setupRepo(
   await switchBack(runner, root, previous);
   const prUrl = url.split("\n").pop() ?? url;
   log(`opened the setup PR: ${prUrl}`);
+  if (signers.length === 0) log(`Nobody is in .nod/allowed_signers yet: ${NOBODY_ENROLLED}`);
   log("It merges under this repository's current rules. After the merge the nod check shows");
   log("what each PR needs but never blocks; to make it required, a repo admin runs:");
   log(`  ${rulesetCommand(host.name, info.repo)}`);
@@ -291,6 +294,8 @@ async function applyRuleset(
     `${existing ? "updated" : "created"} the ruleset "${RULESET_NAME}" on ${repo}: ${defaultBranch} needs a PR with 0 approvals and a green nod check from GitHub Actions (app ${integrationId}); nobody can bypass it.`,
   );
 
+  await warnIfNobodyEnrolled(runner, api, repo, defaultBranch, log);
+
   const merge = await runner.run(
     api("-X", "PATCH", `repos/${repo}`, "-F", "allow_auto_merge=true", "--jq", ".allow_auto_merge"),
   );
@@ -315,6 +320,36 @@ async function applyRuleset(
     );
   }
   return 0;
+}
+
+/**
+ * A required check with nobody in `.nod/allowed_signers`: approvals still
+ * count, but the kit's protected paths (`.nod/**`, the workflows) take nods
+ * only, so nobody can change nod's own setup any more, not even to enrol
+ * the first key. Says so and how to get out; changes nothing. A file that
+ * cannot be read says nothing (the verifier check above covers a missing setup).
+ */
+async function warnIfNobodyEnrolled(
+  runner: Runner,
+  api: (...args: string[]) => string[],
+  repo: string,
+  branch: string,
+  log: (l: string) => void,
+): Promise<void> {
+  const file = await runner.run(
+    api(
+      `repos/${repo}/contents/.nod/allowed_signers?ref=${encodeURIComponent(branch)}`,
+      "-H",
+      "Accept: application/vnd.github.raw",
+    ),
+  );
+  if (file.status !== 0 || enrolledLogins(file.stdout).length > 0) return;
+  log(
+    `warning: nobody is enrolled in .nod/allowed_signers on ${branch}. Approvals still count, but a change to .nod/** or .github/workflows/** needs a peer's signed nod, which nobody can give: with the check required, nobody can change nod's own setup, not even to enrol the first key.`,
+  );
+  log(
+    "  To get out, a repo admin either turns the ruleset off (Settings → Rules → Rulesets) until someone has enrolled (the nod check is neutral again meanwhile), or turns it off just to merge a PR that enrols a key (nod serve opens one: Signing on its setup page) and back on.",
+  );
 }
 
 /**
