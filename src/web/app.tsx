@@ -68,7 +68,7 @@ export function App() {
 }
 
 function Gate() {
-  const { status, welcome, snapshot, signer, repos, app, actions, reconnects, pairing } =
+  const { status, welcome, snapshot, signer, repos, app, inbox, actions, reconnects, pairing } =
     useConnection();
   const update = useUpdate(app);
   const [route, go] = useRoute();
@@ -141,6 +141,7 @@ function Gate() {
           badge={snapshot ? badgeCount(snapshot.prs) : null}
           app={app}
           update={update}
+          inbox={inbox}
         />
       );
     if (landing === "add-repo") return <AddRepoPage actions={actions} />;
@@ -182,6 +183,7 @@ function Gate() {
         go={go}
         servedApp={servedApp}
         update={update.indicator}
+        inbox={inbox}
       />
     );
   return <FullPage title="Reading GitHub…" />;

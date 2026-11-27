@@ -8,6 +8,7 @@ import { createContext, useContext } from "react";
 
 import type {
   GitHubInfo,
+  InboxStatus,
   Person,
   PrId,
   PrView,
@@ -51,6 +52,13 @@ export interface DashboardState {
    * (ADR 0006).
    */
   signingIn(pr: Pick<PrView, "repo">): boolean;
+  /** My own inbox (ADR 0009); null when this nod serve runs none (no Insights section then). */
+  readonly inbox: InboxStatus | null;
+  /**
+   * The panel opened on a PR: ask for its `when: "open"` analyzers, once per
+   * PR and head. Their states arrive as `insights` pushes.
+   */
+  openInsights(pr: PrView): void;
 }
 
 export const DashboardContext = createContext<DashboardState | null>(null);

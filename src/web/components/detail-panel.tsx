@@ -44,9 +44,18 @@ import {
   thenText,
   whoOf,
 } from "@/lib/wording";
-import { Avatar, Kbd, RepoChip, RiskBars, Tag } from "./bits";
+import {
+  markLines,
+  personalOf,
+  personalTag,
+  placementLine,
+  repoLine,
+  youLine,
+} from "@/lib/personal";
+import { Avatar, Kbd, PersonalChip, RepoChip, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import { DiffIndicator } from "./diff-indicator";
+import { InsightsSection } from "./insights/insights-section";
 
 const H6 = "text-tx3 m-0 mb-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase";
 const BUTTON =
@@ -145,6 +154,7 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
           {pr.diff.files} file{pr.diff.files === 1 ? "" : "s"}
         </span>
         {checks && <Tag tag={checks} />}
+        <MyChip pr={pr} />
       </div>
 
       {pr.ask && (
@@ -241,8 +251,10 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
 
       {wide ? <JourneyRow events={pr.journey} /> : <JourneyList events={pr.journey} />}
 
+      <InsightsSection pr={pr} className="mt-[26px]" />
+
       <div className="mt-[22px]">
-        <Fold title="Why this needs you" summary={reasonsSummary(pr)} open={wide}>
+        <Fold title="Why this needs you" summary={whySummary(pr)} open={wide}>
           <ReasonsBody pr={pr} />
         </Fold>
         {local ? (
@@ -328,11 +340,40 @@ export function OwnPrNote({
   );
 }
 
-/** The inside of the "Why this needs you" fold (the panel's and the phone page's). */
+/** My own inbox's tag in the panel's meta line, as on the row (`personalTag`). */
+export function MyChip({ pr }: { pr: PrView }) {
+  const text = personalTag(pr);
+  return text ? <PersonalChip text={text} title={youLine(pr) ?? undefined} /> : null;
+}
+
+/**
+ * The "Why this needs you" fold's summary: the repo's reasons, and my own
+ * inbox's line after them ("2 reasons · you: raised · auth").
+ */
+export function whySummary(pr: PrView): string {
+  const you = youLine(pr);
+  return you ? `${reasonsSummary(pr)} · ${you}` : reasonsSummary(pr);
+}
+
+const GROUP = "text-tx3 m-0 text-[11px] font-semibold tracking-[0.08em] uppercase";
+
+/**
+ * The inside of the "Why this needs you" fold (the panel's and the phone
+ * page's). With my own inbox's marks it has two groups, kept apart (ADR
+ * 0009 decision 1): the repo's (risk, what it needs, the reasons) and mine
+ * (each mark with its classifier, and why the row sits where it sits).
+ */
 export function ReasonsBody({ pr }: { pr: PrView }) {
   const local = pr.classifiedBy === "local";
+  const personal = personalOf(pr);
   return (
     <>
+      {personal && (
+        <p className="m-0 mb-1.5 flex flex-wrap items-baseline gap-x-2">
+          <span className={GROUP}>The repo</span>
+          <span className="text-tx3 fs-note">{repoLine(pr).replace(/^repo: /, "")}</span>
+        </p>
+      )}
       {local && (
         <p
           role="note"
@@ -359,7 +400,64 @@ export function ReasonsBody({ pr }: { pr: PrView }) {
           {pr.base}.
         </p>
       )}
+      {personal && <YourInbox pr={pr} personal={personal} />}
     </>
+  );
+}
+
+/** My own inbox's group: what it said, who said it, and where that put the row. */
+function YourInbox({
+  pr,
+  personal,
+}: {
+  pr: PrView;
+  personal: NonNullable<ReturnType<typeof personalOf>>;
+}) {
+  const placement = placementLine(pr);
+  const you = youLine(pr);
+  return (
+    <section
+      aria-label="Your inbox"
+      className="border-line2 mt-4 rounded-[10px] border border-dashed px-3 pt-2.5 pb-2 phone:px-3"
+    >
+      <p className="m-0 flex flex-wrap items-baseline gap-x-2">
+        <a
+          href={formatRoute({ view: "settings", section: "inbox" })}
+          className={cn(GROUP, "hover:text-tx2")}
+        >
+          Your inbox
+        </a>
+        {you && <span className="text-tx2 fs-note">{you.replace(/^you: /, "")}</span>}
+        <span className="text-tx3 fs-note ml-auto">only you see this</span>
+      </p>
+      {markLines(personal.marks).map((m, i) => (
+        <div
+          key={`${m.classifier}:${i}`}
+          className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 py-1.5 text-[13.5px] phone:grid-cols-1 phone:text-sm"
+        >
+          <span className="min-w-0 [overflow-wrap:anywhere]">
+            {m.detail}
+            <span className="text-tx3 ml-1.5 font-mono text-[11px] phone:block phone:ml-0">
+              {m.classifier}
+            </span>
+          </span>
+          <span className="text-tx2 phone:text-[13px]">{m.effect}</span>
+        </div>
+      ))}
+      {personal.errors.map((e) => (
+        <p
+          key={e}
+          className="text-tx3 m-0 py-1 font-mono text-[11.5px] [overflow-wrap:anywhere] phone:text-[12.5px]"
+        >
+          <span className="text-bad">failed</span> {e}
+        </p>
+      ))}
+      {placement && (
+        <p className="text-tx3 m-0 mt-1 text-[12.5px] leading-[1.5] phone:text-[13px]">
+          {placement}
+        </p>
+      )}
+    </section>
   );
 }
 

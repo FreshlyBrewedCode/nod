@@ -1,6 +1,7 @@
 /**
  * The settings page (`#/settings`, ADR 0007, concept C.8 and D.7), the pure
- * part: its sections and the words of the Repositories and App sections.
+ * part: its sections and the words of the Repositories and App sections
+ * (Inbox's are in `lib/personal.ts`).
  *
  * Adding a section: its id in `SETTINGS_SECTIONS` (`lib/route.ts`, which
  * also makes `#/settings/<id>` a route), its words in `SECTIONS` below, and
@@ -23,6 +24,7 @@ export interface SectionWords {
 
 export const SECTIONS: Readonly<Record<SettingsSection, SectionWords>> = {
   repositories: { title: "Repositories", line: "what nod reads, and each one’s step" },
+  inbox: { title: "Inbox", line: "your own classifiers and analyzers" },
   signing: { title: "Signing", line: "your key, its lock, where it signs" },
   app: { title: "App", line: "install it, the badge" },
   server: { title: "Server", line: "version, updates, the service" },

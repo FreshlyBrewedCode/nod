@@ -2,6 +2,7 @@
  * The small r3 marks used everywhere: keys, avatars, the risk bars, tags.
  */
 
+import { UserRound } from "lucide-react";
 import type * as React from "react";
 
 import type { Person, Risk } from "../../shared/protocol";
@@ -139,6 +140,35 @@ export function RepoChip({
       )}
     >
       <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+/**
+ * My own inbox's tag on a row (ADR 0009): quiet and outlined, with a person
+ * glyph, so it never reads as the repo's tag (filled) or the repo chip
+ * (mono). `title`: what my inbox said, on hover; the panel says it in full.
+ */
+export function PersonalChip({
+  text,
+  title,
+  className,
+}: {
+  text: string;
+  title?: string | undefined;
+  className?: string;
+}) {
+  return (
+    <span
+      title={title}
+      aria-label={`your inbox: ${text}`}
+      className={cn(
+        "border-line2 text-tx3 inline-flex h-[19px] max-w-[140px] min-w-0 flex-none items-center gap-[3px] rounded-[5px] border px-[5px] text-[11px] whitespace-nowrap",
+        className,
+      )}
+    >
+      <UserRound aria-hidden className="size-[11px] flex-none" strokeWidth={2.25} />
+      <span className="truncate">{text}</span>
     </span>
   );
 }

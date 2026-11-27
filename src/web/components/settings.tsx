@@ -32,6 +32,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   Account,
   AppState,
+  InboxStatus,
   RepoInfo,
   RepoKey,
   RepoList,
@@ -53,6 +54,7 @@ import { AddRepo, SMALL_BUTTON } from "./add-repo";
 import { CommandBox, ENFORCE_COMMAND, NoteBox, useRequest } from "./onboarding";
 import { CARD, Code, H2, Heading, LINE, QUIET } from "./settings-bits";
 import { DeviceSection } from "./settings-device";
+import { InboxSection } from "./settings-inbox";
 import { ServerSection } from "./settings-server";
 import { SigningSection } from "./settings-signing";
 import { Logo, TopBarShell, UpdatePill } from "./top-bar";
@@ -81,11 +83,14 @@ export interface SettingsPageProps {
   readonly app: AppState | null;
   /** The update's indicator and "updated to x" (`useUpdate`). */
   readonly update: UpdateView;
+  /** My own inbox (ADR 0009); null when this nod serve runs none. */
+  readonly inbox: InboxStatus | null;
 }
 
 /** Each section's page, by id: adding a section is one entry here (and its id and words). */
 const SECTION_PAGES: Readonly<Record<SettingsSection, (props: SettingsPageProps) => ReactNode>> = {
   repositories: (props) => <Repositories {...props} />,
+  inbox: (props) => <InboxSection inbox={props.inbox} />,
   signing: (props) => (
     <SigningSection {...props} otherSide={props.app ? !props.app.mayChange : false} />
   ),
