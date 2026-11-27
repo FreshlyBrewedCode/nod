@@ -78,6 +78,12 @@ Built and not released yet, among others:
   systemd or launchd. Not on Windows.
   [In the background](/docs/background)
 
+- **Your own inbox**: attention classifiers and analyzers only your `nod serve` runs, in a
+  subprocess, from `$XDG_CONFIG_HOME/nod/inbox/` (`nod inbox init`, `nod inbox test`). They move
+  pull requests between tiers today; the panel's insights, the tag on rows and the banner for a
+  broken `inbox.ts` are not built yet. Tried on the fake and in temp repositories only.
+  [Your own inbox](/docs/inbox)
+
 ## Not built
 
 - **An owned GitHub App for the check** ("app mode"). Until then the check can be forged by a
