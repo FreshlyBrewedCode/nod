@@ -6,8 +6,8 @@
  *   One repo, or three with `--scenario repos`.
  * - The GitHub source (`github-source.ts`): polls GraphQL with the `gh`
  *   token about every 60 s and reads the verifier's check summary; patch-ids
- *   come from the clone it runs in. One repo, as a list of one (#48 reads
- *   many).
+ *   come from the clone it runs in. One repo, as a fixed list of one (#48
+ *   reads many, from the config file's list).
  *
  * One source knows every repo (ADR 0007, 8): what touches a repo takes its
  * key, and `snapshot()` holds all of them. The session (`session.ts`) owns
@@ -22,9 +22,10 @@ import type {
   GitHubInfo,
   PrLink,
   PrState,
-  RepoChoice,
   RepoKey,
+  RepoList,
   RepoName,
+  RepoSuggestion,
   SetupStatus,
   Snapshot,
 } from "../shared/protocol";
@@ -93,12 +94,16 @@ export interface PostResult {
   readonly message: string | null;
 }
 
-/** What changed, for the session's pushes. */
-export type SourceChange = "prs" | "setup" | "enrolment";
+/**
+ * What changed, for the session's pushes. `repos`: the list itself (a repo
+ * added or removed); emitted before the `prs` that follows it.
+ */
+export type SourceChange = "prs" | "setup" | "enrolment" | "repos";
 
 export class SourceError extends Error {
   constructor(
     readonly code:
+      | "bad-request"
       | "no-repo"
       | "no-key"
       | "not-found"
@@ -120,12 +125,29 @@ export class SourceError extends Error {
 export interface Source {
   /** The `gh` account; null when `gh` is not logged in. */
   account(): Promise<Account | null>;
-  /** Onboarding step 1: repos the account can pick (while `repos()` is empty). */
-  listRepos(): Promise<ReadonlyArray<RepoChoice>>;
-  /** The repos it reads, in order; empty before the first is picked (the fake's `fresh`). */
+  /**
+   * Whether the list may be changed (`managed`: the config file's list), or
+   * is the one clone of `--dir` (`fixed`). The session refuses `add-repo` and
+   * `remove-repo` on a fixed list before it asks the source.
+   */
+  readonly repoList: RepoList;
+  /** The repos it reads, in order; a managed list may be empty (the fake's `fresh`). */
   repos(): ReadonlyArray<SourceRepo>;
-  /** Pick the first repo. Throws `SourceError` `not-found` / `forbidden`. */
-  pickRepo(repo: RepoName): Promise<void>;
+  /**
+   * Add a repo to the list: `input` as the person gave it, `owner/name`,
+   * `host/owner/name` or a link (`parseRepoInput`). Checks that the host's
+   * account can read it, then emits `repos` and `prs`. A repo the list has
+   * already is returned as it is. Throws `SourceError` `bad-request` (names
+   * no repo), `not-found`, `forbidden`, `github`.
+   */
+  addRepo(input: string): Promise<SourceRepo>;
+  /** Stop reading a repo; emits `repos` and `prs`. Throws `SourceError` `not-found`. */
+  removeRepo(repo: RepoKey): Promise<void>;
+  /**
+   * Repos where I have open PRs or review requests (one search per host),
+   * the busiest first, without those of the list.
+   */
+  suggestRepos(): Promise<ReadonlyArray<RepoSuggestion>>;
   /** The dashboard's state for the account, every repo's PRs; null before the first read. */
   snapshot(): Snapshot | null;
   /** Read GitHub now. */
