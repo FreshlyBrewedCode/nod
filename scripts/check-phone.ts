@@ -32,7 +32,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,6 +67,9 @@ const ROUTES = [
   "#/board",
   "#/settings",
   "#/settings/app",
+  "#/settings/signing",
+  "#/settings/server",
+  "#/settings/other-device",
   "#/setup",
   "#/setup/inbox",
   "#/setup/enforced",
@@ -110,6 +113,8 @@ interface State {
   url?: (env: Env) => string;
   /** Before the page opens: routes, init scripts. */
   before?: (page: Page, env: Env) => Promise<void>;
+  /** With `fresh`: more flags for its own `nod serve` (`--fake-service running`, `--allow-host …`). */
+  serveArgs?: ReadonlyArray<string>;
 }
 
 /** What a state's `url` and `before` know: the dev server and the scenario's `nod serve`. */
@@ -217,6 +222,51 @@ async function routeNamedHost(page: Page, env: Env) {
     ws.onClose(() => upstream.close());
   });
 }
+
+/**
+ * The other device's side for real: like `routeNamedHost`, but the socket
+ * reaches `nod serve --allow-host nod.example.test` as a TLS proxy would
+ * forward it (the named Host, the forwarding headers, the named origin), so
+ * the server puts it on the named host's side, with the remote token.
+ */
+async function routeRemote(page: Page, env: Env) {
+  await page.route(/^https:\/\/nod\.example\.test\//, async (route) => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: `${env.web}${url.pathname}${url.search}` });
+    await route.fulfill({ response });
+  });
+  await page.routeWebSocket(/^wss:\/\/nod\.example\.test\//, (ws) => {
+    const url = new URL(ws.url());
+    if (url.pathname !== "/ws") return;
+    const upstream = new WebSocket(`ws://127.0.0.1:${env.serve.port}/ws${url.search}`, {
+      headers: {
+        Host: "nod.example.test",
+        Origin: NAMED,
+        "X-Forwarded-For": "100.64.0.7",
+        "X-Forwarded-Host": "nod.example.test",
+        "X-Forwarded-Proto": "https",
+      },
+    } as unknown as string[]);
+    const queue: string[] = [];
+    upstream.onopen = () => {
+      for (const message of queue.splice(0)) upstream.send(message);
+    };
+    upstream.onmessage = (event) => ws.send(String(event.data));
+    upstream.onclose = (event) =>
+      event.code === 1000 || (event.code >= 4000 && event.code < 5000)
+        ? ws.close({ code: event.code, reason: event.reason })
+        : ws.close();
+    ws.onMessage((message) =>
+      upstream.readyState === WebSocket.OPEN
+        ? upstream.send(String(message))
+        : queue.push(String(message)),
+    );
+    ws.onClose(() => upstream.close());
+  });
+}
+
+const REMOTE_PAIRING = (serve: Serve, route: string) =>
+  `${NAMED}/${route}?host=${encodeURIComponent("wss://nod.example.test")}&token=${serve.remoteToken}`;
 
 /**
  * A stand-in for the hosted UI on GitHub Pages, which sends no framing
@@ -1316,8 +1366,249 @@ const SETTINGS_STATES: ReadonlyArray<State> = [
   },
 ];
 
+/** Settings → Server, Signing, Other device, and the update's pill (#54). */
+const APP_STATES: ReadonlyArray<State> = [
+  {
+    name: "the update's pill leads to Settings → Server",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /^Update 0\.3\.0/ }).click();
+      await page.getByRole("heading", { name: "Server", exact: true }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("region", { name: "Release notes of 0.3.0" }).isVisible(),
+        "Server does not show the release notes",
+      );
+      await must(
+        page
+          .locator("a[href^='javascript:'], [dangerouslySetInnerHTML]")
+          .count()
+          .then((n) => n === 0),
+        "the notes rendered something they must not",
+      );
+    },
+  },
+  {
+    name: "the update's pill in the top bar",
+    route: "#/",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: /^Update 0\.3\.0/ }).waitFor();
+    },
+    shot: "31a-update-pill",
+  },
+  {
+    name: "settings, server: an update and its notes",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: "Update to 0.3.0" }).waitFor();
+    },
+    shot: "31b-settings-server",
+    full: true,
+  },
+  {
+    name: "settings, server: the update asks first",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByRole("button", { name: "Update to 0.3.0" }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText("npm install -g @frebreco/nod@0.3.0").first().isVisible(),
+        "the confirmation does not show the command",
+      );
+    },
+    shot: "31c-settings-server-confirm",
+  },
+  {
+    name: "settings, server: installing",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    act: async (page) => {
+      await page.getByRole("button", { name: "Update to 0.3.0" }).click();
+      await page.getByRole("button", { name: "Install 0.3.0" }).click();
+      await page.getByText(/^Installing 0\.3\.0/).waitFor();
+    },
+    shot: "31d-settings-server-installing",
+  },
+  {
+    name: "settings, server: installed, restart by hand",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    act: async (page) => {
+      await page.getByRole("button", { name: "Update to 0.3.0" }).click();
+      await page.getByRole("button", { name: "Install 0.3.0" }).click();
+      await page.getByText("0.3.0 is installed.").waitFor({ timeout: 15000 });
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("button", { name: /^Restart/ })
+          .count()
+          .then((n) => n === 0),
+        "the pill shows on Server itself",
+      );
+      await must(page.getByText(/cannot restart itself/).isVisible(), "no restart-by-hand note");
+    },
+    shot: "31e-settings-server-restart-by-hand",
+  },
+  {
+    name: "settings, server: restarted through the service, on the new version",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--fake-service", "running"],
+    act: async (page) => {
+      await page.getByRole("button", { name: "Update to 0.3.0" }).click();
+      await page.getByRole("button", { name: "Install 0.3.0" }).click();
+      await page.getByText(/Updated to 0\.3\.0/).waitFor({ timeout: 20000 });
+      await page.getByText(/^Up to date/).waitFor();
+    },
+    assert: async (page) => {
+      await must(page.getByRole("heading", { name: "nod 0.3.0" }).isVisible(), "not on 0.3.0");
+    },
+    shot: "31f-settings-server-updated",
+  },
+  {
+    name: "settings, server: the install failed",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--fake-install", "fail"],
+    act: async (page) => {
+      await page.getByRole("button", { name: "Update to 0.3.0" }).click();
+      await page.getByRole("button", { name: "Install 0.3.0" }).click();
+      await page.getByText("The install failed (exit 1).").waitFor({ timeout: 15000 });
+    },
+    shot: "31g-settings-server-failed",
+  },
+  {
+    name: "settings, server: an unknown install method shows the commands",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--fake-install", "unknown"],
+    act: async (page) => {
+      await page.getByText("bun add -g @frebreco/nod@0.3.0").waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("button", { name: /^Update to/ })
+          .count()
+          .then((n) => n === 0),
+        "an unknown method offers Update",
+      );
+    },
+    shot: "31h-settings-server-unknown-method",
+  },
+  {
+    name: "settings, server: the service set up from the page",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    act: async (page) => {
+      await page.getByRole("button", { name: "Run nod in the background" }).click();
+      await page.getByText(/this nod serve is the service/).waitFor({ timeout: 15000 });
+    },
+    shot: "31i-settings-server-service-running",
+  },
+  {
+    name: "settings, server: the service on a system without one",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--fake-service", "unsupported", "--fake-update", "none"],
+    act: async (page) => {
+      await page.getByText(/Linux and macOS only/).waitFor();
+    },
+  },
+  {
+    name: "settings, server: the other device reads it, and changes nothing",
+    route: "#/settings/server",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--allow-host", "nod.example.test"],
+    url: ({ serve }) => REMOTE_PAIRING(serve, "#/settings/server"),
+    before: routeRemote,
+    act: async (page) => {
+      await page.getByText("Updates are installed on the machine nod runs on.").waitFor();
+    },
+    assert: async (page) => {
+      for (const name of [/^Update to/, /^Run nod in the background/, /^Stable$/, /^Next$/])
+        await must(
+          page
+            .getByRole("button", { name })
+            .count()
+            .then((n) => n === 0),
+          `the other device offers ${name}`,
+        );
+    },
+    shot: "31j-settings-server-other-device",
+    full: true,
+  },
+  {
+    name: "settings, signing",
+    route: "#/settings/signing",
+    scenarios: ["team", "join"],
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Signing", exact: true }).waitFor();
+    },
+    shot: "31k-settings-signing",
+    full: true,
+  },
+  {
+    name: "settings, other device: how to",
+    route: "#/settings/other-device",
+    scenarios: ["team"],
+    act: async (page) => {
+      await page.getByText("Not set up").waitFor();
+    },
+    shot: "31l-settings-other-device-how-to",
+  },
+  {
+    name: "settings, other device: the code",
+    route: "#/settings/other-device",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--allow-host", "nod.example.test"],
+    act: async (page) => {
+      await page.getByRole("img", { name: /A QR code/ }).waitFor();
+    },
+    shot: "31m-settings-other-device",
+  },
+  {
+    name: "settings, other device: on the other device, no code",
+    route: "#/settings/other-device",
+    scenarios: ["team"],
+    fresh: true,
+    serveArgs: ["--allow-host", "nod.example.test"],
+    url: ({ serve }) => REMOTE_PAIRING(serve, "#/settings/other-device"),
+    before: routeRemote,
+    act: async (page) => {
+      await page.getByText("This is the other device").waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("img", { name: /A QR code/ })
+          .count()
+          .then((n) => n === 0),
+        "the other device was shown the code",
+      );
+    },
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
   ...FORWARD_STATES,
+  ...APP_STATES,
   ...REPOS_STATES,
   ...SETTINGS_STATES,
   ...OFFER_STATES,
@@ -1749,6 +2040,8 @@ export async function startVite(): Promise<{ url: string; child: Child }> {
 export interface Serve {
   port: number;
   token: string;
+  /** With `--allow-host`: the other device's token, from the device link it prints. */
+  remoteToken: string | null;
   child: Child;
 }
 
@@ -1757,8 +2050,16 @@ export async function startServe(
   webUrl: string,
   dir: string,
   name: string = scenario,
+  extra: ReadonlyArray<string> = [],
 ): Promise<Serve> {
   const port = await freePort();
+  // `--allow-host` needs a built web app to serve; the check's pages come from Vite anyway.
+  if (extra.includes("--allow-host") && !extra.includes("--web-dir")) {
+    const web = join(dir, "web");
+    mkdirSync(web, { recursive: true });
+    writeFileSync(join(web, "index.html"), "<!doctype html><title>nod</title>");
+    extra = [...extra, "--web-dir", web];
+  }
   const child = new Child(
     "bun",
     [
@@ -1775,6 +2076,7 @@ export async function startServe(
       "--web-url",
       webUrl,
       "--no-open",
+      ...extra,
     ],
     { XDG_CONFIG_HOME: dir },
   );
@@ -1782,7 +2084,12 @@ export async function startServe(
     `nod serve (${scenario})`,
     async () => /token=([\w-]+)/.exec(child.output)?.[1],
   );
-  return { port, token, child };
+  const remote = extra.includes("--allow-host")
+    ? await waitFor("the device link", async () =>
+        /https:\/\/[^\s]*#host=wss[^\s]*token=([\w-]+)/.exec(child.output),
+      )
+    : null;
+  return { port, token, remoteToken: remote?.[1] ?? null, child };
 }
 
 // ---------------------------------------------------------------------------
@@ -1911,7 +2218,8 @@ function targets(web: string, serves: Map<Scenario, Serve>, deadPort: number): T
         state,
         env: { web, serve },
         ...(state.fresh && {
-          pairing: (own: Serve) => `${web}/${state.route}?${pairingOf(own)}`,
+          pairing: (own: Serve) =>
+            state.url ? state.url({ web, serve: own }) : `${web}/${state.route}?${pairingOf(own)}`,
         }),
       });
   }
@@ -1951,17 +2259,25 @@ function knownOpen(target: Target) {
 async function open(
   context: BrowserContext,
   target: Target,
-  own: (target: Target) => Promise<{ url: string; done: () => void }>,
+  own: (target: Target) => Promise<{ url: string; done: () => void; serve?: Serve }>,
 ): Promise<{ page: Page; done: () => void }> {
-  const { url, done } = await own(target);
+  const { url, done, serve } = await own(target);
   const page = await context.newPage();
-  if (target.state && target.env) await target.state.before?.(page, target.env);
+  // A fresh state's hooks talk to its own `nod serve`.
+  const env = target.env && serve ? { ...target.env, serve } : target.env;
+  if (target.state && env) await target.state.before?.(page, env);
   await page.goto(url);
   await settle(page, target.wait);
-  if (target.state && target.env) {
-    await target.state.act(page, target.env);
-    await settle(page, 400);
-    await target.state.assert?.(page, target.env);
+  try {
+    if (target.state && env) {
+      await target.state.act(page, env);
+      await settle(page, 400);
+      await target.state.assert?.(page, env);
+    }
+  } catch (error) {
+    // A failed state's own `nod serve` stops too.
+    done();
+    throw error;
   }
   return { page, done };
 }
@@ -2013,8 +2329,14 @@ async function main() {
     /** The address of a target: its own `nod serve` when the state asks for one. */
     const own = async (target: Target) => {
       if (!target.pairing) return { url: target.url, done: () => {} };
-      const serve = await startServe(target.scenario ?? "team", vite.url, dir, `own${owned++}`);
-      return { url: target.pairing(serve), done: () => serve.child.stop() };
+      const serve = await startServe(
+        target.scenario ?? "team",
+        vite.url,
+        dir,
+        `own${owned++}`,
+        target.state?.serveArgs ?? [],
+      );
+      return { url: target.pairing(serve), done: () => serve.child.stop(), serve };
     };
 
     if (shotsAt) {
