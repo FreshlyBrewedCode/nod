@@ -8,7 +8,9 @@ nod
 - two halves
   1. **`nod serve`** (`src/cli.ts`, `src/server/`): local Bun server, polls GitHub, holds the
      signing key, one token-guarded WebSocket used only by the user's own browser
-  2. **web app** (`src/web/`): Vite/React SPA, hosted UI later, Vite dev server locally
+  2. **web app** (`src/web/`): Vite/React SPA; the app is the build `nod serve` serves itself at
+     `http://127.0.0.1:<port>/` (ADR 0008), the hosted UI stays for deep links, Vite dev server
+     locally
 - `src/shared/protocol.ts` is the wire contract of both halves (protocol 2: many repos, ADR 0007;
   a repo is its repo key `owner/name` or `host/owner/name`, a PR is (repo, number), in the web
   app the PR id `<repo key>#<n>`, both in `src/shared/repo-key.ts`); `src/kit/` is the pure helper
@@ -31,7 +33,9 @@ nod
 
 - working in this repo
   - `bun run check` = format:check + lint + typecheck + test; CI runs it plus `bun run build`
-  - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
+  - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`); after
+    `bun run build`, `nod serve` also serves `dist/web` on its own port and prints that link second
+    (a release prints it first, `printedLinks` in `cli.ts`)
     - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared|repos|dir]
       [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
       link. Fake passphrase: anything but `wrong`. `repos`: three repos at three ladder steps,
@@ -85,10 +89,10 @@ nod
     `--fake --scenario inbox`, and `join` at a set-up repo); the passphrase only ever lives in
     its input (`components/unlock.tsx`, also the lock chip). Screenshots of it: `docs/design/r3/impl/`
   - settings (`#/settings[/<section>]`, `components/settings.tsx`, words in `lib/settings.ts`):
-    a section nav and one section, Repositories (rows with host, step, my key, the next offer,
+    a section nav and its sections, Repositories (rows with host, step, my key, the next offer,
     "The ladder ›" to `#/setup/<repo>`, Remove; `AddRepo` in `add-repo.tsx` with
-    `suggest-repos`); a new section is its id in `SETTINGS_SECTIONS` (`lib/route.ts`), its words
-    in `SECTIONS`, its page in `SECTION_PAGES`. Requests `add-repo` (`parseRepoInput` in
+    `suggest-repos`) and App (install, the badge switch; ADR 0008); a new section is its id in
+    `SETTINGS_SECTIONS` (`lib/route.ts`), its words in `SECTIONS`, its page in `SECTION_PAGES`. Requests `add-repo` (`parseRepoInput` in
     `shared/repo-key.ts`), `remove-repo`, `suggest-repos`; `welcome.repoList` `managed|fixed`
     (fixed: read-only, the session refuses changes); a list change pushes `repos` before the
     snapshot, and a request's `repos` push comes before its reply
@@ -123,7 +127,33 @@ nod
     (`qr.ts`, `uqr`). Client rule: `isAllowedHost` in `lib/connection.ts`. User page:
     `site/content/docs/phone.md`
   - link forwarding (ADR 0005 §7): `lib/forward.ts` + `components/forward.tsx`, the host rule in
-    `src/shared/named-host.ts`; `check:phone` plays a named host by routing `https://nod.example.test`
+    `src/shared/named-host.ts`; `check:phone` plays a named host by routing `https://nod.example.test`.
+    The record may also be this machine's app, exactly `http://127.0.0.1:<port>`
+    (`localAppOriginOf`); with nothing remembered the hosted origin (only) offers
+    `DEFAULT_LOCAL_APP` (`LocalOffer`, `offer.local`/`assumed`); the app's menu offers "Open links
+    from GitHub here" only off port 4518 (`forwardSetupUrl(page, version, servedApp)`)
+  - the app (ADR 0008): `ServeOptions.appRoot` serves the build on loopback (`start({ appRoot })`,
+    `Started.appLink`; `--web-dir` now without `--allow-host`); `localhost`/`[::1]` page requests
+    308 to `127.0.0.1` (`canonicalRedirect`), and only `http://127.0.0.1:<port>` is added to the
+    allowed origins; the Host check stays first. `isServedApp(page, pairing)` in `lib/app.ts`
+    tells the app from the hosted UI and the dev server
+    - service worker: `src/web/sw.ts` (wiring), `lib/sw-rules.ts` (pure: cache `nod-shell-<build>`,
+      `strategyFor`, never `/ws`, `/health` or a `token` query), `lib/sw-register.ts` (registered
+      only in a prod build off the hosted origin; a page of another build reloads once on the
+      worker's `nod-sw-activated`; `checkForUpdate` after a reconnect). The Vite plugin in
+      `vite.config.ts` emits `sw.js`, writes the build id and precache list into it and
+      `<meta name="nod-build">` into `index.html`
+    - "nod serve isn't running": `closedPageOf` (`lib/app.ts`) and `NotRunningPage`
+      (`full-page.tsx`); `SERVICE_HINT` names `nod service install` as not released
+    - badge: `badgeCount` in `src/shared/attention.ts` (tier 1, open, every repo), `lib/badge.ts`
+      (`titleFor`, `applyBadge`, `nod.badge`), `hooks/use-badge.ts` at the root (`app.tsx`);
+      install: `hooks/use-install.ts` (`listenForInstall` in `main.tsx`), Settings → App
+      (`AppSection` in `settings.tsx`), "Install app" in the avatar menu
+    - browser check of it: `bun run build`, `serve --fake --port 452x --token-file <tmp>`, a
+      `launchPersistentContext` profile (an incognito context fails installability with
+      `in-incognito`); `Page.getInstallabilityErrors` over CDP; stop the server and reload for
+      the offline page. Two builds for the takeover: copy `dist/web` twice, swap the build id in
+      one copy's `index.html` and `sw.js`, serve each with `--web-dir`
   - the real source without touching `~/.config/nod`: start it from a script calling `start()`
     (`src/server/start.ts`) with `keyFile` and `tokenFile` in a temp folder
   - stale and posting-failure states can't be produced by `--fake`: in a browser check, route

@@ -28,14 +28,28 @@ order: 3
 - It computes patch-ids in your clone, or (not released) in its own clone of each repository of
   the [repo list](/docs/cli#nod-repo), holds the unlocked signing key in memory, signs, and posts
   nod comments.
+- It serves the web app, the [app](/docs/app), at `http://127.0.0.1:<port>/`: the build of its
+  own version. Not released.
 - It keeps no state beyond a cache. The only files it owns are the signing key, the pairing
   token and (not released) the repo list in `config.json`, and its clone cache.
 
 **The web app** is a single-page app (React). It talks only to `nod serve`, over one WebSocket on
-loopback, guarded by a pairing token and an origin check. It never talks to GitHub. It is hosted
-as static files at `ui.nod.frebreco.de` (the stable release; `main`'s at `/next`), and does nothing
-until paired with a local server; in a checkout it runs from the Vite dev server. On another device it is the copy
-`nod serve` serves itself on the [named host](/docs/phone), over `wss` to that same address.
+loopback, guarded by a pairing token and an origin check. It never talks to GitHub. It runs in
+three places:
+
+- **The app**: `nod serve` serves it itself at `http://127.0.0.1:<port>/`, and the link it prints
+  opens it. Page and socket share that address, so the browser asks for no permission, and the
+  page is always the server's version. It is installable, and a service worker keeps the files of
+  its version in the browser, so it opens without `nod serve` and says so. Not released.
+  [The app](/docs/app)
+- **The hosted web app** at `ui.nod.frebreco.de` (the stable release; `main`'s at `/next`), as
+  static files, where deep links point. Not paired, it hands a link to the app or to the named
+  host. In a checkout the Vite dev server stands in for it.
+- **On another device**, the copy `nod serve` serves on the [named host](/docs/phone), over `wss`
+  to that same address.
+
+`nod serve` answers only to the loopback names and the named host, checked before anything else:
+a page that points a name of its own at your machine (DNS rebinding) gets nothing.
 
 ## The protocol
 
@@ -56,7 +70,9 @@ ask is. The layout, meaning tiers, lanes, time buckets and board columns, is com
 browser by pure functions in `src/shared/attention.ts`.
 
 A release's CLI and web app are built from the same tag, so both speak the same protocol; the
-`next` CLI opens the `next` web app.
+`next` CLI opens the `next` web app. The app is the CLI's own build, so it always matches; when
+`nod serve` comes back as another version, the open app loads that version's files once, by
+itself.
 
 ## The kit
 

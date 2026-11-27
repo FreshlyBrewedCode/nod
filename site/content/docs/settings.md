@@ -11,7 +11,8 @@ order: 5
 
 **Settings** in the avatar menu opens the settings page, `#/settings`. Its sections are listed on
 the left (on a phone, as a row of tabs once there is more than one); each one has its own address,
-`#/settings/<section>`, so a link opens it directly. This version has one section, Repositories.
+`#/settings/<section>`, so a link opens it directly. This version has two sections, Repositories
+and App.
 
 ## Repositories
 
@@ -59,3 +60,15 @@ With no repository at all, the dashboard is a page with the same field and sugge
 `nod serve --dir <clone>` (or `nod serve` in a clone while the repo list is empty) reads that one
 clone. The section then shows it read-only, with a note that says why and what to run instead:
 [`nod repo add`](/docs/cli#nod-repo), then `nod serve` without `--dir`.
+
+## App
+
+`#/settings/app`: the [app](/docs/app) on this browser.
+
+- **Install**: **Install app** where the browser offers it (Chrome, Edge), "installed" once it
+  is, or how this browser installs a site (Safari: File, then Add to Dock; Firefox does not). On a
+  page that is not the app, such as the hosted web app, it gives the app's address instead.
+- **Badge**: what the [badge](/docs/glossary) shows now, and a switch for the count on the app's
+  icon, kept in this browser. The tab's title always counts.
+
+![Settings, App](./screenshots/settings-app.webp)

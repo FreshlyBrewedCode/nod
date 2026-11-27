@@ -137,6 +137,19 @@ your machine gets nothing. The token is in the link `nod serve` prints and is ke
 `$XDG_CONFIG_HOME/nod/serve-token`; `--new-token` replaces it. The passphrase is sent over that
 socket once per unlock and is never logged.
 
+### The app
+
+Not released. `nod serve` also serves the [app](/docs/app), the built web app, at
+`http://127.0.0.1:<port>/`, and lets that one address open the socket, with the same token. The
+name check above comes before anything else, so a rebinding page gets no page either. A page asked
+for on `localhost` or `[::1]` is sent to `127.0.0.1`, and only `http://127.0.0.1:<port>` counts as
+the app: a page on `localhost` could come from another program listening there. The files are
+served from the built app's folder only, never inside another page's frame. The service worker
+keeps only the files of the app's version, never a response to a request that carries the token,
+and the token itself is in the part of the address a browser never sends. On a page that is not
+paired, the hosted web app offers to open a link in the app at `http://127.0.0.1:4518`: an address
+it chose, not one a link names, and the link carries no token.
+
 ### Another device
 
 With `--allow-host` (not released), `nod serve` also answers to one

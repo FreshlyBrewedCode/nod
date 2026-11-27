@@ -1,6 +1,6 @@
 # 0005: Another device reaches `nod serve` through one named host, same origin
 
-Status: accepted (2026-11-21). Replaces the concept's "It talks to `nod serve` over loopback" (Architecture, Web app) and extends canvas ADR 0001's host-link guards as `src/server/server.ts` applies them. Evidence: [finding 04](../findings/04-phone-reach.md). Epic #30.
+Status: accepted (2026-11-21); amended by [ADR 0008](0008-the-app.md) (loopback serves the same web app, the app; §7 also forwards to it). Replaces the concept's "It talks to `nod serve` over loopback" (Architecture, Web app) and extends canvas ADR 0001's host-link guards as `src/server/server.ts` applies them. Evidence: [finding 04](../findings/04-phone-reach.md). Epic #30.
 
 ## Context
 

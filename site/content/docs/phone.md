@@ -58,15 +58,19 @@ The named host is a side of its own:
 - **Its own unlock.** Unlocking on your machine does not let the phone sign, and unlocking on the
   phone does not let your machine sign. Each side shows its own lock: the phone says "locked"
   while your machine is unlocked.
-- **The dashboard of this very `nod serve`**: the same version, always. It pairs only with the
-  named host, never with the phone's own `127.0.0.1`.
+- **The dashboard of this very `nod serve`**: the same version, always, the same [app](/docs/app)
+  your machine gets on `127.0.0.1`. It pairs only with the named host, never with the phone's own
+  `127.0.0.1`.
 
 ## On the home screen
 
 The dashboard can be added to the phone's home screen (in the browser's menu: "Add to Home
 screen", or Share, then "Add to Home Screen" on an iPhone). It then opens as a **home-screen app**,
-without the browser's bars, with nod's icon. It is the same page on the same named host; there is
-no offline mode, and it needs `nod serve` running as before.
+without the browser's bars, with nod's icon. It is the same page on the same named host. Like the
+[app on your machine](/docs/app#without-nod-serve) it keeps its files, so it opens while `nod serve`
+is not running (or `tailscale serve` has nothing behind it), says so with the command to start it,
+and reconnects by itself; it needs `nod serve` running for anything else. Not released: opening
+without `nod serve`.
 
 - **Android (Chrome):** the app shares the browser's storage, so the pairing you made in the
   browser carries over.
@@ -99,7 +103,8 @@ to the named host, once you have told that browser where your nod is.
   page is not paired yet, it remembers the link and says how to pair; the device link then
   lands on the pull request.
 - A browser that is paired with `nod serve` on your machine, such as your desktop's, keeps opening
-  links there and never forwards.
+  links there and never forwards. On your machine, a browser that is not paired hands links to
+  the [app](/docs/app#links-from-github) instead; a remembered named host comes first.
 - Link forwarding is not released: it is on `ui.nod.frebreco.de/next`, but links in comments
   open the root, `ui.nod.frebreco.de`, which forwards from the next stable release on. A
   pre-release's **Open links from GitHub here** confirms the address on `/next`; both share one
