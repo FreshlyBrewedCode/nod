@@ -42,6 +42,18 @@ nod
   token never enters the subprocess. It never changes risk or the requirement: `attention.ts`
   applies `PrView.personal` to tiers (`adjustTier`). Tests spawn real children over temp folders
   with `inboxEnv` of a temp `HOME`; `start()` takes `inbox: null` where a test counts pushes
+  - its UI (#58): `components/insights/` (`insights-section.tsx` and one renderer per block
+    type; `useWidth` draws charts in real px), pure helpers in `lib/insights.ts` (tones →
+    `--insight-*` tokens in `styles.css`, shares, donut arcs, series layout, file links with
+    GitHub's sha256 diff anchor) and `lib/personal.ts` (the repo's line vs mine, the personal tag,
+    where a row sits and why, the banner). Two layers stay apart: `ReasonsBody` has a "The repo"
+    and a "Your inbox" group, the row a `PersonalChip` (bits.tsx). `text` blocks use the web
+    app's one markdown renderer (`components/markdown.tsx`), never the kit's `parseMarkdown`;
+    nothing from a payload becomes a colour, a URL or markup. `openInsights` (dashboard state)
+    asks once per PR and head. Banner: `inbox-banner.tsx`; Settings → Inbox: `settings-inbox.tsx`.
+    `check:phone` runs `insights` from a copy of the fixture in its temp config folder (the page
+    shows the inbox's path: never shoot this checkout's). Shots `33*` in `docs/design/*/impl/`;
+    `33z` is a mock (composition on the row's diff bar), not shipped
 
 - stack (sibling: `../canvas`)
   - bun, TypeScript, React 19, Vite, tailwind v4, shadcn-style primitives; design system in

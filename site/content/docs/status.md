@@ -80,8 +80,9 @@ Built and not released yet, among others:
 
 - **Your own inbox**: attention classifiers and analyzers only your `nod serve` runs, in a
   subprocess, from `$XDG_CONFIG_HOME/nod/inbox/` (`nod inbox init`, `nod inbox test`). They move
-  pull requests between tiers today; the panel's insights, the tag on rows and the banner for a
-  broken `inbox.ts` are not built yet. Tried on the fake and in temp repositories only.
+  pull requests between tiers, tag rows, and show insights in the panel (breakdowns, numbers,
+  charts, files, text); a banner says when `inbox.ts` does not load, and Settings → Inbox shows
+  what runs. No LLM analyzer. Tried on the fake and in temp repositories only.
   [Your own inbox](/docs/inbox)
 
 ## Not built

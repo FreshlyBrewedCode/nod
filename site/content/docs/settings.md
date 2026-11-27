@@ -1,6 +1,6 @@
 ---
 title: Settings
-description: "The settings page: Repositories, Signing, App, Server (version, updates, the channel, the service) and Other device."
+description: "The settings page: Repositories, Inbox, Signing, App, Server (version, updates, the channel, the service) and Other device."
 section: Using nod
 order: 5
 ---
@@ -12,8 +12,8 @@ order: 5
 **Settings** in the avatar menu opens the settings page, `#/settings`. Its sections are listed on
 the left (on a phone, as a row of tabs once there is more than one); each one has its own address,
 `#/settings/<section>`, so a link opens it directly. The sections: [Repositories](#repositories),
-[Signing](#signing), [App](#app), [Server](#server) and [Other device](#other-device). Your own
-inbox's settings come later.
+[Inbox](#inbox), [Signing](#signing), [App](#app), [Server](#server) and
+[Other device](#other-device).
 
 ## Repositories
 
@@ -61,6 +61,25 @@ With no repository at all, the dashboard is a page with the same field and sugge
 `nod serve --dir <clone>` (or `nod serve` in a clone while the repo list is empty) reads that one
 clone. The section then shows it read-only, with a note that says why and what to run instead:
 [`nod repo add`](/docs/cli#nod-repo), then `nod serve` without `--dir`.
+
+## Inbox
+
+`#/settings/inbox`: [your own inbox](/docs/inbox), as your `nod serve` runs it. Read only: the
+inbox is a file you edit, and a save reloads it.
+
+- What runs: your `inbox.ts` (**Yours**) or nod's built-in defaults, whether it loads, and the
+  error with its line when it does not. What it said before stays in effect meanwhile.
+- The file and its folder (`$XDG_CONFIG_HOME/nod/inbox/` unless `nod serve --inbox` names
+  another).
+- Every attention classifier and analyzer it loaded, each **default** or **yours**, an analyzer
+  with its id and when it runs (after each poll, or when opened), and the repositories a part is
+  limited to.
+- How to start: `nod inbox init` (without an `inbox.ts`) and `nod inbox test <pr>`.
+
+It runs on your machine as you, in a process of its own without your token or key: not a sandbox
+against your own code. Not released.
+
+![Settings, Inbox](./screenshots/settings-inbox.webp)
 
 ## App
 

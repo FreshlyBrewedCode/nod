@@ -30,6 +30,10 @@ Why these rules:
 - Your own work only gets room when it needs you or is stuck. Otherwise your agents are fine
   without you.
 - An open high-risk pull request is never folded, even while it waits on someone else.
+- [Your own inbox](/docs/inbox) can move a pull request one tier up or down, or fold it into
+  Background, and tag the row quietly (the **personal tag**, outlined, with a person glyph). It
+  never takes a pull request that needs you out of Needs you, and never folds an open high-risk
+  one. Not released.
 - **Stuck** means a check is failing, it conflicts with its base, a reviewer requested changes,
   or it has waited on a person for 12 hours or more. Not released: the conflict and the requested
   changes.
@@ -97,7 +101,10 @@ It shows, in this order:
 2. **The brief**: what, why, risk, how it was verified, where to look. See
    [Agents](/docs/agents#the-brief).
 3. **The journey**: opened, classified, nods, rebases, what it waits on now, what comes next.
-4. Folded sections: why it needs you (the classifier findings), signatures, FYI acks, files.
+4. **Insights**: what the analyzers of [your own inbox](/docs/inbox#on-your-dashboard) say about
+   it, one block each (a breakdown of the diff, numbers, a chart, files, text). Not released.
+5. Folded sections: why it needs you (the classifier findings; with your own inbox, its marks in
+   a group of their own, apart from the repository's), signatures, FYI acks, files.
 
 ![The detail panel next to the list](./screenshots/detail-panel.webp)
 
