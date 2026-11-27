@@ -30,9 +30,9 @@ nod
 - working in this repo
   - `bun run check` = format:check + lint + typecheck + test; CI runs it plus `bun run build`
   - dev: `bun run dev` (Vite on :4517) and `nod serve` (:4518, `bun src/cli.ts serve`)
-    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join] [--frozen]`: the
-      mockup's team in memory (`src/server/fake-*.ts`); open the printed host link. Fake
-      passphrase: anything but `wrong`
+    - `bun src/cli.ts serve --fake [--scenario team|clear|first-run|fresh|join|inbox|shared]
+      [--frozen]`: the mockup's team in memory (`src/server/fake-*.ts`); open the printed host
+      link. Fake passphrase: anything but `wrong`
     - the pairing token is stable under `$XDG_CONFIG_HOME/nod/serve-token`; pass `--token-file`
       to keep tests and experiments out of it
     - against GitHub: `bun src/cli.ts serve --dir <a clone of the repo> [--poll 60]`;
@@ -59,9 +59,13 @@ nod
     GitHub approvals (request `approve`, review → approving → approved, one kind per batch;
     `--fake --scenario inbox`, and `join` at a set-up repo); the passphrase only ever lives in
     its input (`components/unlock.tsx`, also the lock chip). Screenshots of it: `docs/design/r3/impl/`
-  - onboarding (`components/onboarding.tsx`): shown by `app.tsx` while the setup or the key is
-    not ready, reopened at `#/setup` (avatar menu); where it starts is derived from server state
-    only (`lib/onboarding.ts`, tested). Deep links (`components/link-landing.tsx`,
+  - onboarding is offers, not a gate (ADR 0006): `app.tsx` shows a calm page only while `gh` is
+    not logged in or no repo is picked, then the dashboard. The ladder's next step for this repo
+    and me is one dismissible card above the list (`components/offer.tsx`; "Not now" is kept per
+    viewer in `nod.offers`), every step offered is in the avatar menu, and the steps are done on
+    the setup page `#/setup[/<step>]` (`components/onboarding.tsx`, the ladder). All of it is
+    derived from server state only (`lib/onboarding.ts`, tested per fake scenario) and takes one
+    repo's `SetupStatus` (with `permission`) and my signer as props, ready for many repos. Deep links (`components/link-landing.tsx`,
     `lib/deep-link.ts`): `#/pr/<owner>/<repo>/<n>` and `#/batch/<owner>/<repo>/<n>,<n>` (kit:
     `prDeepLink`, `batchDeepLink`) only open views; a link opened before pairing is remembered
     and the host link lands on it (`rememberLink`/`takeLink` in `lib/connection.ts`). The host
