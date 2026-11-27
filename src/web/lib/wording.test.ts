@@ -28,6 +28,7 @@ import {
   signaturesSummary,
   slotText,
   statusText,
+  mergerOf,
   thenText,
   whoOf,
 } from "./wording";
@@ -106,6 +107,15 @@ describe("the panel", () => {
     expect(askHeadline(pr(488))).toBe("Self-attest");
     expect(thenText(pr(476).ask!, people)).toBe("Then the check turns green and the agent merges.");
     expect(thenText(pr(485).ask!, people)).toBe("Then it still waits on Jonas.");
+  });
+
+  test("before the repo requires the check, a person merges (ADR 0006)", () => {
+    const shared = { ...pr(476), requirement: { ...pr(476).requirement, enforced: false } };
+    expect(mergerOf(pr(476))).toBe("agent");
+    expect(mergerOf(shared)).toBe("person");
+    expect(thenText(shared.ask!, people, mergerOf(shared))).toBe(
+      "Then the check turns green and it is ready to merge.",
+    );
   });
 
   test("section summaries", () => {
@@ -325,7 +335,8 @@ describe("GitHub approvals (ADR 0006)", () => {
     const at = await inbox();
     expect(askHeadline(at(512))).toBe("Your review is requested");
     expect(neededFromYou(at(512))).toBe("Your review is requested.");
-    expect(thenText(at(512).ask!, people, true)).toBe("Then it is ready to merge.");
+    expect(thenText(at(512).ask!, people, "local")).toBe("Then it is ready to merge.");
+    expect(mergerOf(at(512))).toBe("local");
     const approve = { kind: "approve", label: "Approve", then: { outcome: "satisfied" } } as const;
     expect(askHeadline({ ...pr(482), ask: approve })).toBe("Approve as peer");
     expect(askHeadline({ ...pr(476), ask: approve })).toBe("Approve as owner of core/auth");

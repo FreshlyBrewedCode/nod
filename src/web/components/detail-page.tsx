@@ -33,6 +33,7 @@ import {
   riskWords,
   rowTag,
   signaturesSummary,
+  mergerOf,
   thenText,
   whoOf,
 } from "@/lib/wording";
@@ -224,7 +225,7 @@ export function DetailPage({
               {pr.ask.kind === "approve" ? (
                 <ApproveDetail pr={pr} ask={pr.ask} />
               ) : (
-                thenText(pr.ask, people)
+                thenText(pr.ask, people, mergerOf(pr))
               )}
             </p>
           )}
