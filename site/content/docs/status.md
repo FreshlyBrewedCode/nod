@@ -57,6 +57,10 @@ Built and not released yet, among others:
   row, a batch across repositories with one signature each, offers per repository. Only with
   `nod serve --fake --scenario repos` so far: the GitHub side still reads one repository.
   [Many repositories](/docs/dashboard#many-repositories)
+- **The settings page** with its Repositories section: each repository's step, its next step and
+  its ladder; adding (with suggestions) and removing; the repo filter and the board grouped by
+  repository. Adding and removing only with `nod serve --fake` so far: with GitHub the list is the
+  one clone. [Settings](/docs/settings)
 
 ## Not built
 

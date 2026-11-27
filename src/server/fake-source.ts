@@ -8,14 +8,20 @@
  *   the failing one gets fixed, and those PRs merge.
  * - Scenarios start it in the states the r3 UI has: `team` (the mockup),
  *   `clear` (nothing needs you), `first-run` (setup PR open, key pending),
- *   `fresh` (no repo picked yet, no key), `join` (a set-up repo, no key),
+ *   `fresh` (an empty repo list, no key), `join` (a set-up repo, no key),
  *   `inbox` (the ladder's step 0: no `.nod/`, no key, the PRs classified
  *   locally and "needs me" from review requests, `fake-inbox.ts`), `shared`
  *   (the ladder's step 1 with my key active: a set-up repo whose `nod` check
  *   is not required yet, and I am an admin, so enforcing is what is offered).
  *   Each of these reads one repo. `repos` reads three (ADR 0007,
  *   `fake-repos.ts`): the mockup's enforced repo, one at the inbox step, and
- *   one with the shared policy on a fictional GHE.com host.
+ *   one with the shared policy on a fictional GHE.com host. `dir` is `team`
+ *   as `nod serve --dir` reads it: a fixed list of one clone.
+ * - The repo list is managed (but in `dir`): adding a repo puts it at the
+ *   inbox step with no pull requests; a name with `missing` in it is not
+ *   found, one with `private` in it is forbidden. Removing works on every
+ *   repo, the last one too. Suggestions are fictional repos with my open
+ *   PRs or review requests (`SUGGESTIONS`), without those of the list.
  * - Who I am in a repo: an admin everywhere but in `join`, where a
  *   teammate with write access joins.
  * - Only an enforced repo merges on its own: at `inbox` and `shared` a
@@ -32,9 +38,10 @@ import type {
   GitHubInfo,
   JourneyEvent,
   PrLink,
-  RepoChoice,
   RepoKey,
+  RepoList,
   RepoName,
+  RepoSuggestion,
   LadderStep,
   RepoPermission,
   SetupCheck,
@@ -44,7 +51,7 @@ import type {
   UnclassifiedPr,
 } from "../shared/protocol";
 import { GITHUB_COM, githubHost } from "../kit/host.ts";
-import { repoKey, sameRepo } from "../shared/repo-key";
+import { parseRepoInput, repoKey, sameRepo } from "../shared/repo-key";
 import { inboxFacts } from "./fake-inbox";
 import { FIELD_APP, LEDGER, LEDGER_HOST, LEDGER_SEEDS } from "./fake-repos";
 import type { Clock, Timer } from "./clock";
@@ -81,6 +88,7 @@ export const FAKE_SCENARIOS = [
   "inbox",
   "shared",
   "repos",
+  "dir",
 ] as const;
 export type FakeScenario = (typeof FAKE_SCENARIOS)[number];
 
@@ -88,6 +96,23 @@ export type FakeScenario = (typeof FAKE_SCENARIOS)[number];
 export function scenarioHasKey(scenario: FakeScenario): boolean {
   return scenario !== "fresh" && scenario !== "join" && scenario !== "inbox";
 }
+
+/**
+ * Repos worth adding, as one search per host would find them: fictional,
+ * on github.com and the fake's GHE.com host. Those of the list are left out.
+ */
+export const SUGGESTIONS: ReadonlyArray<{
+  readonly host: string;
+  readonly name: RepoName;
+  readonly myOpenPrs: number;
+  readonly reviewRequests: number;
+}> = [
+  { host: GITHUB_COM, name: FAKE_REPO, myOpenPrs: 3, reviewRequests: 2 },
+  { host: LEDGER_HOST, name: "finance/payroll", myOpenPrs: 1, reviewRequests: 2 },
+  { host: GITHUB_COM, name: "tallyho/fieldbook-docs", myOpenPrs: 2, reviewRequests: 0 },
+  { host: GITHUB_COM, name: FIELD_APP, myOpenPrs: 1, reviewRequests: 1 },
+  { host: GITHUB_COM, name: "tallyho/infra", myOpenPrs: 0, reviewRequests: 1 },
+];
 
 export interface FakeSourceOptions {
   readonly clock: Clock;
@@ -171,6 +196,7 @@ export class FakeSource implements Source {
   private comments = 0;
   /** The `publicKeyId` of the key the scenario treats as mine. */
   private readonly myKey: string;
+  readonly repoList: RepoList;
   /** Resolves once the scenario's PRs are in (the inbox step classifies them first). */
   readonly ready: Promise<void>;
 
@@ -183,6 +209,7 @@ export class FakeSource implements Source {
     this.myKey = publicKeyId(options.myKey ?? FAKE_KEY.publicKey);
     const name = options.repo ?? FAKE_REPO;
     const pending: Promise<void>[] = [];
+    this.repoList = scenario === "dir" ? "fixed" : "managed";
 
     if (scenario === "repos") {
       const fieldbook = this.team(name, GITHUB_COM, "enforced", "admin");
@@ -264,38 +291,53 @@ export class FakeSource implements Source {
     return FAKE_ACCOUNT;
   }
 
-  async listRepos(): Promise<ReadonlyArray<RepoChoice>> {
-    const now = this.clock.now();
-    return [
-      {
-        repo: this.list[0]?.name ?? FAKE_REPO,
-        current: true,
-        canWrite: true,
-        pushedAt: now - 10 * 60 * SECOND,
-      },
-      {
-        repo: "tallyho/fieldbook-docs",
-        current: false,
-        canWrite: true,
-        pushedAt: now - 3 * 86_400 * SECOND,
-      },
-    ];
-  }
-
   repos(): ReadonlyArray<SourceRepo> {
     return this.list.map((r) => r.ref);
   }
 
-  async pickRepo(repo: RepoName): Promise<void> {
-    if (!/^[\w.-]+\/[\w.-]+$/.test(repo))
-      throw new SourceError("not-found", `No repository ${repo}.`);
-    if (this.list.some((r) => r.github.host === GITHUB_COM && sameLogin(r.name, repo))) return;
-    if (this.list.length > 1)
-      throw new SourceError("forbidden", "nod serve reads several repositories already.");
-    // Another repo than the data set's: not set up, nothing to show.
-    this.list = [new FakeRepo(repo, GITHUB_COM, "missing", "enforced", "admin")];
-    this.emit("setup");
+  async addRepo(input: string): Promise<SourceRepo> {
+    const parsed = parseRepoInput(input);
+    if (!parsed) throw new SourceError("bad-request", `${input} is not a repository.`);
+    const known = this.list.find((r) => sameRepo(r.key, parsed.key));
+    if (known) return known.ref;
+    if (/missing/i.test(parsed.name))
+      throw new SourceError(
+        "not-found",
+        `${parsed.key} does not exist, or ${FAKE_ME} on ${parsed.host} cannot see it.`,
+      );
+    if (/private/i.test(parsed.name))
+      throw new SourceError(
+        "forbidden",
+        `${FAKE_ME} on ${parsed.host} cannot read ${parsed.key}: ask for read access.`,
+      );
+    // A repo nod has not read yet: the inbox step, nothing of nod in it, no PRs in the fake.
+    const repo = new FakeRepo(parsed.name, parsed.host, "missing", "enforced", "admin");
+    this.list = [...this.list, repo];
+    this.emit("repos");
     this.emit("prs");
+    return repo.ref;
+  }
+
+  async removeRepo(key: RepoKey): Promise<void> {
+    const repo = this.repo(key);
+    this.list = this.list.filter((r) => r !== repo);
+    this.emit("repos");
+    this.emit("prs");
+  }
+
+  async suggestRepos(): Promise<ReadonlyArray<RepoSuggestion>> {
+    return SUGGESTIONS.map((s) => {
+      const github = hostInfo(s.host);
+      return {
+        key: repoKey(github.host, s.name),
+        name: s.name,
+        github,
+        myOpenPrs: s.myOpenPrs,
+        reviewRequests: s.reviewRequests,
+      };
+    })
+      .filter((s) => !this.list.some((r) => sameRepo(r.key, s.key)))
+      .sort((a, b) => b.myOpenPrs + b.reviewRequests - (a.myOpenPrs + a.reviewRequests));
   }
 
   snapshot(): Snapshot | null {
@@ -306,7 +348,7 @@ export class FakeSource implements Source {
       me: FAKE_ME,
       people,
       prs: this.list.flatMap((repo) =>
-        toViews(repo.facts, {
+        toViews(repo.facts.map(enforcedIn(repo)), {
           repo: repo.key,
           me: FAKE_ME,
           now,
@@ -693,6 +735,17 @@ export class FakeSource implements Source {
     return next;
   }
 }
+
+/**
+ * The requirement's `enforced`, as the verifier's summary says it: whether
+ * the repo requires the `nod` check. A PR classified locally has no policy.
+ */
+const enforcedIn =
+  (repo: FakeRepo) =>
+  (f: PrFacts): PrFacts =>
+    f.classifiedBy === "local" || repo.setupState !== "ready"
+      ? f
+      : { ...f, requirement: { ...f.requirement, enforced: repo.setUpStep === "enforced" } };
 
 function event(
   kind: JourneyEvent["kind"],

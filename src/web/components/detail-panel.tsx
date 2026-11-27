@@ -40,6 +40,7 @@ import {
   reviewsSummary,
   signaturesSummary,
   slotText,
+  mergerOf,
   thenText,
   whoOf,
 } from "@/lib/wording";
@@ -154,7 +155,7 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
               {pr.ask.kind === "approve" ? (
                 <ApproveDetail pr={pr} ask={pr.ask} />
               ) : (
-                thenText(pr.ask, people)
+                thenText(pr.ask, people, mergerOf(pr))
               )}
             </div>
           </div>
@@ -270,7 +271,13 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
  * step it answers my review request (the files are on GitHub to look at);
  * at a set-up repo it fills a slot, no key needed.
  */
-export function ApproveDetail({ pr, ask }: { pr: Pick<PrView, "classifiedBy" | "url">; ask: Ask }) {
+export function ApproveDetail({
+  pr,
+  ask,
+}: {
+  pr: Pick<PrView, "classifiedBy" | "requirement" | "url">;
+  ask: Ask;
+}) {
   const { people } = useDashboard();
   if (pr.classifiedBy === "local")
     return (
@@ -284,10 +291,10 @@ export function ApproveDetail({ pr, ask }: { pr: Pick<PrView, "classifiedBy" | "
         >
           review it on GitHub
         </a>
-        . {thenText(ask, people, true)}
+        . {thenText(ask, people, "local")}
       </>
     );
-  return <>{thenText(ask, people)} A GitHub approval counts here; no key needed.</>;
+  return <>{thenText(ask, people, mergerOf(pr))} A GitHub approval counts here; no key needed.</>;
 }
 
 /** My own PR without a key: GitHub does not let me approve it; signing does (quiet, r3's dashed note). */

@@ -34,6 +34,52 @@ export function parseRepoKey(key: string): { readonly host: string; readonly nam
   return { host, name: `${owner}/${repo}` };
 }
 
+const OWNER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,38}$/;
+const REPO = /^[A-Za-z0-9._-]{1,100}$/;
+
+/** `owner/name` from two path segments (`.git` dropped); null when they are none. */
+function nameOf(owner: string | undefined, repo: string | undefined): string | null {
+  const name = repo?.replace(/\.git$/i, "");
+  if (!owner || !name || !OWNER.test(owner) || !REPO.test(name)) return null;
+  if (name === "." || name === "..") return null;
+  return `${owner}/${name}`;
+}
+
+/** An ssh remote's host; null for what looks like an alias from an ssh config (`git@work:…`). */
+function sshHost(host: string): string | null {
+  const name = hostName(host);
+  return name && name.includes(".") && !/^github\.com.|\.ghe\.com./.test(name) ? name : null;
+}
+
+/**
+ * A repo as a person names it when adding one (ADR 0007, 2): `owner/name`
+ * (github.com), `host/owner/name`, or a link to the repo or anything in it
+ * (`https://acme.ghe.com/finance/ledger/pull/57`, a clone URL, `git@host:owner/name.git`).
+ * The host is lowercased (`hostName`); null when it names no repo. Whether
+ * the repo exists is the server's to find out.
+ */
+export function parseRepoInput(
+  input: string,
+): { readonly host: string; readonly name: string; readonly key: RepoKey } | null {
+  const s = input.trim().replace(/\/+$/, "");
+  if (!s || s.length > 300 || /\s/.test(s)) return null;
+  const result = (host: string | null, name: string | null) =>
+    host && name ? { host, name, key: repoKey(host, name) } : null;
+  // A link: https://host/owner/name[/…], or a remote git accepts.
+  const url = /^(?:https?|ssh|git):\/\/(?:[^@/]*@)?([^/]+)\/([^/?#]+)\/([^/?#]+)/i.exec(s);
+  if (url) {
+    const ssh = !/^https?:/i.test(s);
+    const host = ssh ? sshHost(url[1]!.replace(/:\d+$/, "")) : hostName(url[1]!);
+    return result(host, nameOf(url[2], url[3]));
+  }
+  const scp = /^[^@/:\s]+@([^/:]+):([^/]+)\/([^/]+)$/.exec(s);
+  if (scp) return result(sshHost(scp[1]!), nameOf(scp[2], scp[3]));
+  const parts = s.split("/");
+  if (parts.length === 2) return result(GITHUB_COM, nameOf(parts[0], parts[1]));
+  if (parts.length === 3) return result(hostName(parts[0]!), nameOf(parts[1], parts[2]));
+  return null;
+}
+
 /** Two keys name the same repo (case does not matter on GitHub). */
 export function sameRepo(a: RepoKey | null | undefined, b: RepoKey | null | undefined): boolean {
   return a != null && b != null && a.toLowerCase() === b.toLowerCase();

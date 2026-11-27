@@ -140,6 +140,14 @@ describe("journey, FYI, unblocks", () => {
     expect(merged.at(-1)?.text).toBe("Merged");
   });
 
+  test("before the repo requires the check a person merges, not the agent", () => {
+    const f = facts(485);
+    const shared = { ...f, requirement: { ...f.requirement, enforced: false } };
+    expect(toView(shared, ctx).journey.at(-1)?.text).toBe("Merged");
+    const enforced = { ...f, requirement: { ...f.requirement, enforced: true } };
+    expect(toView(enforced, ctx).journey.at(-1)?.text).toBe("Agent merges");
+  });
+
   test("an FYI I have not acked", () => {
     expect(toView(facts(478), ctx).fyiForMe).toBe(true);
     expect(toView(facts(476), ctx).fyiForMe).toBe(false);

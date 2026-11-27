@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import { chipLabels, idOf, parsePrId, parseRepoKey, prId, repoKey, sameRepo } from "./repo-key";
+import {
+  chipLabels,
+  idOf,
+  parsePrId,
+  parseRepoInput,
+  parseRepoKey,
+  prId,
+  repoKey,
+  sameRepo,
+} from "./repo-key";
 
 describe("repo keys (ADR 0007)", () => {
   test("github.com leaves the host out; every other host is named, lowercase", () => {
@@ -40,6 +49,50 @@ describe("repo keys (ADR 0007)", () => {
     });
     for (const bad of ["482", "a/b#", "a/b#0", "a/b#x", "nope#1"])
       expect(parsePrId(bad)).toBeNull();
+  });
+});
+
+describe("a repo as a person names it (adding one)", () => {
+  const key = (input: string) => parseRepoInput(input)?.key ?? null;
+
+  test("owner/name is on github.com; host/owner/name names its host", () => {
+    expect(parseRepoInput(" tallyho/fieldbook ")).toEqual({
+      host: "github.com",
+      name: "tallyho/fieldbook",
+      key: "tallyho/fieldbook",
+    });
+    expect(key("Acme.GHE.com/finance/ledger")).toBe("acme.ghe.com/finance/ledger");
+    expect(key("git.example.test:8443/a/b")).toBe("git.example.test:8443/a/b");
+    expect(key("github.com/tallyho/fieldbook")).toBe("tallyho/fieldbook");
+  });
+
+  test("a link to the repo or anything in it, a clone URL, an ssh remote", () => {
+    expect(key("https://github.com/tallyho/fieldbook")).toBe("tallyho/fieldbook");
+    expect(key("https://github.com/tallyho/fieldbook/")).toBe("tallyho/fieldbook");
+    expect(key("https://github.com/tallyho/fieldbook.git")).toBe("tallyho/fieldbook");
+    expect(key("https://acme.ghe.com/finance/ledger/pull/57#discussion")).toBe(
+      "acme.ghe.com/finance/ledger",
+    );
+    expect(key("https://github.com/tallyho/fieldbook?tab=readme")).toBe("tallyho/fieldbook");
+    expect(key("git@github.com:tallyho/fieldbook.git")).toBe("tallyho/fieldbook");
+    expect(key("ssh://git@acme.ghe.com:22/finance/ledger.git")).toBe("acme.ghe.com/finance/ledger");
+  });
+
+  test("anything else names no repo", () => {
+    for (const bad of [
+      "",
+      "fieldbook",
+      "a/b/c/d",
+      "tallyho/ field",
+      "-x/y",
+      "a/..",
+      "not a host/a/b",
+      "https://github.com/tallyho",
+      "git@work:tallyho/fieldbook",
+      "file:///tmp/a/b",
+      "x".repeat(301),
+    ])
+      expect(key(bad)).toBeNull();
   });
 });
 

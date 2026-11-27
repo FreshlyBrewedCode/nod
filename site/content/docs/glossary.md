@@ -49,13 +49,17 @@ order: 4
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |
 | **review request** | GitHub asking a person or a team to review a pull request. At the inbox step, one asked of you, or of a team you are in, puts the pull request in Needs you. A mention is not one. Not released. [Dashboard](/docs/dashboard#the-inbox) |
+| **repo filter** | The control next to "By attention / Chronological" (and on the board, next to the grouping), once the dashboard shows more than one repository: all repositories, or one. The list, the board and what you can select follow it; this browser remembers it. Not released. [Dashboard](/docs/dashboard#many-repositories) |
 | **repo chip** | A repository's short name on each row, card and panel, once the dashboard shows more than one repository. With one, there is none and the top bar names it. Not released. [Dashboard](/docs/dashboard#many-repositories) |
 | **remote token** | The pairing token of the named host, kept apart from the host link's. [On your phone](/docs/phone#a-lost-phone) |
+| **repository list** | The repositories `nod serve` reads into one dashboard. Changed in Settings → Repositories (add, with suggestions, and remove). With `--dir` it is that one clone and cannot be changed there. Not released. [Settings](/docs/settings#repositories) |
 | **requirement** | What a pull request needs before it may merge: nothing, or slots for the author (self), someone else (peer) and named people, each filled by a nod or an approval. [Policy](/docs/policy#requirements) |
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
 | **self nod** | A nod by the pull request's author: the prompter attesting their own agent's work |
-| **setup page** | `#/setup`, from **Setup** in the avatar menu: the ladder's four steps, where each stands for the repository and you, and where they are done. Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
+| **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right. This version has one, Repositories. Not released. [Settings](/docs/settings) |
+| **setup page** | `#/setup`: one repository's ladder, its four steps, where each stands for the repository and you, and where they are done. Reached from an offer, the avatar menu's next steps, or the repository's row in Settings → Repositories (**The ladder ›**). Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
+| **suggestion** | A repository Settings offers to add: one where you have open pull requests or a review requested, that the repository list does not have. Not released. [Settings](/docs/settings#adding-a-repository) |
 | **setup PR** | The pull request `nod init` opens to add `.nod/` and the workflow. [Quick start](/docs/quick-start) |
 | **shared policy** | The second step of the ladder: the setup PR is merged, and the verifier classifies every pull request the same way for everyone. Its check never blocks until enforced. [Quick start](/docs/quick-start#the-ladder) |
 | **signer** | A person whose public key is in `.nod/allowed_signers` |

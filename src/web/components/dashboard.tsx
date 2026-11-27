@@ -9,7 +9,9 @@
  * Many repos (ADR 0007): one inbox of every repo's PRs, each row with its
  * repo chip once there is more than one (`chipsOf`); a PR is its id
  * (`<repo>#<n>`) for focus, selection and the batch. With one repo the top
- * bar names it and nothing else changes.
+ * bar names it and nothing else changes. With several, the repo filter
+ * (`repo-filter.tsx`, remembered per browser) narrows the list, the board
+ * and the selection to one repo, and the board can group by repository.
  */
 
 import {
@@ -27,8 +29,10 @@ import {
   attentionView,
   boardView,
   chronologicalView,
+  inRepo,
   mergedOnTheirOwn,
   oldestWaitingSince,
+  repoBoardView,
   selectable,
   shortName,
   stateBoardView,
@@ -45,7 +49,7 @@ import type {
   Snapshot,
   Welcome,
 } from "../../shared/protocol";
-import { idOf } from "../../shared/repo-key";
+import { idOf, sameRepo } from "../../shared/repo-key";
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useReconnectNotice } from "@/hooks/use-reconnect-notice";
@@ -53,7 +57,14 @@ import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use
 import { useBackStop } from "@/hooks/use-back-stop";
 import { useIsPhone } from "@/hooks/use-is-phone";
 import { canSignWith, findPr } from "@/lib/batch";
-import { bestEnrolment, chipsOf, enrolmentIn, githubOfRepo } from "@/lib/repos";
+import {
+  bestEnrolment,
+  chipsOf,
+  enrolmentIn,
+  githubOfRepo,
+  readRepoFilter,
+  repoOf,
+} from "@/lib/repos";
 import { forwardSetupUrl } from "@/lib/forward";
 import type { Status } from "@/lib/connection";
 import {
@@ -76,6 +87,7 @@ import {
   offerWords,
   offersOf,
   readDismissed,
+  RUNG_NAMES,
   type Rung,
   type ServerState,
 } from "@/lib/onboarding";
@@ -86,6 +98,7 @@ import {
   STORAGE_KEYS,
   browserStorage,
   markOpened,
+  readGroup,
   readJson,
   readOpened,
   writeJson,
@@ -98,6 +111,7 @@ import { DetailPanel } from "./detail-panel";
 import { Legend } from "./legend";
 import { LinkLanding } from "./link-landing";
 import { OfferCard } from "./offer";
+import { RepoFilter } from "./repo-filter";
 import { BucketSection, EmptyLane, LaneHeader, LaneSection } from "./lists";
 import { SelectionBar } from "./selection-bar";
 import { SubBar } from "./sub-bar";
@@ -186,17 +200,36 @@ function DashboardInner({
   const view: View = viewFor(route, phone);
   const me = snapshot.me;
   const chips = useMemo(() => chipsOf(repos), [repos]);
+  const many = repos.length > 1;
+
+  // -- the repo filter: one repo, or all; remembered per browser ---------------
+  const [filterAsked, setFilterAsked] = useState<unknown>(() =>
+    readJson(browserStorage(), STORAGE_KEYS.repoFilter),
+  );
+  // A repo the list no longer has (or one repo only) is no filter: all.
+  const filter = readRepoFilter(filterAsked, repos);
+  const chooseFilter = useCallback((repo: RepoKey | null) => {
+    writeJson(browserStorage(), STORAGE_KEYS.repoFilter, repo);
+    setFilterAsked(repo);
+  }, []);
 
   // -- FYI acks leave the lane at once; the next snapshot confirms ---------
   // Kept until the snapshot says so (an ack that failed is dropped again).
   const [acking, setAcking] = useState<ReadonlySet<PrId>>(new Set());
-  const prs = useMemo(
+  const allPrs = useMemo(
     () =>
       acking.size
         ? snapshot.prs.map((p) => (acking.has(idOf(p)) ? { ...p, fyiForMe: false } : p))
         : snapshot.prs,
     [snapshot.prs, acking],
   );
+  // What the list, the board and the selection show: the filter's repo, or all.
+  const prs = useMemo(() => inRepo(allPrs, filter), [allPrs, filter]);
+  const needsByRepo = useMemo(() => {
+    const counts = new Map<RepoKey, number>();
+    for (const r of repos) counts.set(r.key, inRepo(allPrs, r.key).filter((p) => p.needsMe).length);
+    return counts;
+  }, [allPrs, repos]);
   const ackFyi = useCallback(
     (pr: PrView) => {
       const id = idOf(pr);
@@ -227,9 +260,11 @@ function DashboardInner({
   );
 
   // -- the board ----------------------------------------------------------------
-  const [group, setGroup] = useState<GroupBy>(() =>
-    readJson(browserStorage(), STORAGE_KEYS.board) === "state" ? "state" : "wait",
+  const [groupAsked, setGroup] = useState<unknown>(() =>
+    readJson(browserStorage(), STORAGE_KEYS.board),
   );
+  // "Repository" only while there are several: with one, the board's own.
+  const group: GroupBy = readGroup(groupAsked, many);
   const chooseGroup = (g: GroupBy) => {
     writeJson(browserStorage(), STORAGE_KEYS.board, g);
     setGroup(g);
@@ -239,8 +274,11 @@ function DashboardInner({
   // One key for every repo: the "You" column is muted only when it signs in none of them.
   const keyNote = inbox ? null : keyNoteOf(signer, bestEnrolment(repos));
   const columns = useMemo(
-    () => (view === "board" ? boardColumns(prs, group, snapshot, now, keyNote, chips) : []),
-    [view, prs, group, snapshot, now, keyNote, chips],
+    () =>
+      view === "board"
+        ? boardColumns(prs, group, snapshot, now, keyNote, chips, repos, filter)
+        : [],
+    [view, prs, group, snapshot, now, keyNote, chips, repos, filter],
   );
   const columnKeys = useMemo(
     () => columns.map((c) => itemKeys(c.items, expanded)),
@@ -309,7 +347,7 @@ function DashboardInner({
     });
   }, [keys]);
   const panelPr = prOfKey(focus) ?? focusState.pr;
-  const shownPr = panelPr === null ? null : (findPr(prs, panelPr) ?? null);
+  const shownPr = panelPr === null ? null : (findPr(allPrs, panelPr) ?? null);
   // A phone shows the details as a full-screen page, one history entry deep: back closes it.
   const pageOpen = phone && drawerOpen && shownPr !== null && !onBoard;
   useBackStop(pageOpen, () => setDrawerOpen(false));
@@ -348,6 +386,8 @@ function DashboardInner({
   const landing = isLinkRoute(route) ? route : null;
   const openInList = useCallback(
     (pr: PrId) => {
+      // A PR the filter hides: the list shows every repo again, so it is there.
+      if (filter !== null && !prs.some((p) => idOf(p) === pr)) chooseFilter(null);
       setFocusState({ key: prKey(pr), pr });
       setPrefs((p) => ({ ...p, open: true }));
       // On a phone "Open" shows the PR's page over the list.
@@ -355,7 +395,7 @@ function DashboardInner({
       scrollOnFocus.current = true;
       go({ view: "list" });
     },
-    [go, phone],
+    [go, phone, filter, prs, chooseFilter],
   );
   useLayoutEffect(() => {
     openPrRef.current = (pr) => {
@@ -526,10 +566,13 @@ function DashboardInner({
   const [dismissed, setDismissed] = useState(() =>
     readDismissed(readJson(browserStorage(), STORAGE_KEYS.offers)),
   );
-  const many = repos.length > 1;
   const ladders: ServerState[] =
     welcome && signer ? repos.map((repo) => ({ me: welcome.me, repo, signer })) : [];
-  const card = cardOf(ladders, dismissed);
+  // With the filter on one repo, the card is that repo's next step.
+  const card = cardOf(
+    filter === null ? ladders : ladders.filter((l) => sameRepo(l.repo.key, filter)),
+    dismissed,
+  );
   const dismissCard = () => {
     if (!card) return;
     const next = dismiss(dismissed, offerKeyOf(card.repo, card.offer));
@@ -577,6 +620,16 @@ function DashboardInner({
         ? "one left"
         : null;
   const merged = mergedOnTheirOwn(prs, since);
+  const filterChip = filter === null ? null : (chips.get(filter) ?? filter);
+  const repoFilter = many && (
+    <RepoFilter
+      repos={repos}
+      chips={chips}
+      value={filter}
+      needs={needsByRepo}
+      onChange={chooseFilter}
+    />
+  );
 
   const list = (
     <div className="h-full overflow-auto" id="list-scroll">
@@ -586,6 +639,7 @@ function DashboardInner({
           onView={(v) => go({ view: v })}
           panelOpen={panelOpen}
           onTogglePanel={() => setPanelOpen(!panelOpen)}
+          filter={repoFilter}
         />
       )}
       <main
@@ -627,7 +681,26 @@ function DashboardInner({
               lane={needs}
               hint={needsHint}
               empty={
-                inbox ? (
+                filterChip ? (
+                  <>
+                    <b className="text-tx font-semibold">Nothing needs you in {filterChip}.</b>{" "}
+                    {[...needsByRepo.values()].some((n) => n > 0) ? (
+                      <>
+                        Other repositories have something for you:{" "}
+                        <button
+                          type="button"
+                          onClick={() => chooseFilter(null)}
+                          className="text-tx2 hover:text-tx underline underline-offset-2"
+                        >
+                          show all
+                        </button>
+                        .
+                      </>
+                    ) : (
+                      "Nothing waits on you there."
+                    )}
+                  </>
+                ) : inbox ? (
                   <>
                     <b className="text-tx font-semibold">Nothing needs you.</b> No review is
                     requested from you, and none of your pull requests is stuck.
@@ -702,6 +775,7 @@ function DashboardInner({
             people={snapshot.people}
             offers={menuOffers}
             onSetup={toSetup}
+            onSettings={() => go({ view: "settings" })}
             onLegend={askLegend}
             fake={welcome?.fake}
             linksHere={forwardSetupUrl(window.location, welcome?.version ?? null)}
@@ -722,7 +796,7 @@ function DashboardInner({
           <div className="min-h-0 flex-1 overflow-auto">
             <LinkLanding
               route={landing}
-              snapshot={{ ...snapshot, prs }}
+              snapshot={{ ...snapshot, prs: allPrs }}
               repos={repos}
               signer={signer}
               onOpen={openInList}
@@ -731,7 +805,7 @@ function DashboardInner({
           </div>
         ) : onBoard ? (
           <>
-            <BoardBar group={group} onGroup={chooseGroup} />
+            <BoardBar group={group} onGroup={chooseGroup} byRepo={many} filter={repoFilter} />
             <Board columns={columns} onBackground={() => setDrawerOpen(false)} />
             {drawer}
           </>
@@ -874,7 +948,11 @@ const STATE_EMPTY: Readonly<Record<StateColumnId, string>> = {
   done: "Nothing merged this week.",
 };
 
-/** The board's columns, by Waiting on (r3 `09`) or by State (r2 `05`), with their asides. */
+/**
+ * The board's columns, by Waiting on (r3 `09`), by State (r2 `05`) or by
+ * Repository (ADR 0007: a column per repo of the list, or the filter's one),
+ * with their asides.
+ */
 function boardColumns(
   prs: ReadonlyArray<PrView>,
   group: GroupBy,
@@ -882,10 +960,29 @@ function boardColumns(
   now: number,
   keyNote: string | null,
   chips: ReadonlyMap<RepoKey, string>,
+  repos: ReadonlyArray<RepoInfo>,
+  filter: RepoKey | null,
 ): ReadonlyArray<BoardColumnView> {
   const merged = prs.filter((p) => p.mergedAt !== null);
   const doneAside =
     merged.length && merged.every((p) => now - p.mergedAt! <= DAY) ? "last 24h" : "last 7 days";
+  if (group === "repo") {
+    const keys = filter === null ? repos.map((r) => r.key) : [filter];
+    return repoBoardView(prs, keys).map((c) => {
+      const repo = repoOf(repos, c.repo);
+      return {
+        id: c.id,
+        title: chips.get(c.repo) ?? c.repo,
+        note: repo ? RUNG_NAMES[repo.setup.step] : null,
+        count: c.count,
+        you: false,
+        aside: c.needsMe ? `${c.needsMe} need${c.needsMe === 1 ? "s" : ""} you` : null,
+        items: c.items,
+        footer: null,
+        empty: "No pull requests here.",
+      };
+    });
+  }
   if (group === "state")
     return stateBoardView(prs).map((c) => ({
       id: `state:${c.id}`,

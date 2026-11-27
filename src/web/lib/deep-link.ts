@@ -98,7 +98,10 @@ export function whyNotNeeded(pr: PrView, people: People, now: number): string | 
     return "it waits on you, but your key cannot sign here until it is enrolled";
   if (pr.mine && pr.waitingOn.some((w) => w.kind === "anyone"))
     return "your own work: it waits on a teammate’s nod, not yours";
-  if (pr.requirement.satisfied) return "nothing more is needed; its agent merges it";
+  if (pr.requirement.satisfied)
+    return pr.requirement.enforced === false
+      ? "nothing more is needed; it is ready to merge"
+      : "nothing more is needed; its agent merges it";
   const humans = pr.waitingOn.filter((w) => w.kind === "person" || w.kind === "anyone");
   if (humans.length) return `waits on ${namesOf(humans, people)}, not you`;
   return `nothing needed from you: ${statusText(pr, people)}`;

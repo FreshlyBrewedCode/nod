@@ -47,6 +47,7 @@ import type {
   RepoChoice,
   RepoKey,
   RepoName,
+  RepoSuggestion,
   SetupStatus,
   Snapshot,
   SyncStatus,
@@ -274,6 +275,23 @@ export class GitHubSource implements Source {
   private own(key: RepoKey): void {
     if (!sameRepo(key, this.key()))
       throw new SourceError("not-found", `nod serve reads ${this.key()} only, not ${key}.`);
+  }
+
+  /** One clone, as `--dir` (or the folder it starts in) names it: a fixed list until #48. */
+  readonly repoList = "fixed" as const;
+
+  /** #48: the config file's list. Until then the session refuses it on a fixed list. */
+  async addRepo(_input: string): Promise<SourceRepo> {
+    throw new SourceError("not-implemented", "Adding repositories comes with #48.");
+  }
+
+  async removeRepo(_repo: RepoKey): Promise<void> {
+    throw new SourceError("not-implemented", "Removing repositories comes with #48.");
+  }
+
+  /** #48: one search per host. */
+  async suggestRepos(): Promise<ReadonlyArray<RepoSuggestion>> {
+    throw new SourceError("not-implemented", "Suggesting repositories comes with #48.");
   }
 
   async pickRepo(repo: RepoName): Promise<void> {

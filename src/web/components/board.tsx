@@ -1,5 +1,6 @@
 /**
- * The board (r3 `09`): columns grouped by Waiting on (or by State, r2 `05`),
+ * The board (r3 `09`): columns grouped by Waiting on (or by State, r2 `05`,
+ * or by Repository with several repos, ADR 0007),
  * cards sized by the same four tiers as the list. Tiers 1–2 are cards with
  * the diff, risk and signature pips (tier 1 adds a line of the brief) and a
  * checkbox; tier 3 is a one-line card; tier-4 PRs fold into a dashed
@@ -8,6 +9,8 @@
  */
 
 import type * as React from "react";
+
+import type { GroupBy } from "@/lib/storage";
 
 import type { ClusterItem, Item, PrItem } from "../../shared/attention";
 import { kindNames, selectable } from "../../shared/attention";
@@ -24,7 +27,7 @@ import { BriefText } from "./brief-text";
 import { DiffIndicator } from "./diff-indicator";
 import { Segmented } from "./top-bar";
 
-export type GroupBy = "wait" | "state";
+export type { GroupBy };
 
 export interface BoardColumnView {
   readonly id: string;
@@ -46,9 +49,15 @@ export interface BoardColumnView {
 export function BoardBar({
   group,
   onGroup,
+  byRepo = false,
+  filter = null,
 }: {
   group: GroupBy;
   onGroup: (group: GroupBy) => void;
+  /** Offer "Repository" (there is more than one). */
+  byRepo?: boolean;
+  /** The repo filter, when there is more than one repo. */
+  filter?: React.ReactNode;
 }) {
   return (
     <div className="text-tx3 flex items-center gap-3 px-5 pt-4 pb-1 text-[13px]">
@@ -59,6 +68,7 @@ export function BoardBar({
         options={[
           { value: "wait", label: "Waiting on" },
           { value: "state", label: "State" },
+          ...(byRepo ? [{ value: "repo" as const, label: "Repository" }] : []),
           {
             value: "epic",
             label: "Epic",
@@ -68,6 +78,7 @@ export function BoardBar({
         ]}
         onChange={(v) => v !== "epic" && onGroup(v)}
       />
+      {filter}
       <span className="flex-1" />
       <span>card size follows attention · pips = signatures needed</span>
     </div>

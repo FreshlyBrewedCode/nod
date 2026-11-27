@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   OPENED_LIMIT,
   markOpened,
+  readGroup,
   readJson,
   readOpened,
   wasOpened,
@@ -18,6 +19,15 @@ function memory() {
     removeItem: (k: string) => void data.delete(k),
   };
 }
+
+describe("the board's grouping", () => {
+  test("by repository only with several repos; anything else is Waiting on", () => {
+    expect(readGroup("state", false)).toBe("state");
+    expect(readGroup("repo", true)).toBe("repo");
+    expect(readGroup("repo", false)).toBe("wait");
+    for (const v of [null, "wait", "epic", 3, {}]) expect(readGroup(v, true)).toBe("wait");
+  });
+});
 
 describe("json storage", () => {
   test("round trip; broken and missing read as null; no storage is fine", () => {

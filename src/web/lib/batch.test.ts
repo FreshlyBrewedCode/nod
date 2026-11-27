@@ -430,6 +430,23 @@ describe("approving on GitHub (ADR 0006)", () => {
     );
   });
 
+  test("the outcome where the check is not required yet: ready to merge, not the agent", () => {
+    const shared = (n: number) => ({
+      ...pr(n),
+      requirement: { ...pr(n).requirement, enforced: false },
+    });
+    expect(outcomeOf(shared(482), people)).toEqual({
+      text: "check turns green, ready to merge",
+      tone: "ok",
+    });
+    expect(outcomeOf(shared(482), people, "after").text).toBe("ready to merge");
+    const running = { ...shared(482), checks: { ...pr(482).checks, state: "pending" as const } };
+    expect(outcomeOf(running, people).text).toBe("check turns green, ready after CI");
+    expect(outcomeSentence([shared(482), pr(488)], people, "before")).toBe(
+      "One will be merged by its agent. One will be ready to merge.",
+    );
+  });
+
   describe("the state machine: review → approving → approved / stale / error", () => {
     const rows = [pr(482), pr(485)];
     const entries = rows.map((p) => ({ repo: p.repo, pr: p.number, head_sha: p.headSha }));

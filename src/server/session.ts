@@ -7,6 +7,11 @@
  * repo. A batch across repos is one payload and one signature per repo,
  * signed in one go and all or nothing: every repo's enrolment and every
  * entry's head are checked before anything is signed.
+ *
+ * The repo list (ADR 0007, 2): a `managed` list is changed with `add-repo`
+ * and `remove-repo`; a `fixed` one (`--dir`) refuses both here, before the
+ * source is asked. A change of the list pushes `repos` before the snapshot
+ * that follows it, so a tab never sees PRs of a repo it does not know.
  */
 
 import type {
@@ -26,7 +31,7 @@ import type {
 } from "../shared/protocol";
 import { GITHUB_COM, ghLoginCommand } from "../kit/host.ts";
 import { PROTOCOL_VERSION } from "../shared/protocol";
-import { parseRepoKey, sameRepo } from "../shared/repo-key";
+import { parseRepoInput, parseRepoKey, sameRepo } from "../shared/repo-key";
 import type { Clock } from "./clock";
 import { commentBody, humanLine, payloadLine } from "./payload";
 import { SignerError, type Side, type Signer } from "./signer";
@@ -86,6 +91,8 @@ export class Session {
   private readonly unsubscribe: Array<() => void>;
   private account: Account | null | undefined;
   private readonly handlers: Handlers;
+  /** A `repos` push being built (it reads every repo's setup); a snapshot waits for it. */
+  private reposInFlight: Promise<void> | null = null;
 
   constructor(private readonly options: SessionOptions) {
     const { source, signer } = options;
@@ -142,6 +149,8 @@ export class Session {
         c: Client,
       ) => Promise<unknown>;
       const result = await handler(message, client);
+      // What the request changed in the repos reaches every tab before its reply.
+      if (this.reposInFlight) await this.reposInFlight;
       this.reply(client, {
         t: "reply",
         id: message.id,
@@ -177,29 +186,47 @@ export class Session {
     client.send(JSON.stringify(message));
   }
 
+  /** The snapshot as it is when sent: after a `repos` push still on its way. */
   private pushSnapshot() {
+    if (this.reposInFlight) {
+      void this.reposInFlight.then(() => this.pushSnapshot());
+      return;
+    }
     const snapshot = this.options.source.snapshot();
     if (snapshot) this.broadcast({ t: "snapshot", ...snapshot });
   }
 
-  private async pushRepos() {
-    this.broadcast({ t: "repos", repos: await this.repoInfos() });
+  /** Every repo, to every tab; resolves once sent. Pushes stay in the order they were asked for. */
+  private pushRepos(): Promise<void> {
+    const before = this.reposInFlight;
+    const push: Promise<void> = (before ? before.then(() => this.repoInfos()) : this.repoInfos())
+      .then(
+        (repos) => this.broadcast({ t: "repos", repos }),
+        (error) => console.error("nod serve: reading the repos failed:", error),
+      )
+      .finally(() => {
+        if (this.reposInFlight === push) this.reposInFlight = null;
+      });
+    this.reposInFlight = push;
+    return push;
   }
 
   /** Every repo the source reads, with its setup and my key's enrolment there. */
   private async repoInfos(): Promise<RepoInfo[]> {
+    return Promise.all(this.options.source.repos().map((repo) => this.repoInfo(repo)));
+  }
+
+  private async repoInfo(repo: SourceRepo): Promise<RepoInfo> {
     const { source, signer } = this.options;
     const status = signer.status();
-    return Promise.all(
-      source.repos().map(async (repo): Promise<RepoInfo> => ({
-        key: repo.key,
-        name: repo.name,
-        github: repo.github,
-        setup: await source.setup(repo.key),
-        enrolment:
-          status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
-      })),
-    );
+    return {
+      key: repo.key,
+      name: repo.name,
+      github: repo.github,
+      setup: await source.setup(repo.key),
+      enrolment:
+        status.state === "no-key" ? null : source.enrolment(repo.key, status.key.publicKey),
+    };
   }
 
   /** Every tab hears its own side's lock state. */
@@ -232,6 +259,7 @@ export class Session {
       fake,
       me: await this.me(),
       repos: await this.repoInfos(),
+      repoList: this.options.source.repoList,
       signer: this.signerState(side),
     };
   }
@@ -250,7 +278,7 @@ export class Session {
       const repo = source.repos().find((r) => sameRepo(r.key, key));
       if (!repo) {
         if (source.repos().length === 0)
-          throw new RequestFailure("no-repo", "Pick a repository first.");
+          throw new RequestFailure("no-repo", "Add a repository first.");
         throw new RequestFailure("not-found", `nod serve does not read ${key}.`);
       }
       return repo;
@@ -321,6 +349,14 @@ export class Session {
           { stale },
         );
       return out;
+    };
+    /** A managed list: `--dir` serves its one clone and never writes the list. */
+    const needManaged = () => {
+      if (source.repoList === "fixed")
+        throw new RequestFailure(
+          "forbidden",
+          "nod serve reads one clone (`--dir`, or the clone it was started in). Add repositories with `nod repo add` and start it without `--dir` to manage the list.",
+        );
     };
     const needKey = (side: Side = "loopback") => {
       const status = signer.status(side);
@@ -453,12 +489,28 @@ export class Session {
         await source.refresh();
         return {};
       },
-      "list-repos": async () => ({ account: await needMe(), repos: await source.listRepos() }),
-      "pick-repo": async ({ repo }) => {
-        await source.pickRepo(repo);
-        const picked = source.repos().find((r) => sameLogin(r.name, repo)) ?? source.repos()[0];
-        if (!picked) throw new RequestFailure("not-found", `No repository ${repo}.`);
-        return { setup: await source.setup(picked.key) };
+      "add-repo": async ({ repo }) => {
+        needManaged();
+        if (!parseRepoInput(repo))
+          throw new RequestFailure(
+            "bad-request",
+            `${repo.trim().slice(0, 100) || "That"} is not a repository: name it owner/name or host/owner/name, or paste its link.`,
+          );
+        const added = await source.addRepo(repo);
+        return { repo: await this.repoInfo(added) };
+      },
+      "remove-repo": async ({ repo }) => {
+        needManaged();
+        await source.removeRepo(needRepo(repo).key);
+        return {};
+      },
+      "suggest-repos": async () => {
+        if (source.repoList === "fixed") return { suggestions: [] };
+        const read = source.repos();
+        const suggestions = await source.suggestRepos();
+        return {
+          suggestions: suggestions.filter((s) => !read.some((r) => sameRepo(r.key, s.key))),
+        };
       },
       "check-setup": async ({ repo }) => ({ setup: await source.setup(needRepo(repo).key) }),
       "open-setup-pr": async ({ repo }) => {
@@ -540,8 +592,9 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   "ack-fyi": true,
   ping: true,
   refresh: true,
-  "list-repos": true,
-  "pick-repo": true,
+  "add-repo": true,
+  "remove-repo": true,
+  "suggest-repos": true,
   "check-setup": true,
   "open-setup-pr": true,
   "create-key": true,
@@ -623,9 +676,14 @@ export function parseRequest(data: string): ClientToServer {
     case "check-setup":
     case "open-setup-pr":
     case "open-enrol-pr":
+    case "remove-repo":
       return { t: t as "check-setup", id, repo: repoOf(m) };
-    case "pick-repo":
-      return { t: "pick-repo", id, repo: str(m, "repo")! };
+    case "add-repo": {
+      // As typed; the handler reads it (`parseRepoInput`) and says what is wrong.
+      const repo = str(m, "repo")!;
+      if (repo.length > 300) fail("repo is too long");
+      return { t: "add-repo", id, repo };
+    }
     case "create-key": {
       const passphrase = str(m, "passphrase")!;
       const path = str(m, "path", true);
@@ -634,7 +692,7 @@ export function parseRequest(data: string): ClientToServer {
     case "lock":
     case "ping":
     case "refresh":
-    case "list-repos":
+    case "suggest-repos":
     case "test-signature":
       return { t: t as "lock", id };
   }

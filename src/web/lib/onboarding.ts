@@ -6,8 +6,8 @@
  * repo's setup, the signer). Also the passphrase rule and the words for
  * every error the setup page can meet.
  *
- * Nothing gates: once `gh` is logged in and a repo is picked, the dashboard
- * shows. The ladder's steps, 0 inbox, 1 shared policy, 2 signing (per
+ * Nothing gates: once `gh` is logged in and the list has a repo, the
+ * dashboard shows. The ladder's steps, 0 inbox, 1 shared policy, 2 signing (per
  * person) and 3 enforced, are offered, one at a time, and done on the setup
  * page (`#/setup/<step>`). Everything here takes one repo (its setup and
  * my key's enrolment there) and my signer; with many repos (ADR 0007, 11) it
@@ -82,11 +82,11 @@ export function progressOf({ me, repo, signer }: ServerState): Progress {
 
 /**
  * What the app shows before anything else: a calm page while `gh` is not
- * logged in, the repo picker while no repo is picked (only the fake, as the
- * GitHub source always has its clone's), and the dashboard otherwise, with
+ * logged in, "Add a repository" while the list is empty (a managed list may
+ * be; `--dir` always has its clone), and the dashboard otherwise, with
  * nothing in the repo and no key.
  */
-export type Landing = "sign-in" | "pick-repo" | "dashboard";
+export type Landing = "sign-in" | "add-repo" | "dashboard";
 
 export function landingOf({
   me,
@@ -96,7 +96,7 @@ export function landingOf({
   readonly repos: ReadonlyArray<RepoInfo>;
 }): Landing {
   if (me === null) return "sign-in";
-  if (repos.length === 0) return "pick-repo";
+  if (repos.length === 0) return "add-repo";
   return "dashboard";
 }
 
@@ -424,7 +424,7 @@ export function onboardingError(failure: Failure): string {
     case "already-enrolled":
       return "Your key is enrolled already.";
     case "no-repo":
-      return "nod serve has no repository yet. Pick one first.";
+      return "nod serve reads no repository yet. Add one first.";
     case "github":
       if (/not logged in/i.test(failure.message)) {
         // The server names the host off github.com: `gh auth login --hostname acme.ghe.com`.
