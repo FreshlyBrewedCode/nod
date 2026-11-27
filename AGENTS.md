@@ -92,7 +92,8 @@ nod
     a section nav and its sections, Repositories (rows with host, step, my key, the next offer,
     "The ladder ›" to `#/setup/<repo>`, Remove; `AddRepo` in `add-repo.tsx` with
     `suggest-repos`) and App (install, the badge switch; ADR 0008); a new section is its id in
-    `SETTINGS_SECTIONS` (`lib/route.ts`), its words in `SECTIONS`, its page in `SECTION_PAGES`. Requests `add-repo` (`parseRepoInput` in
+    `SETTINGS_SECTIONS` (`lib/route.ts`), its words in `SECTIONS`, its page in `SECTION_PAGES`.
+    Requests `add-repo` (`parseRepoInput` in
     `shared/repo-key.ts`), `remove-repo`, `suggest-repos`; `welcome.repoList` `managed|fixed`
     (fixed: read-only, the session refuses changes); a list change pushes `repos` before the
     snapshot, and a request's `repos` push comes before its reply
