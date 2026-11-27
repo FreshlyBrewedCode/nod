@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { STUCK_AFTER_MS, type Slot } from "../shared/protocol";
 import { FAKE_PEOPLE, SEEDS, seedFacts } from "./fake-data";
-import { canFill, toView, toViews, type PrFacts } from "./view";
+import { canFill, fillOf, toView, toViews, type PrFacts } from "./view";
 
 const NOW = Date.UTC(2026, 10, 18, 14, 20);
 const ME = "mara-l";
@@ -183,10 +183,55 @@ describe("the inbox step: classified locally, needs me from GitHub's reviews", (
   });
   const mine = (over: Partial<PrFacts> = {}) => local({ author: ME, prompter: ME, ...over });
 
-  test("a review requested from me: needs me, nothing to sign, waits on me", () => {
+  test("a review requested from me: needs me, asks for an approval, waits on me", () => {
     const v = toView(local({ review: review({ requested: [ME], fromMe: true }) }), ctx);
-    expect([v.needsMe, v.ask, v.waitingOn]).toEqual([true, null, [{ kind: "me" }]]);
+    expect([v.needsMe, v.ask, v.waitingOn]).toEqual([
+      true,
+      { kind: "approve", label: "Approve", then: { outcome: "satisfied" } },
+      [{ kind: "me" }],
+    ]);
     expect(v.requirement.satisfied).toBe(false);
+  });
+
+  test("the approval's outcome: it still waits on another reviewer, or on changes requested", () => {
+    const two = toView(
+      local({ review: review({ requested: [ME, "inescal"], fromMe: true }) }),
+      ctx,
+    );
+    expect(two.ask?.then).toEqual({
+      outcome: "waits",
+      on: [{ kind: "person", login: "inescal" }],
+    });
+    const changes = toView(
+      local({ review: review({ requested: [ME], fromMe: true, changesRequestedBy: ["inescal"] }) }),
+      ctx,
+    );
+    expect(changes.ask?.then).toEqual({
+      outcome: "waits",
+      on: [{ kind: "person", login: "inescal" }],
+    });
+    // Through a team I am in: the same ask.
+    const team = toView(local({ review: review({ teams: ["tallyho/core"], fromMe: true }) }), ctx);
+    expect(team.ask?.kind).toBe("approve");
+  });
+
+  test("no approve: nobody asked me, a draft, or my own PR (GitHub refuses that)", () => {
+    expect(toView(local({ review: review({ requested: ["inescal"] }) }), ctx).ask).toBeNull();
+    const draft = toView(
+      local({ state: "draft", review: review({ requested: [ME], fromMe: true }) }),
+      ctx,
+    );
+    expect([draft.ask, draft.needsMe]).toEqual([null, false]);
+    const own = toView(mine({ review: review({ requested: [ME], fromMe: true }) }), ctx);
+    expect(own.ask).toBeNull();
+  });
+
+  test("approved: the request is answered, the row leaves needs me", () => {
+    const v = toView(local({ review: review({ approvedBy: [ME], approvedAtHead: [ME] }) }), {
+      ...ctx,
+      signing: false,
+    });
+    expect([v.needsMe, v.ask, v.waitingOn]).toEqual([false, null, [{ kind: "merge" }]]);
   });
 
   test("through a team I am in: needs me; a team without me is a teammate", () => {
@@ -259,5 +304,73 @@ describe("the inbox step: classified locally, needs me from GitHub's reviews", (
     expect(v.stuck).toEqual({ reason: "conflict" });
     // The slots still decide what needs me.
     expect([v.needsMe, v.ask?.kind]).toEqual([true, "peer"]);
+  });
+});
+
+describe("without an active key: GitHub approvals (ADR 0006)", () => {
+  const noKey = { ...ctx, signing: false };
+  const review = (over: Partial<NonNullable<PrFacts["review"]>> = {}) => ({
+    requested: [],
+    teams: [],
+    fromMe: false,
+    approvedBy: [],
+    changesRequestedBy: [],
+    ...over,
+  });
+
+  test("a peer slot takes my approval: Approve, then satisfied", () => {
+    const v = toView(facts(482), noKey);
+    expect([v.needsMe, v.ask]).toEqual([
+      true,
+      { kind: "approve", label: "Approve", then: { outcome: "satisfied" } },
+    ]);
+    expect(v.waitingOn).toEqual([{ kind: "me" }]);
+  });
+
+  test("a named slot for me takes it too; the prompter's slot still waits on them", () => {
+    expect(toView(facts(476), noKey).ask?.kind).toBe("approve");
+    expect(toView(facts(485), noKey).ask?.then).toEqual({
+      outcome: "waits",
+      on: [{ kind: "person", login: "jonas-r" }],
+    });
+  });
+
+  test("a nod-only slot asks for nothing: it waits on my key", () => {
+    const f = facts(482);
+    const v = toView(
+      { ...f, requirement: { ...f.requirement, slots: [slot({ nodsOnly: true })] } },
+      noKey,
+    );
+    expect([v.needsMe, v.ask, v.waitingOn]).toEqual([false, null, [{ kind: "me" }]]);
+  });
+
+  test("my own PR: no approve (GitHub refuses it); its self slot waits on my key", () => {
+    const v = toView(facts(488), noKey);
+    expect([v.mine, v.needsMe, v.ask, v.waitingOn]).toEqual([true, false, null, [{ kind: "me" }]]);
+  });
+
+  test("I approved this head: no second ask, it waits on the verifier", () => {
+    const v = toView({ ...facts(482), review: review({ approvedAtHead: [ME] }) }, noKey);
+    expect([v.needsMe, v.ask, v.waitingOn]).toEqual([false, null, [{ kind: "checks" }]]);
+    // An approval of an older head does not count: asked again.
+    const old = toView({ ...facts(482), review: review({ approvedBy: [ME] }) }, noKey);
+    expect(old.ask?.kind).toBe("approve");
+  });
+
+  test("with an active key the ask stays a nod", () => {
+    expect(toView(facts(482), { ...ctx, signing: true }).ask?.kind).toBe("peer");
+    expect(toView(facts(482), ctx).ask?.kind).toBe("peer");
+  });
+
+  test("fillOf: how I would fill a slot", () => {
+    const f = { author: "jonas-r", review: undefined };
+    expect(fillOf(slot({}), f, ME, true)).toBe("nod");
+    expect(fillOf(slot({}), f, ME, false)).toBe("approval");
+    expect(fillOf(slot({ nodsOnly: true }), f, ME, false)).toBe("key");
+    expect(fillOf(slot({ state: "ok" }), f, ME, false)).toBeNull();
+    expect(fillOf(slot({ except: ME }), f, ME, false)).toBeNull();
+    expect(
+      fillOf(slot({ role: "prompter", who: ME, except: null }), { author: ME }, ME, false),
+    ).toBe("key");
   });
 });

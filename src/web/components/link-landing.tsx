@@ -35,7 +35,7 @@ import {
 import { formatRoute, linkNumbers, type LinkRoute } from "@/lib/route";
 import { browserStorage } from "@/lib/storage";
 import { cn } from "@/lib/utils";
-import { askHeadline, rowTag, statusText, type People } from "@/lib/wording";
+import { actWord, askHeadline, rowTag, statusText, type People } from "@/lib/wording";
 import { readiness } from "@/lib/batch";
 import { RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
@@ -132,7 +132,11 @@ function PrCard({
       <Tick
         checked={selected}
         disabled={!needsMe}
-        label={selected ? `Leave #${pr.number} out` : `Sign #${pr.number} too`}
+        label={
+          selected
+            ? `Leave #${pr.number} out`
+            : `${pr.ask?.kind === "approve" ? "Approve" : "Sign"} #${pr.number} too`
+        }
         onChange={onToggle}
       />
       <div className="min-w-0">
@@ -290,6 +294,8 @@ export function LinkLanding({
     (keyState === "pending" || keyState === "not-enrolled" || keyState === "no-key") &&
     targets.some((t) => t.pr.waitingOn.some((w) => w.kind === "me"));
   const leftOut = targets.filter((t) => !selected.includes(t.pr)).map((t) => `#${t.pr.number}`);
+  // Without an active key the link's asks are GitHub approvals (ADR 0006).
+  const approving = actWord(targets.filter((t) => t.needsMe).map((t) => t.pr)) === "approve";
   return (
     <Column>
       <Banner route={route} />
@@ -362,7 +368,7 @@ export function LinkLanding({
             <b className="mb-1 block text-[17px]">
               {targets.length + landing.missing.length + landing.unclassified.length === 1
                 ? askHeadline(selected[0] ?? targets[0]!.pr)
-                : `Sign ${selected.length} of ${targets.length + landing.missing.length + landing.unclassified.length}`}
+                : `${approving ? "Approve" : "Sign"} ${selected.length} of ${targets.length + landing.missing.length + landing.unclassified.length}`}
             </b>
             <p className="text-tx3 m-0 mb-4 text-[12.5px] leading-[1.55]">
               {selected.length
@@ -377,11 +383,13 @@ export function LinkLanding({
               disabled={selected.length === 0}
               onClick={() => openBatch(selected.map((p: PrView) => p.number))}
             >
-              {!ready && <Lock className="size-4" />}
-              Review &amp; sign {selected.length}
+              {!ready && !approving && <Lock className="size-4" />}
+              Review &amp; {approving ? "approve" : "sign"} {selected.length}
             </button>
             <p className="text-tx3 m-0 mt-3.5 text-[12.5px] leading-[1.55]">
-              You see what you sign and enter your passphrase before anything is posted.
+              {approving
+                ? "You see what you approve before anything is posted. No key needed: it is your approval on GitHub."
+                : "You see what you sign and enter your passphrase before anything is posted."}
             </p>
           </>
         )}

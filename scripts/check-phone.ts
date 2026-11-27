@@ -17,8 +17,8 @@
  * A state may also `assert` what it shows (the back gesture closes the detail
  * page and the sign sheet, the passphrase field's attributes, the docked field
  * above an emulated keyboard): a failed assertion fails the check like an
- * overflow. A state with `fresh` runs on its own `nod serve`, as it changes
- * what the fake knows (signing).
+ * overflow. A state with `fresh` runs on its own `nod serve` of its scenario,
+ * as it changes what the fake knows (signing, approving).
  *
  * `KNOWN_OPEN` lists routes that are expected to fail today, with the reason:
  * they are run and printed, and do not fail the check. A route on the list
@@ -83,7 +83,7 @@ interface State {
   act: (page: Page, env: Env) => Promise<void>;
   /** What must hold after `act`: throws a message when it does not. */
   assert?: (page: Page, env: Env) => Promise<void>;
-  /** Runs on a `nod serve` of its own (it signs, which the fake keeps). */
+  /** Runs on a `nod serve` of its own, of its scenario (it signs or approves, which the fake keeps). */
   fresh?: boolean;
   /** Puts back what the state changed in `nod serve` (the fake's signer is shared by every page). */
   after?: (page: Page) => Promise<void>;
@@ -704,17 +704,17 @@ const INBOX_STATES: ReadonlyArray<State> = [
     assert: async (page) => {
       await must(
         page
-          .getByText("review requested", { exact: true })
+          .getByRole("button", { name: "Approve", exact: true })
           .count()
           .then((n) => n === 2),
-        "the two review requests do not say so",
+        "the two review requests do not offer Approve",
       );
       await must(
         page
           .getByRole("checkbox")
           .count()
-          .then((n) => n === 0),
-        "a row without anything to sign has a checkbox",
+          .then((n) => n === 2),
+        "only the two rows to approve have a checkbox",
       );
     },
     shot: "24a-inbox-list",
@@ -735,7 +735,7 @@ const INBOX_STATES: ReadonlyArray<State> = [
         "the page does not say the classification is local",
       );
       await must(
-        page.getByRole("link", { name: /Review on GitHub/ }).isVisible(),
+        page.getByRole("link", { name: /review it on GitHub/ }).isVisible(),
         "the review request has no way to GitHub",
       );
     },
@@ -743,9 +743,157 @@ const INBOX_STATES: ReadonlyArray<State> = [
   },
 ];
 
+/** The approve sheet's review step for the two review requests of the inbox. */
+const openApprove = async (page: Page) => {
+  await lookAround(page);
+  const boxes = page.getByRole("checkbox");
+  await boxes.nth(0).check();
+  await boxes.nth(1).check();
+  await page.getByRole("button", { name: /Review & approve 2/ }).click();
+  await page.locator("[data-slot=dialog-content]").waitFor();
+};
+
+/**
+ * Stale and posting failures cannot be produced by `--fake` (CLAUDE.md): the
+ * socket is routed. `stale` sends the first entry at a head nobody looked at;
+ * `failed` approves the first entry only and answers that GitHub refused the
+ * others, so the fake's state matches what the sheet says.
+ */
+async function routeApprove(page: Page, mode: "stale" | "failed") {
+  await page.routeWebSocket(/\/ws\?/, (ws) => {
+    const server = ws.connectToServer();
+    const held = new Map<string, number[]>();
+    ws.onMessage((raw) => {
+      const message = JSON.parse(String(raw)) as {
+        t: string;
+        id: string;
+        entries?: { pr: number; head_sha: string }[];
+      };
+      if (message.t === "approve" && message.entries?.length) {
+        if (mode === "stale") message.entries[0]!.head_sha = "0".repeat(40);
+        else if (message.entries.length > 1) {
+          held.set(
+            message.id,
+            message.entries.slice(1).map((e) => e.pr),
+          );
+          message.entries = message.entries.slice(0, 1);
+        }
+      }
+      server.send(JSON.stringify(message));
+    });
+    server.onMessage((raw) => {
+      const message = JSON.parse(String(raw)) as {
+        t: string;
+        id?: string;
+        ok?: boolean;
+        result?: { posted: unknown[]; failed: { pr: number; message: string }[] };
+      };
+      const refused = message.id ? held.get(message.id) : undefined;
+      if (message.t === "reply" && message.ok && refused && message.result)
+        message.result.failed = refused.map((pr) => ({
+          pr,
+          message: `Approving #${pr} failed: GitHub 502 on POST /repos/${REPO}/pulls/${pr}/reviews: Server Error`,
+        }));
+      ws.send(JSON.stringify(message));
+    });
+  });
+}
+
+const APPROVE_STATES: ReadonlyArray<State> = [
+  {
+    name: "approve sheet, review",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: openApprove,
+    assert: async (page) => {
+      await must(
+        page.getByRole("button", { name: /^Approve 2 on GitHub/ }).isVisible(),
+        "the review step has no Approve button",
+      );
+      await must(
+        page
+          .locator("#batch-passphrase")
+          .count()
+          .then((n) => n === 0),
+        "approving asks for a passphrase",
+      );
+    },
+    shot: "25a-approve-review",
+  },
+  {
+    name: "approve sheet, approved",
+    route: "#/",
+    scenarios: ["inbox"],
+    fresh: true,
+    act: async (page) => {
+      await openApprove(page);
+      await page.getByRole("button", { name: /^Approve 2 on GitHub/ }).click();
+      await page.getByText("2 pull requests approved").waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/^Approved on GitHub, as you/).isVisible(),
+        "the approved step does not say what happened",
+      );
+    },
+    shot: "25b-approve-approved",
+  },
+  {
+    name: "approve sheet, stale",
+    route: "#/",
+    scenarios: ["inbox"],
+    fresh: true,
+    before: (page) => routeApprove(page, "stale"),
+    act: async (page) => {
+      await openApprove(page);
+      await page.getByRole("button", { name: /^Approve 2 on GitHub/ }).click();
+      await page.getByText("Nothing was approved").waitFor();
+    },
+    shot: "25c-approve-stale",
+  },
+  {
+    name: "approve sheet, posting failed",
+    route: "#/",
+    scenarios: ["inbox"],
+    fresh: true,
+    before: (page) => routeApprove(page, "failed"),
+    act: async (page) => {
+      await openApprove(page);
+      await page.getByRole("button", { name: /^Approve 2 on GitHub/ }).click();
+      await page.getByText("1 of 2 pull requests approved").waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("button", { name: "Retry 1 approval" }).isVisible(),
+        "no retry for the refused approval",
+      );
+    },
+    shot: "25d-approve-failed",
+  },
+  {
+    name: "my own PR: no approve",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: async (page) => {
+      await lookAround(page);
+      await page.locator("[data-key^='cluster:']").first().click();
+      await page.locator("[data-key='pr:519']").click();
+      await page.getByLabel(/^Details of #519/).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByText(/^GitHub does not let you approve your own pull request/).isVisible(),
+        "my own PR does not say why it has no Approve",
+      );
+    },
+    shot: "25e-own-pr-no-approve",
+  },
+];
+
 const STATES: ReadonlyArray<State> = [
   ...FORWARD_STATES,
   ...INBOX_STATES,
+  ...APPROVE_STATES,
   {
     name: "two selected",
     route: "#/",
@@ -1436,7 +1584,7 @@ async function main() {
     /** The address of a target: its own `nod serve` when the state asks for one. */
     const own = async (target: Target) => {
       if (!target.pairing) return { url: target.url, done: () => {} };
-      const serve = await startServe("team", vite.url, dir, `own${owned++}`);
+      const serve = await startServe(target.scenario ?? "team", vite.url, dir, `own${owned++}`);
       return { url: target.pairing(serve), done: () => serve.child.stop() };
     };
 

@@ -1,7 +1,7 @@
 /**
  * A fake GitHub behind an injectable `fetch`, for the GitHub source's tests:
  * it answers the source's GraphQL queries (`Poll`, `Details`, `SignTarget`)
- * from fixtures and records every REST call. Fictional repo `acme/widgets`.
+ * from fixtures and records every REST call (nod comments, reviews, 👀). Fictional repo `acme/widgets`.
  * It plays one host (github.com, `acme.ghe.com`, a GHES) and answers only
  * that host's URL shapes; anything else lands in `misdirected`.
  */
@@ -170,6 +170,7 @@ export class FakeGitHub {
               state: pr.state,
               isDraft: pr.isDraft,
               merged: pr.merged,
+              author: pr.author,
               baseRefName: pr.baseRefName,
               headRefOid: pr.headRefOid,
               baseRef: pr.baseRef,
@@ -180,6 +181,7 @@ export class FakeGitHub {
   }
 
   private comments = 0;
+  private reviews = 0;
 
   private rest(method: string, path: string, body: unknown): Response {
     const repo = `/repos/${REPO}`;
@@ -190,6 +192,16 @@ export class FakeGitHub {
       return json(201, {
         html_url: `${this.host.webUrl}/${REPO}/pull/${m[1]}#issuecomment-${++this.comments}`,
       });
+    m = new RegExp(`^${repo}/pulls/(\\d+)/reviews$`).exec(path);
+    if (method === "POST" && m) {
+      const id = ++this.reviews;
+      return json(200, {
+        id,
+        state: (body as { event?: string }).event === "APPROVE" ? "APPROVED" : "COMMENTED",
+        commit_id: (body as { commit_id?: string }).commit_id ?? null,
+        html_url: `${this.host.webUrl}/${REPO}/pull/${m[1]}#pullrequestreview-${id}`,
+      });
+    }
     m = new RegExp(`^${repo}/issues/(\\d+)/reactions$`).exec(path);
     if (method === "POST" && m)
       return json(201, { content: (body as { content: string }).content });

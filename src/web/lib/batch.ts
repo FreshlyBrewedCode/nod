@@ -4,12 +4,20 @@
  * to each PR after my nod, the "not opened" mark, and the dialog's state
  * machine (review → unlock → signing → signed / stale / error).
  *
+ * Without an active key the asks are GitHub approvals (ADR 0006), and the
+ * same dialog approves: review → approving → approved / stale / error, no
+ * passphrase. One kind per batch: the first picked PR that asks for
+ * something decides (`BatchKind`); a row of the other kind stays in view,
+ * blocked, and says to do it in a batch of its own. Within one repo that
+ * cannot happen (the key decides every ask alike); with many repos it can.
+ *
  * The passphrase is never in here: it goes from the input straight into the
  * one `unlock` request (`components/batch-dialog.tsx`).
  */
 
 import { shortName } from "../../shared/attention";
 import type {
+  ApproveResult,
   Ask,
   ErrorCode,
   PrView,
@@ -23,8 +31,13 @@ import { openedKey, type Opened } from "./storage";
 
 export type Role = Ask["kind"];
 
-/** Peer and owner first (someone else's work), then re-attests, then my own. */
-export const ROLE_ORDER: ReadonlyArray<Role> = ["peer", "owner", "re-attest", "self"];
+/** Peer and owner first (someone else's work), then re-attests, then my own; approvals alone. */
+export const ROLE_ORDER: ReadonlyArray<Role> = ["peer", "owner", "re-attest", "self", "approve"];
+
+/** What a batch does: nods (`sign`) or GitHub approvals (`approve`). */
+export type BatchKind = "sign" | "approve";
+
+export const kindOf = (role: Role): BatchKind => (role === "approve" ? "approve" : "sign");
 
 // ---------------------------------------------------------------------------
 // rows
@@ -43,8 +56,11 @@ export interface BatchRow {
   readonly moved: boolean;
   /** Refreshed after a stale refusal: worth a second look. */
   readonly changed: boolean;
-  /** Why it cannot be signed now, or null. */
-  readonly blocked: "no-ask" | "no-patch-id" | "not-open" | null;
+  /**
+   * Why it cannot be in the batch now, or null. `other-kind`: it asks for an
+   * approval in a batch of nods, or the other way round.
+   */
+  readonly blocked: "no-ask" | "no-patch-id" | "not-open" | "other-kind" | null;
 }
 
 /**
@@ -104,11 +120,24 @@ export function reviewAgain(model: BatchModel, stale: ReadonlyArray<StaleEntry>)
   return { ...model, heads, changed };
 }
 
+/**
+ * The batch's kind: that of the first picked PR that asks for something
+ * (nods when none does).
+ */
+export function batchKind(model: BatchModel, prs: ReadonlyArray<PrView>): BatchKind {
+  for (const n of model.numbers) {
+    const ask = prs.find((p) => p.number === n)?.ask;
+    if (ask) return kindOf(ask.kind);
+  }
+  return "sign";
+}
+
 export function batchRows(
   model: BatchModel,
   prs: ReadonlyArray<PrView>,
   context: { readonly opened: Opened; readonly repo: string },
 ): ReadonlyArray<BatchRow> {
+  const kind = batchKind(model, prs);
   return model.numbers.flatMap((n): BatchRow[] => {
     const pr = prs.find((p) => p.number === n);
     if (!pr) return [];
@@ -118,9 +147,12 @@ export function batchRows(
         ? "not-open"
         : !pr.ask
           ? "no-ask"
-          : pr.patchId === null
-            ? "no-patch-id"
-            : null;
+          : kindOf(pr.ask.kind) !== kind
+            ? "other-kind"
+            : // An approval needs no patch-id: GitHub records the commit.
+              kind === "sign" && pr.patchId === null
+              ? "no-patch-id"
+              : null;
     return [
       {
         pr,
@@ -142,8 +174,8 @@ export function entriesOf(rows: ReadonlyArray<BatchRow>): ReadonlyArray<SignEntr
 }
 
 export interface RoleGroup {
-  /** null: rows that cannot be signed any more, at the end. */
-  readonly role: Role | null;
+  /** null: rows that cannot be signed any more, at the end; `other-kind`: for a batch of their own. */
+  readonly role: Role | "other-kind" | null;
   /** "Jonas's work · you sign as peer", "Your work · you sign as prompter". */
   readonly title: string;
   readonly rows: ReadonlyArray<BatchRow>;
@@ -155,19 +187,29 @@ const possessive = (name: string) => `${name}’s`;
 export function groupByRole(
   rows: ReadonlyArray<BatchRow>,
   people: People,
+  kind: BatchKind = "sign",
 ): ReadonlyArray<RoleGroup> {
   const groups: RoleGroup[] = [];
-  for (const role of [...ROLE_ORDER, null]) {
-    const inGroup = rows.filter(
-      (r) => (r.blocked === "no-ask" || r.blocked === "not-open" ? null : r.role) === role,
-    );
+  const groupOf = (r: BatchRow): RoleGroup["role"] =>
+    r.blocked === "no-ask" || r.blocked === "not-open"
+      ? null
+      : r.blocked === "other-kind"
+        ? "other-kind"
+        : r.role;
+  for (const role of [...ROLE_ORDER, "other-kind" as const, null]) {
+    const inGroup = rows.filter((r) => groupOf(r) === role);
     if (inGroup.length)
-      groups.push({ role, title: groupTitle(role, inGroup, people), rows: inGroup });
+      groups.push({ role, title: groupTitle(role, inGroup, people, kind), rows: inGroup });
   }
   return groups;
 }
 
-function groupTitle(role: Role | null, rows: ReadonlyArray<BatchRow>, people: People): string {
+function groupTitle(
+  role: RoleGroup["role"],
+  rows: ReadonlyArray<BatchRow>,
+  people: People,
+  kind: BatchKind,
+): string {
   const authors = [...new Set(rows.map((r) => r.pr.prompter.toLowerCase()))];
   const whose =
     authors.length === 1 ? possessive(shortName(rows[0]!.pr.prompter, people)) : "Teammates’";
@@ -182,8 +224,14 @@ function groupTitle(role: Role | null, rows: ReadonlyArray<BatchRow>, people: Pe
       return "Changed since you signed · you sign again";
     case "self":
       return "Your work · you sign as prompter";
+    case "approve":
+      return `${whose} work · you approve on GitHub`;
+    case "other-kind":
+      return rows[0]?.role === "approve"
+        ? "To approve on GitHub · in a batch of their own"
+        : "To sign · in a batch of their own";
     case null:
-      return "Nothing to sign here any more";
+      return `Nothing to ${kind} here any more`;
   }
 }
 
@@ -212,6 +260,7 @@ const ROLE_PHRASES: Readonly<Record<Role, string>> = {
   owner: "as owner",
   self: "your own",
   "re-attest": "again after a change",
+  approve: "on GitHub",
 };
 
 /**
@@ -219,9 +268,10 @@ const ROLE_PHRASES: Readonly<Record<Role, string>> = {
  * peer, 1 as owner, 1 your own." With one role: "You are signing 3 changes
  * as peer."
  */
-export function summarySentence(rows: ReadonlyArray<BatchRow>): string {
+export function summarySentence(rows: ReadonlyArray<BatchRow>, kind: BatchKind = "sign"): string {
   const included = rows.filter((r) => r.included && r.role !== null);
-  if (included.length === 0) return "Nothing is left to sign. Tick a row to put it back.";
+  if (included.length === 0) return `Nothing is left to ${kind}. Tick a row to put it back.`;
+  if (kind === "approve") return `You are approving ${changes(included.length)} on GitHub.`;
   const parts = ROLE_ORDER.map(
     (role) => [role, included.filter((r) => r.role === role).length] as const,
   ).filter(([, n]) => n > 0);
@@ -238,10 +288,12 @@ export type Outcome = { readonly text: string; readonly tone: "ok" | "wait" | "n
 /**
  * What happens to a PR after my nod, from its ask: the check turns green and
  * the agent merges (after CI, when checks still run), or it still waits on
- * someone. `after`: the same, once signed ("the agent can merge").
+ * someone. `after`: the same, once signed ("the agent can merge"). An
+ * approval at the inbox step (no policy) leaves it ready to merge, by a
+ * person; at a set-up repo it fills a slot like a nod.
  */
 export function outcomeOf(
-  pr: Pick<PrView, "ask" | "checks">,
+  pr: Pick<PrView, "ask" | "checks" | "classifiedBy">,
   people: People,
   phase: "before" | "after" = "before",
 ): Outcome {
@@ -253,6 +305,16 @@ export function outcomeOf(
       text: phase === "before" ? `still waits on ${names}` : `waits on ${names}`,
       tone: "wait",
     };
+  }
+  if (pr.classifiedBy === "local") {
+    if (pr.checks.state === "failing")
+      return { text: "approved; a CI check still fails", tone: "wait" };
+    if (pr.checks.state === "pending")
+      return {
+        text: phase === "before" ? "ready to merge after CI" : "ready after CI",
+        tone: "ok",
+      };
+    return { text: "ready to merge", tone: "ok" };
   }
   if (pr.checks.state === "failing")
     return {
@@ -279,11 +341,14 @@ export function outcomeOf(
  * with their agents now. One still waits on Jonas."
  */
 export function outcomeSentence(
-  prs: ReadonlyArray<Pick<PrView, "ask" | "checks">>,
+  prs: ReadonlyArray<Pick<PrView, "ask" | "checks" | "classifiedBy">>,
   people: People,
   phase: "before" | "after",
 ): string {
-  const merging = prs.filter((p) => p.ask?.then.outcome === "satisfied").length;
+  const done = prs.filter((p) => p.ask?.then.outcome === "satisfied");
+  // At the inbox step a person merges: an approval makes it ready, no agent merges it.
+  const ready = done.filter((p) => p.classifiedBy === "local").length;
+  const merging = done.length - ready;
   const waiting = prs.filter((p) => p.ask?.then.outcome === "waits");
   const names = [
     ...new Set(
@@ -298,14 +363,17 @@ export function outcomeSentence(
         ? `${capital(countWord(merging))} will be merged by ${merging === 1 ? "its agent" : "their agents"}.`
         : `${capital(countWord(merging))} ${merging === 1 ? "is with its agent" : "are with their agents"} now.`,
     );
+  if (ready)
+    sentences.push(
+      phase === "before"
+        ? `${capital(countWord(ready))} will be ready to merge.`
+        : `${capital(countWord(ready))} ${ready === 1 ? "is" : "are"} ready to merge now.`,
+    );
   if (waiting.length) {
     const n = waiting.length;
     const verb = n === 1 ? "waits" : "wait";
-    const subject = merging
-      ? `${capital(countWord(n))} still`
-      : n === 1
-        ? "It still"
-        : "They still";
+    const subject =
+      merging || ready ? `${capital(countWord(n))} still` : n === 1 ? "It still" : "They still";
     sentences.push(`${subject} ${verb}${on}${phase === "before" ? " afterwards" : ""}.`);
   }
   return sentences.join(" ");
@@ -333,6 +401,12 @@ export type Readiness =
   | { readonly state: "pending"; readonly pr: number | null }
   | { readonly state: "not-enrolled" };
 
+/** My key is enrolled and active (locked or not): what I am asked for is a nod. */
+export function canSignWith(signer: SignerState | null): boolean {
+  const state = readiness(signer).state;
+  return signer !== null && (state === "locked" || state === "unlocked");
+}
+
 /** Whether I can sign now, must unlock first, or cannot sign at all (and why). */
 export function readiness(signer: SignerState | null): Readiness {
   if (!signer) return { state: "locked" };
@@ -355,6 +429,14 @@ export interface Attempt {
   readonly prior: SignResult | null;
 }
 
+/** One approve request: what the approved step lists, what it approves, what a first try did. */
+export interface ApproveAttempt {
+  readonly shown: ReadonlyArray<PrView>;
+  readonly entries: ReadonlyArray<SignEntry>;
+  /** A retry adds to what the first attempt approved. */
+  readonly prior: ApproveResult | null;
+}
+
 export interface Failure {
   readonly code: ErrorCode | "offline" | "timeout";
   readonly message: string;
@@ -372,6 +454,12 @@ export type BatchState =
     }
   | { readonly step: "signing"; readonly attempt: Attempt }
   | { readonly step: "signed"; readonly shown: ReadonlyArray<PrView>; readonly result: SignResult }
+  | { readonly step: "approving"; readonly attempt: ApproveAttempt }
+  | {
+      readonly step: "approved";
+      readonly shown: ReadonlyArray<PrView>;
+      readonly result: ApproveResult;
+    }
   | { readonly step: "stale"; readonly stale: ReadonlyArray<StaleEntry> }
   | { readonly step: "error"; readonly failure: Failure };
 
@@ -392,6 +480,18 @@ export type BatchEvent =
       readonly failure: Failure;
       readonly details?: RequestError["details"];
     }
+  /** The primary button of a batch of approvals: approve these, or retry the failed ones. */
+  | {
+      readonly t: "approve";
+      readonly rows: ReadonlyArray<PrView>;
+      readonly entries: ReadonlyArray<SignEntry>;
+    }
+  | { readonly t: "approved"; readonly result: ApproveResult }
+  | {
+      readonly t: "approve-failed";
+      readonly failure: Failure;
+      readonly details?: RequestError["details"];
+    }
   | { readonly t: "back" };
 
 export const INITIAL_BATCH: BatchState = { step: "review" };
@@ -406,8 +506,56 @@ export function mergeResults(prior: SignResult | null, next: SignResult): SignRe
   return { payload: next.payload, posted, failed: next.failed };
 }
 
+/** The same for approvals: approved adds up across a retry. */
+export function mergeApprovals(prior: ApproveResult | null, next: ApproveResult): ApproveResult {
+  if (!prior) return next;
+  return {
+    posted: [
+      ...prior.posted,
+      ...next.posted.filter((p) => !prior.posted.some((q) => q.pr === p.pr)),
+    ],
+    failed: next.failed,
+  };
+}
+
 export function batchReducer(state: BatchState, event: BatchEvent): BatchState {
   switch (event.t) {
+    case "approve": {
+      if (state.step !== "review" && state.step !== "approved") return state;
+      if (event.entries.length === 0) return state;
+      return {
+        step: "approving",
+        attempt:
+          state.step === "approved"
+            ? { shown: state.shown, entries: event.entries, prior: state.result }
+            : { shown: event.rows, entries: event.entries, prior: null },
+      };
+    }
+    case "approved":
+      return state.step === "approving"
+        ? {
+            step: "approved",
+            shown: state.attempt.shown,
+            result: mergeApprovals(state.attempt.prior, event.result),
+          }
+        : state;
+    case "approve-failed": {
+      if (state.step !== "approving") return state;
+      const { prior } = state.attempt;
+      // A retry that fails keeps what was approved and says why on the rows still missing.
+      if (prior)
+        return {
+          step: "approved",
+          shown: state.attempt.shown,
+          result: {
+            ...prior,
+            failed: prior.failed.map((f) => ({ ...f, message: event.failure.message })),
+          },
+        };
+      const stale = event.details?.stale;
+      if (event.failure.code === "stale" && stale?.length) return { step: "stale", stale };
+      return { step: "error", failure: event.failure };
+    }
     case "sign": {
       if (state.step !== "review" && state.step !== "signed") return state;
       if (event.entries.length === 0) return state;
@@ -466,7 +614,13 @@ export function batchReducer(state: BatchState, event: BatchEvent): BatchState {
       return { step: "error", failure: event.failure };
     }
     case "back":
-      if (state.step === "signing" || state.step === "signed") return state;
+      if (
+        state.step === "signing" ||
+        state.step === "signed" ||
+        state.step === "approving" ||
+        state.step === "approved"
+      )
+        return state;
       // Back from unlocking a retry: the signed step again, as it was.
       if (state.step === "unlock" && state.attempt.prior)
         return { step: "signed", shown: state.attempt.shown, result: state.attempt.prior };
@@ -488,6 +642,8 @@ export function roleShort(role: Role | null): string {
       return "again";
     case "self":
       return "your own";
+    case "approve":
+      return "approve";
     case null:
       return "";
   }

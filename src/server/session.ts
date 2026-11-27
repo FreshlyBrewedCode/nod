@@ -22,7 +22,8 @@ import { PROTOCOL_VERSION } from "../shared/protocol";
 import type { Clock } from "./clock";
 import { commentBody, humanLine, payloadLine } from "./payload";
 import { SignerError, type Side, type Signer, type SignerKey } from "./signer";
-import { SourceError, type NodPayload, type Source } from "./source";
+import { SourceError, type NodPayload, type SignTarget, type Source } from "./source";
+import { sameLogin } from "./view";
 
 /**
  * One open tab. `send` takes the serialised message. `side` is where it is
@@ -54,7 +55,7 @@ export class RequestFailure extends Error {
   }
 }
 
-/** The most PRs one nod may cover. */
+/** The most PRs one nod (or one batch of approvals) may cover. */
 export const MAX_BATCH = 100;
 
 type Handlers = {
@@ -239,6 +240,41 @@ export class Session {
       }
       return me;
     };
+    /**
+     * Each entry's PR as it is now, all or nothing: a PR that is gone or not
+     * open fails the request; one whose head moved since the user looked
+     * makes it `stale`, listing every such entry, and nothing is done.
+     */
+    const atHeads = async (
+      repo: string,
+      entries: ReadonlyArray<SignEntry>,
+      verb: "nodded" | "approved",
+      done: "signed" | "approved",
+    ): Promise<SignTarget[]> => {
+      const stale: { pr: number; signed: string; current: string }[] = [];
+      const targets: SignTarget[] = [];
+      for (const entry of entries) {
+        const target = await source.signTarget(entry.pr);
+        if (!target) throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo}.`);
+        if (target.state !== "open")
+          throw new RequestFailure(
+            "not-open",
+            `#${entry.pr} is ${target.state === "draft" ? "a draft" : target.state}; only open PRs can be ${verb}.`,
+          );
+        if (target.headSha !== entry.head_sha) {
+          stale.push({ pr: entry.pr, signed: entry.head_sha, current: target.headSha });
+          continue;
+        }
+        targets.push(target);
+      }
+      if (stale.length)
+        throw new RequestFailure(
+          "stale",
+          `${stale.map((s) => `#${s.pr}`).join(", ")} changed since you looked. Nothing was ${done}.`,
+          { stale },
+        );
+      return targets;
+    };
     const needKey = (side: Side = "loopback") => {
       const status = signer.status(side);
       if (status.state === "no-key")
@@ -278,38 +314,20 @@ export class Session {
         if (status.state !== "unlocked")
           throw new RequestFailure("locked", "Unlock signing first.");
 
-        const stale: { pr: number; signed: string; current: string }[] = [];
-        const built: NodPayload["entries"][number][] = [];
-        for (const entry of entries) {
-          const target = await source.signTarget(entry.pr);
-          if (!target) throw new RequestFailure("not-found", `#${entry.pr} is not in ${repo}.`);
-          if (target.state !== "open")
-            throw new RequestFailure(
-              "not-open",
-              `#${entry.pr} is ${target.state}; only open PRs can be nodded.`,
-            );
-          if (target.headSha !== entry.head_sha) {
-            stale.push({ pr: entry.pr, signed: entry.head_sha, current: target.headSha });
-            continue;
-          }
+        const targets = await atHeads(repo, entries, "nodded", "signed");
+        const built: NodPayload["entries"][number][] = targets.map((target) => {
           if (!target.patchId)
             throw new RequestFailure(
               "no-patch-id",
-              `The patch-id of #${entry.pr} is not known yet; try again in a moment.`,
+              `The patch-id of #${target.pr} is not known yet; try again in a moment.`,
             );
-          built.push({
-            pr: entry.pr,
+          return {
+            pr: target.pr,
             base: target.base,
             head_sha: target.headSha,
             patch_id: target.patchId,
-          });
-        }
-        if (stale.length)
-          throw new RequestFailure(
-            "stale",
-            `${stale.map((s) => `#${s.pr}`).join(", ")} changed since you looked. Nothing was signed.`,
-            { stale },
-          );
+          };
+        });
 
         const payload: NodPayload = {
           v: 1,
@@ -330,6 +348,28 @@ export class Session {
           failed: results
             .filter((r) => !r.ok)
             .map((r) => ({ pr: r.pr, message: r.message ?? "Posting the comment failed." })),
+        };
+      },
+      approve: async ({ entries, note }) => {
+        const repo = needRepo();
+        const me = await needMe();
+        const targets = await atHeads(repo, entries, "approved", "approved");
+        const own = targets.find((t) => sameLogin(t.author, me.login));
+        if (own)
+          throw new RequestFailure(
+            "forbidden",
+            `#${own.pr} is your own pull request; GitHub does not let you approve it. Nothing was approved.`,
+          );
+        const results = await source.postApprovals({
+          repo,
+          entries: targets.map((t) => ({ pr: t.pr, headSha: t.headSha })),
+          body: note?.trim() ? note.trim() : null,
+        });
+        return {
+          posted: results.filter((r) => r.ok).map((r) => ({ pr: r.pr, url: r.url ?? "" })),
+          failed: results
+            .filter((r) => !r.ok)
+            .map((r) => ({ pr: r.pr, message: r.message ?? "Approving failed." })),
         };
       },
       "ack-fyi": async ({ pr }) => {
@@ -426,6 +466,7 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   unlock: true,
   lock: true,
   sign: true,
+  approve: true,
   "ack-fyi": true,
   ping: true,
   refresh: true,
@@ -437,6 +478,22 @@ const REQUEST_TYPES: Record<RequestType, true> = {
   "open-enrol-pr": true,
   "test-signature": true,
 };
+
+/** A batch's entries: 1 to MAX_BATCH distinct PRs, each at a hex head SHA. */
+function parseEntries(m: Json, what: string): SignEntry[] {
+  if (!Array.isArray(m.entries) || m.entries.length === 0)
+    return fail("entries must be a non-empty list");
+  if (m.entries.length > MAX_BATCH) fail(`at most ${MAX_BATCH} PRs per ${what}`);
+  const entries: SignEntry[] = m.entries.map((e: unknown) => {
+    const entry = (typeof e === "object" && e !== null ? e : {}) as Json;
+    if (!isInt(entry.pr)) fail("each entry needs a pr number");
+    if (typeof entry.head_sha !== "string" || !/^[0-9a-f]{7,64}$/.test(entry.head_sha))
+      fail("each entry needs a head_sha");
+    return { pr: entry.pr as number, head_sha: entry.head_sha as string };
+  });
+  if (new Set(entries.map((e) => e.pr)).size !== entries.length) fail("a PR is listed twice");
+  return entries;
+}
 
 /** Parse and check one request; throws `RequestFailure` `bad-request`. */
 export function parseRequest(data: string): ClientToServer {
@@ -468,20 +525,15 @@ export function parseRequest(data: string): ClientToServer {
       };
     }
     case "sign": {
-      if (!Array.isArray(m.entries) || m.entries.length === 0)
-        return fail("entries must be a non-empty list");
-      if (m.entries.length > MAX_BATCH) fail(`at most ${MAX_BATCH} PRs per nod`);
-      const entries: SignEntry[] = m.entries.map((e: unknown) => {
-        const entry = (typeof e === "object" && e !== null ? e : {}) as Json;
-        if (!isInt(entry.pr)) fail("each entry needs a pr number");
-        if (typeof entry.head_sha !== "string" || !/^[0-9a-f]{7,64}$/.test(entry.head_sha))
-          fail("each entry needs a head_sha");
-        return { pr: entry.pr as number, head_sha: entry.head_sha as string };
-      });
-      if (new Set(entries.map((e) => e.pr)).size !== entries.length) fail("a PR is listed twice");
+      const entries = parseEntries(m, "nod");
       if (m.verdict !== "approve") fail("verdict must be approve");
       const note = str(m, "note", true);
       return { t: "sign", id, entries, verdict: "approve", ...(note !== undefined && { note }) };
+    }
+    case "approve": {
+      const entries = parseEntries(m, "batch");
+      const note = str(m, "note", true);
+      return { t: "approve", id, entries, ...(note !== undefined && { note }) };
     }
     case "ack-fyi":
       if (!isInt(m.pr)) fail("pr must be a number");

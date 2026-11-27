@@ -479,6 +479,9 @@ export function reviewOf(pr: RawPr, me: Login | null, requestedFromMe: boolean):
     teams,
     fromMe: requestedFromMe || requested.some((l) => sameLogin(l, me)),
     approvedBy: by("APPROVED"),
+    approvedAtHead: latest
+      .filter((r) => r.state === "APPROVED" && r.commit?.oid === pr.headRefOid)
+      .map((r) => r.author!.login),
     changesRequestedBy: by("CHANGES_REQUESTED"),
   };
 }

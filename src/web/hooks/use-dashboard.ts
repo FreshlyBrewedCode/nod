@@ -28,8 +28,13 @@ export interface DashboardState {
   setPanelOpen(open: boolean): void;
   /** "Got it" on an FYI: unsigned; the row leaves the lane right away. */
   ackFyi(pr: number): void;
-  /** THE way into signing (the batch dialog seam). */
+  /** THE way into signing and approving (the batch dialog seam). */
   openBatch(prs: ReadonlyArray<number>): void;
+  /**
+   * My key is enrolled and active in this repo: I sign. false: no key, or a
+   * pending or not enrolled one; my asks are GitHub approvals (ADR 0006).
+   */
+  readonly signing: boolean;
 }
 
 export const DashboardContext = createContext<DashboardState | null>(null);

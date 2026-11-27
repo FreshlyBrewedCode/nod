@@ -534,7 +534,13 @@ describe("hints and summaries", () => {
     const source = new FakeSource({ clock: new ManualClock(NOW), scenario: "inbox" });
     await source.ready;
     const prs = source.snapshot()!.prs;
-    expect(prs.every((p) => p.classifiedBy === "local" && p.ask === null)).toBe(true);
+    expect(prs.every((p) => p.classifiedBy === "local")).toBe(true);
+    // The review requests ask for a GitHub approval; my stuck PRs ask for nothing here.
+    expect(prs.filter((p) => p.ask).map((p) => [p.number, p.ask?.kind])).toEqual([
+      [512, "approve"],
+      [515, "approve"],
+    ]);
+    expect(prs.filter(selectable).map((p) => p.number)).toEqual([512, 515]);
     const [needs, know, background] = attentionView(prs);
     // A teammate's PR whose review is asked of me (or my team) is tier 1; mine and stuck tier 2.
     expect(show(needs!.items)).toEqual(["515/1", "512/1", "511/2", "509/2"]);

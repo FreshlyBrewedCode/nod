@@ -6,6 +6,7 @@
  *   const { status, welcome, snapshot, signer, actions } = useConnection();
  *   await actions.unlock(passphrase, { minutes: 15 });
  *   await actions.sign([{ pr: 482, head_sha: pr.headSha }]);
+ *   await actions.approve([{ pr: 482, head_sha: pr.headSha }]);
  *
  * Actions resolve with the request's result and reject with `RequestFailed`
  * (its `code` is the protocol's error code, or `offline` / `timeout`). The
@@ -51,6 +52,8 @@ export interface Actions {
     entries: ReadonlyArray<SignEntry>,
     options?: { note?: string },
   ): Promise<RequestResult<"sign">>;
+  /** Approve a batch on GitHub at the heads the user looked at: no key, no unlock (ADR 0006). */
+  approve(entries: ReadonlyArray<SignEntry>): Promise<RequestResult<"approve">>;
   ackFyi(pr: number): Promise<RequestResult<"ack-fyi">>;
   refresh(): Promise<RequestResult<"refresh">>;
   /** Forget this browser's pairing (it needs the host link again). */
@@ -121,6 +124,7 @@ export function useNodConnection(): Connection {
       unlock: (passphrase, options = {}) => request("unlock", { passphrase, ...options }),
       lock: () => request("lock", {}),
       sign: (entries, options = {}) => request("sign", { entries, verdict: "approve", ...options }),
+      approve: (entries) => request("approve", { entries }),
       ackFyi: (pr) => request("ack-fyi", { pr }),
       refresh: () => request("refresh", {}),
       unpair: () => {

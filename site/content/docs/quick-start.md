@@ -139,7 +139,8 @@ human in the repository, read [One-human repositories](/docs/keys#one-human-repo
    auto-merge merges once your other required checks are green too.
 
 A teammate can also just approve the pull request on GitHub (not released): that fills the peer
-slot without a key.
+slot without a key. A teammate whose own nod has no enrolled key yet gets **Approve** in its batch
+dialog for the same thing ([Approve or nod](/docs/nodding#approve-or-nod)).
 
 ## Without the web app
 

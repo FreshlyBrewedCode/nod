@@ -54,10 +54,12 @@ export function tier(p: TierInput): Tier {
 
 /**
  * An open PR with a slot my nod would fill, but no ask: with no key, a
- * pending or a not enrolled one nothing is signable (ADR 0002), so `needsMe`
- * is false while `waitingOn` still names me. It waits on me once my key is
- * enrolled. A locally classified PR has no slots: what it waits on me for is
- * a review on GitHub, which needs no key.
+ * pending or a not enrolled one nothing is signable (ADR 0002), and a GitHub
+ * approval does not fill this slot (it is nod-only, or the PR is mine, which
+ * GitHub does not let me approve), so `needsMe` is false while `waitingOn`
+ * still names me. It waits on me once my key is enrolled. A locally
+ * classified PR has no slots: what it waits on me for is a review on GitHub,
+ * which needs no key.
  */
 export function waitsOnMyKey(
   p: Pick<PrView, "state" | "ask" | "waitingOn" | "classifiedBy">,
@@ -565,10 +567,10 @@ export function stateBoardView(prs: ReadonlyArray<PrView>): ReadonlyArray<StateC
 // the list's hints and summaries
 
 /**
- * Whether a row gets a checkbox for signing: only tiers 1 and 2, the ones that
- * need me (r3 open question 5), and only with something to sign (`ask`): a PR
- * that needs my review at the inbox step has none. One-liners and folded PRs
- * never need me.
+ * Whether a row gets a checkbox for the batch: only tiers 1 and 2, the ones
+ * that need me (r3 open question 5), and only with something to do there
+ * (`ask`: a nod, or a GitHub approval without a key); my own stuck PR at the
+ * inbox step has none. One-liners and folded PRs never need me.
  */
 export function selectable(p: TierInput): boolean {
   return p.ask !== null && tier(p) <= 2;

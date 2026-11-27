@@ -2,15 +2,18 @@ import { describe, expect, test } from "bun:test";
 
 import { ManualClock } from "../../server/clock";
 import { FakeSource } from "../../server/fake-source";
-import type { PrView, SignResult, SignerState } from "../../shared/protocol";
+import type { ApproveResult, PrView, SignResult, SignerState } from "../../shared/protocol";
 import {
   INITIAL_BATCH,
+  batchKind,
   batchReducer,
   batchRows,
+  canSignWith,
   countWord,
   entriesOf,
   groupByRole,
   isNotOpened,
+  mergeApprovals,
   mergeResults,
   openModel,
   outcomeOf,
@@ -345,5 +348,169 @@ describe("roleShort", () => {
     expect(roleShort("re-attest")).toBe("again");
     expect(roleShort("self")).toBe("your own");
     expect(roleShort(null)).toBe("");
+  });
+});
+
+describe("approving on GitHub (ADR 0006)", () => {
+  // The inbox step: no policy, no key; two teammates' PRs ask for my review.
+  const inboxSource = new FakeSource({ clock: new ManualClock(NOW), scenario: "inbox" });
+  const inbox = async () => {
+    await inboxSource.ready;
+    return inboxSource.snapshot()!.prs;
+  };
+
+  test("rows: approvals need no patch-id; the batch's kind is the asks'", async () => {
+    const all = await inbox();
+    const model = openModel(all, [512, 515, 514]);
+    expect(batchKind(model, all)).toBe("approve");
+    const rows = batchRows(model, all, { opened: {}, repo });
+    expect(rows.map((r) => [r.pr.number, r.role, r.included, r.blocked, r.notOpened])).toEqual([
+      [512, "approve", true, null, true],
+      [515, "approve", true, null, true],
+      [514, null, false, "no-ask", false],
+    ]);
+    expect(groupByRole(rows, people, "approve").map((g) => [g.role, g.title])).toEqual([
+      ["approve", "Teammates’ work · you approve on GitHub"],
+      [null, "Nothing to approve here any more"],
+    ]);
+    expect(summarySentence(rows, "approve")).toBe("You are approving 2 changes on GitHub.");
+    expect(entriesOf(rows)).toEqual([
+      { pr: 512, head_sha: rows[0]!.pr.headSha },
+      { pr: 515, head_sha: rows[1]!.pr.headSha },
+    ]);
+  });
+
+  test("one kind per batch: a row of the other kind is left out and says so", async () => {
+    const all = await inbox();
+    const mixed = [...all, pr(482)];
+    const approveFirst = batchRows(openModel(mixed, [512, 482]), mixed, { opened, repo });
+    expect(approveFirst.map((r) => [r.pr.number, r.included, r.blocked])).toEqual([
+      [512, true, null],
+      [482, false, "other-kind"],
+    ]);
+    expect(groupByRole(approveFirst, people, "approve").at(-1)).toMatchObject({
+      role: "other-kind",
+      title: "To sign · in a batch of their own",
+    });
+    const signFirst = batchRows(openModel(mixed, [482, 512]), mixed, { opened, repo });
+    expect(batchKind(openModel(mixed, [482, 512]), mixed)).toBe("sign");
+    expect(signFirst.map((r) => [r.pr.number, r.blocked])).toEqual([
+      [482, null],
+      [512, "other-kind"],
+    ]);
+  });
+
+  test("the outcome: ready to merge at the inbox step, the agent at a set-up repo", async () => {
+    const all = await inbox();
+    const at = (n: number) => all.find((p) => p.number === n)!;
+    expect(outcomeOf(at(512), people)).toEqual({ text: "ready to merge", tone: "ok" });
+    expect(outcomeSentence([at(512), at(515)], people, "before")).toBe(
+      "Two will be ready to merge.",
+    );
+    expect(outcomeSentence([at(512)], people, "after")).toBe("One is ready to merge now.");
+    const running = { ...at(512), checks: { ...at(512).checks, state: "pending" as const } };
+    expect(outcomeOf(running, people, "after").text).toBe("ready after CI");
+    // A set-up repo: an approval fills the slot like a nod; the agent merges.
+    const approve = { kind: "approve", label: "Approve", then: { outcome: "satisfied" } } as const;
+    expect(outcomeOf({ ...pr(482), ask: approve }, people).text).toBe(
+      "check turns green, the agent merges",
+    );
+  });
+
+  describe("the state machine: review → approving → approved / stale / error", () => {
+    const rows = [pr(482), pr(485)];
+    const entries = rows.map((p) => ({ pr: p.number, head_sha: p.headSha }));
+    const approve: Extract<BatchEvent, { t: "approve" }> = { t: "approve", rows, entries };
+    const result: ApproveResult = {
+      posted: [{ pr: 482, url: "r1" }],
+      failed: [{ pr: 485, message: "GitHub said no." }],
+    };
+    const run = (...events: BatchEvent[]) =>
+      events.reduce<BatchState>((s, e) => batchReducer(s, e), INITIAL_BATCH);
+
+    test("no unlock, ever: review → approving → approved", () => {
+      expect(run(approve)).toEqual({
+        step: "approving",
+        attempt: { shown: rows, entries, prior: null },
+      });
+      expect(run(approve, { t: "approved", result })).toEqual({
+        step: "approved",
+        shown: rows,
+        result,
+      });
+      expect(run({ ...approve, entries: [] })).toBe(INITIAL_BATCH);
+    });
+
+    test("stale: nothing approved, the moved PRs listed; back to review", () => {
+      const stale = [{ pr: 482, signed: "a", current: "b" }];
+      const s = run(approve, {
+        t: "approve-failed",
+        failure: { code: "stale", message: "#482 changed" },
+        details: { stale },
+      });
+      expect(s).toEqual({ step: "stale", stale });
+      expect(batchReducer(s, { t: "back" })).toBe(INITIAL_BATCH);
+    });
+
+    test("any other failure: the error step; my own PR too", () => {
+      const s = run(approve, {
+        t: "approve-failed",
+        failure: { code: "forbidden", message: "#519 is your own pull request." },
+      });
+      expect(s).toEqual({
+        step: "error",
+        failure: { code: "forbidden", message: "#519 is your own pull request." },
+      });
+    });
+
+    test("retrying the failed ones keeps what was approved", () => {
+      const approved = run(approve, { t: "approved", result });
+      const retry = batchReducer(approved, { t: "approve", rows: [], entries: [entries[1]!] });
+      expect(retry).toMatchObject({ step: "approving", attempt: { shown: rows, prior: result } });
+      expect(
+        batchReducer(retry, {
+          t: "approved",
+          result: { posted: [{ pr: 485, url: "r2" }], failed: [] },
+        }),
+      ).toMatchObject({ result: { posted: [{ pr: 482 }, { pr: 485 }], failed: [] } });
+      expect(
+        batchReducer(retry, { t: "approve-failed", failure: { code: "github", message: "Down." } }),
+      ).toEqual({
+        step: "approved",
+        shown: rows,
+        result: { ...result, failed: [{ pr: 485, message: "Down." }] },
+      });
+      expect(mergeApprovals(null, result)).toBe(result);
+    });
+
+    test("events that do not fit the step change nothing", () => {
+      expect(batchReducer(INITIAL_BATCH, { t: "approved", result })).toBe(INITIAL_BATCH);
+      const approving = run(approve);
+      expect(batchReducer(approving, { t: "back" })).toBe(approving);
+      expect(batchReducer(approving, { t: "sign", readiness: "unlocked", rows, entries })).toBe(
+        approving,
+      );
+      expect(batchReducer(run(approve, { t: "approved", result }), { t: "back" }).step).toBe(
+        "approved",
+      );
+    });
+  });
+
+  test("canSignWith: an active key, locked or not", () => {
+    expect(canSignWith(null)).toBe(false);
+    expect(canSignWith({ state: "no-key" })).toBe(false);
+    const key = (state: "active" | "not-enrolled") =>
+      ({
+        fingerprint: "SHA256:x",
+        publicKey: "ssh-ed25519 AAAA",
+        location: "/tmp/k",
+        enrolment: { state },
+      }) as const;
+    expect(canSignWith({ state: "locked", key: key("active") })).toBe(true);
+    expect(canSignWith({ state: "locked", key: key("not-enrolled") })).toBe(false);
+  });
+
+  test("roleShort: approve", () => {
+    expect(roleShort("approve")).toBe("approve");
   });
 });

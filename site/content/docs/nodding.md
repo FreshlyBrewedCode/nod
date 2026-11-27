@@ -1,6 +1,6 @@
 ---
 title: Nodding
-description: The batch dialog, unlocking, what exactly is signed, what survives a rebase, FYI acks and deep links.
+description: The batch dialog, approving without a key, unlocking, what exactly is signed, what survives a rebase, FYI acks and deep links.
 section: Using nod
 order: 2
 ---
@@ -19,15 +19,47 @@ ask follows from the [requirement](/docs/policy#requirements) the policy set:
 | **Sign as peer** | peer | It is a teammate's work and the policy wants a peer nod |
 | **Sign as owner** | named | The policy names you for what it touches |
 | **Re-attest** | as before | You nodded, then its content changed |
+| **Approve** | a GitHub approval | You have no key that signs in this repository, and an [approval](/docs/policy#approvals) fills what you would fill; or, at the [inbox](/docs/dashboard#the-inbox), a review is requested from you. Not released |
 
 You never pick the role. The verifier decides from the signature whether a nod is a self nod or
 a peer nod: a nod by the pull request's author is self, a nod by any other signer is peer.
+
+## Approve or nod
+
+Not released. You do not need a key to take part: without one (no key yet, or one that is
+[pending or not enrolled](/docs/keys)), the ask is **Approve**, and the batch dialog posts a plain
+GitHub approval for you, the same as **Approve** on GitHub's review page (`gh pr review --approve`):
+
+- **At the inbox step** (no `.nod/` in the repository), a teammate's pull request whose review is
+  requested from you or your team asks for an approval. Approving answers the request: the row
+  leaves **Needs you**.
+- **In a repository with a shared policy**, a slot you could fill asks for an approval when the
+  policy lets approvals fill it. A slot the policy keeps for nods (`peer({ approvals: false })`,
+  and any change to nod's own setup) still waits for your nod.
+- **Your own pull request gets no Approve.** GitHub does not let you approve what you authored, and
+  your agent writes with your login. The panel says so quietly; that is what a nod adds: a self
+  nod attests your own agent's work.
+- **With a key that signs** in the repository, the ask is a nod, as before.
+
+| | Approval | Nod |
+| --- | --- | --- |
+| Needs | your `gh` login | a key enrolled in `.nod/allowed_signers`, and its passphrase |
+| Covers | the head commit you looked at | the head commit and the patch-id |
+| After a clean rebase | gone: GitHub records the commit only | still counts |
+| On your own pull request | not possible | a self nod |
+| On nod's own setup | does not count | counts |
+| Who can make it | anyone your `gh` login lets act as you, an agent too | only someone who unlocks the key |
 
 ## The batch dialog
 
 Every way to sign opens the same dialog: <kbd>s</kbd> on a row, the selection bar's
 **Review & sign**, the detail panel's **Sign**. A batch is one or more pull requests signed with
 one signature. It may mix your own work and your teammates'.
+
+Approving goes through the same dialog (not released): **Review & approve**, then **Approve on
+GitHub**. No passphrase is asked; each pull request gets an approving review of the head commit you
+looked at. A batch is either nods or approvals: a row that asks for the other one stays in view,
+left out, with "approve it in a batch of its own" or "sign it in a batch of its own".
 
 ![The batch dialog: five pull requests, grouped by role, with the outcome of each](./screenshots/batch.webp)
 
@@ -120,6 +152,9 @@ Two things can go wrong between looking and signing:
   you have not seen; the dialog shows what moved and offers **Review again**. Nothing was signed.
 - **Posting failed.** The signature was made but a comment did not reach GitHub. The dialog lists
   which pull requests are missing the comment and offers a retry.
+
+Approvals work the same way (not released): one moved pull request and nothing is approved; an
+approval GitHub refused is listed with GitHub's reason and a retry, the others stay approved.
 
 ## FYI
 

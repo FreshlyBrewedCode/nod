@@ -5,8 +5,10 @@
  * classification (`github/local.ts`), `github/map.ts`, then `view.ts`.
  *
  * Mara (the viewer) is asked to review two teammates' PRs, one of them
- * through her team `tallyho/core`; two of her own are stuck (changes
- * requested, a conflict); the rest waits on someone else or is quiet.
+ * through her team `tallyho/core` (she can approve both from the batch
+ * dialog); two of her own are stuck (changes requested, a conflict), one
+ * waits on Jonas's review (she cannot approve her own); the rest waits on
+ * someone else or is quiet.
  * Fictional people and repo, as in `fake-data.ts`.
  */
 
@@ -125,6 +127,24 @@ export const INBOX_SEEDS: ReadonlyArray<InboxSeed> = [
     opened: 6 * 60,
     conflict: true,
     requested: [ines.login],
+  },
+  {
+    // Mara's own, waiting on Jonas's review: GitHub does not let her approve it herself.
+    n: 519,
+    title: "calendar: show ISO week numbers in the month view",
+    by: mara.login,
+    body: brief(
+      "The month view shows the ISO week number at the start of each row.",
+      "Field teams plan by week number; they counted by hand.",
+      "low.",
+      "Tests for the weeks around New Year.",
+    ),
+    files: [
+      ["src/calendar/month.tsx", 34, 6],
+      ["src/calendar/week.test.ts", 28, 0],
+    ],
+    opened: 90,
+    requested: [jonas.login],
   },
   {
     n: 513,
@@ -324,6 +344,7 @@ export function inboxRaw(seed: InboxSeed, now: number, repo: string): RawPr {
         state: reviewState,
         submittedAt: iso(min),
         author: { login },
+        commit: { oid: head },
       })),
     },
     files: {

@@ -563,8 +563,12 @@ test("GitHub's reviews: who is asked (people, teams), approvals and changes, wri
     teams: ["acme/core"],
     fromMe: false,
     approvedBy: [ALICE],
+    approvedAtHead: [ALICE],
     changesRequestedBy: [CAROL],
   });
+  // An approval of an older commit is still an approval, but not of this head (ADR 0006).
+  const older = rawPr({ number: 42, reviews: [[BOB, "APPROVED", 30, sha("older")]] });
+  expect(reviewOf(older, ALICE, false)).toMatchObject({ approvedBy: [BOB], approvedAtHead: [] });
   // Only GitHub's search knows a team request reaches me.
   expect(reviewOf(raw, ALICE, true).fromMe).toBe(true);
   expect(reviewOf(rawPr({ number: 41, requested: ["Alice"] }), ALICE, false).fromMe).toBe(true);
@@ -605,7 +609,7 @@ test("the inbox step: a local classification gives risk, tags and reasons, no sl
   });
   expect(mapped.facts.reasons.map((r) => r.classifier)).toContain("paths");
   const [view] = toViews([mapped.facts], { me: ALICE, now: T0, people: [] });
-  expect([view!.needsMe, view!.ask, tier(view!)]).toEqual([true, null, 1]);
+  expect([view!.needsMe, view!.ask?.kind, tier(view!)]).toEqual([true, "approve", 1]);
 });
 
 test("a verifier summary wins over the local classification", async () => {

@@ -5,6 +5,7 @@ import { FakeSource } from "../../server/fake-source";
 import { attentionView } from "../../shared/attention";
 import type { Enrolment as SignerKeyEnrolment, JourneyEvent, PrView } from "../../shared/protocol";
 import {
+  actWord,
   askHeadline,
   checksTag,
   clusterStatus,
@@ -17,6 +18,7 @@ import {
   keyNoteOf,
   localNeed,
   neededFromYou,
+  ownPrHint,
   reasonsSummary,
   reviewLines,
   reviewsSummary,
@@ -257,13 +259,19 @@ describe("the inbox step (classified locally)", () => {
 
   test("what a row says it needs of me, and where the panel sends me", async () => {
     const at = await inbox();
-    expect(localNeed(at(512), people, me)).toMatchObject({
+    // A review request asks for an approval: the ask is the row's button, no local need.
+    expect(at(512).ask?.kind).toBe("approve");
+    expect(localNeed(at(512), people, me)).toBeNull();
+    // A server without approvals: the review request still links to GitHub.
+    expect(localNeed({ ...at(512), ask: null }, people, me)).toMatchObject({
       row: "review requested",
       headline: "Review requested from you",
       action: "Review on GitHub",
       href: `${at(512).url}/files`,
     });
-    expect(localNeed(at(515), people, me)?.headline).toBe("Review requested from your team");
+    expect(localNeed({ ...at(515), ask: null }, people, me)?.headline).toBe(
+      "Review requested from your team",
+    );
     expect(localNeed(at(509), people, me)).toMatchObject({
       row: "needs changes",
       headline: "Changes requested by Jonas",
@@ -303,5 +311,48 @@ describe("the inbox step (classified locally)", () => {
     expect(reviewLines(at(509).review!, people, me)).toEqual([
       { who: "Jonas", detail: "requested changes", tone: "bad" },
     ]);
+  });
+});
+
+describe("GitHub approvals (ADR 0006)", () => {
+  const source = new FakeSource({ clock: new ManualClock(NOW), scenario: "inbox" });
+  const inbox = async () => {
+    await source.ready;
+    const snap = source.snapshot()!;
+    return (n: number) => snap.prs.find((p) => p.number === n)!;
+  };
+
+  test("the panel's headline and what follows: the inbox step, a set-up repo", async () => {
+    const at = await inbox();
+    expect(askHeadline(at(512))).toBe("Your review is requested");
+    expect(neededFromYou(at(512))).toBe("Your review is requested.");
+    expect(thenText(at(512).ask!, people, true)).toBe("Then it is ready to merge.");
+    const approve = { kind: "approve", label: "Approve", then: { outcome: "satisfied" } } as const;
+    expect(askHeadline({ ...pr(482), ask: approve })).toBe("Approve as peer");
+    expect(askHeadline({ ...pr(476), ask: approve })).toBe("Approve as owner of core/auth");
+    expect(thenText(approve, people)).toBe("Then the check turns green and the agent merges.");
+    expect(
+      thenText(
+        { ...approve, then: { outcome: "waits", on: [{ kind: "person", login: "jonas-r" }] } },
+        people,
+      ),
+    ).toBe("Then it still waits on Jonas.");
+  });
+
+  test("the verb of a selection: approve when its asks are approvals", async () => {
+    const at = await inbox();
+    expect(actWord([at(512), at(515)])).toBe("approve");
+    expect(actWord([pr(482)])).toBe("sign");
+    expect(actWord([])).toBe("sign");
+  });
+
+  test("my own open PR without a key says GitHub does not let me approve it", async () => {
+    const at = await inbox();
+    expect(ownPrHint(at(519), false)).toMatch(/^GitHub does not let you approve your own/);
+    // A key that signs here, a teammate's PR, a draft, a merged one: nothing to say.
+    expect(ownPrHint(at(519), true)).toBeNull();
+    expect(ownPrHint(at(514), false)).toBeNull();
+    expect(ownPrHint(at(518), false)).toBeNull();
+    expect(ownPrHint({ ...at(519), state: "merged" }, false)).toBeNull();
   });
 });

@@ -59,8 +59,10 @@ export interface PrSpec {
   readonly autoMerge?: number;
   /** Logins, or `org/team` for a team, asked to review. */
   readonly requested?: ReadonlyArray<string>;
-  /** Latest deciding reviews: login, state, minutes ago. */
-  readonly reviews?: ReadonlyArray<readonly [string, "APPROVED" | "CHANGES_REQUESTED", number]>;
+  /** Latest deciding reviews: login, state, minutes ago, and the commit (default the head). */
+  readonly reviews?: ReadonlyArray<
+    readonly [string, "APPROVED" | "CHANGES_REQUESTED", number, string?]
+  >;
   readonly mergeable?: "MERGEABLE" | "CONFLICTING" | "UNKNOWN";
 }
 
@@ -130,10 +132,11 @@ export function rawPr(spec: PrSpec): RawPr {
       })),
     },
     latestOpinionatedReviews: {
-      nodes: (spec.reviews ?? []).map(([login, state, at]) => ({
+      nodes: (spec.reviews ?? []).map(([login, state, at, commit]) => ({
         state,
         submittedAt: iso(at),
         author: { login },
+        commit: { oid: commit ?? head },
       })),
     },
     files: {
