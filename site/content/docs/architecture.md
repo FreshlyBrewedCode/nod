@@ -21,13 +21,15 @@ order: 3
 **`nod serve`** is a local Bun server.
 
 - It takes your token from `gh auth token` and polls GitHub with one GraphQL query, every 60
-  seconds, faster for two minutes after you act.
+  seconds, faster for two minutes after you act. Not released: one query per GitHub host for all
+  of its repositories, each host with its own token, sent to that host only.
 - It reads the verifier's [summary](/docs/verifier#the-summary) from each pull request's `nod`
   check. It never runs your repository's policy or any code from a pull request.
-- It computes patch-ids in your clone, holds the unlocked signing key in memory, signs, and
-  posts nod comments.
-- It keeps no state beyond a cache. The only files it owns are the signing key and the pairing
-  token.
+- It computes patch-ids in your clone, or (not released) in its own clone of each repository of
+  the [repo list](/docs/cli#nod-repo), holds the unlocked signing key in memory, signs, and posts
+  nod comments.
+- It keeps no state beyond a cache. The only files it owns are the signing key, the pairing
+  token and (not released) the repo list in `config.json`, and its clone cache.
 
 **The web app** is a single-page app (React). It talks only to `nod serve`, over one WebSocket on
 loopback, guarded by a pairing token and an origin check. It never talks to GitHub. It is hosted
