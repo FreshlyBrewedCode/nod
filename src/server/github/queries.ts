@@ -1,13 +1,15 @@
 /**
  * The GraphQL `nod serve` sends, and the shapes it gets back.
  *
- * One poll is one `POLL` query (a second page only past 50 open PRs; it also
- * asks GitHub's search which open PRs request a review from me, teams
- * included, `review-requested:@me`) plus,
- * only when something new needs it, one `details` query: merged or closed
- * PRs not cached yet, the `text` of `nod` check runs not seen yet (the
- * verifier's summary, cached by check run id), epic titles, and
- * `.nod/allowed_signers` at the head of an open enrolment PR.
+ * One poll is one `Poll` query **per host** (ADR 0007, 5): a block per repo
+ * (`r0`, `r1`, …) and, next to each, GitHub's search for the repo's open PRs
+ * that request a review from me, teams included (`q0`, …,
+ * `review-requested:@me`). A repo past 50 open PRs reads the rest with a
+ * `Page` query of its own. Then, only when something new needs it, one
+ * `Details` query per host, again a block per repo (`d0`, …): merged or
+ * closed PRs not cached yet, epic titles, `.nod/allowed_signers` at the
+ * head of an open enrolment PR; and the `text` of `nod` check runs not seen
+ * yet (the verifier's summary, cached by check run id).
  */
 
 /** Everything a row, the panel and the journey need about one PR. */
@@ -36,12 +38,8 @@ export const PR_FIELDS = `
     ... on ReopenedEvent { createdAt } } }
 `;
 
-export const POLL = `
-query Poll($owner: String!, $name: String!, $after: String, $requested: String!) {
-  rateLimit { cost remaining limit resetAt }
-  viewer { login name }
-  requested: search(query: $requested, type: ISSUE, first: 100) { nodes { ... on PullRequest { number } } }
-  repository(owner: $owner, name: $name) {
+/** What a poll reads of one repo, beside its open PRs. */
+const REPO_FIELDS = `
     nameWithOwner viewerPermission autoMergeAllowed pushedAt
     defaultBranchRef { name target { oid } }
     policy: object(expression: "HEAD:.nod/policy.ts") { id }
@@ -50,11 +48,58 @@ query Poll($owner: String!, $name: String!, $after: String, $requested: String!)
     signers: object(expression: "HEAD:.nod/allowed_signers") { ... on Blob { oid text } }
     closed: pullRequests(states: [MERGED, CLOSED], first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes { number updatedAt closedAt }
-    }
-    open: pullRequests(states: OPEN, first: 50, after: $after, orderBy: {field: CREATED_AT, direction: DESC}) {
+    }`;
+
+const OPEN = (after: string) => `
+    open: pullRequests(states: OPEN, first: 50, after: ${after}, orderBy: {field: CREATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes { ${PR_FIELDS} }
-    }
+    }`;
+
+/** A repo of a host's poll: `owner/name`. */
+export interface PollRepo {
+  readonly owner: string;
+  readonly name: string;
+}
+
+/**
+ * The poll of one host: the viewer, the budget, and per repo `r<i>` (the
+ * repo and its first 50 open PRs) and `q<i>` (the review requests for me).
+ * Names travel as variables (`$o<i>`, `$n<i>`, `$q<i>`), never spliced in.
+ */
+export function pollQuery(repos: ReadonlyArray<PollRepo>): {
+  query: string;
+  variables: Record<string, string>;
+} {
+  const vars: string[] = [];
+  const blocks: string[] = [];
+  const variables: Record<string, string> = {};
+  repos.forEach((r, i) => {
+    vars.push(`$o${i}: String!`, `$n${i}: String!`, `$q${i}: String!`);
+    variables[`o${i}`] = r.owner;
+    variables[`n${i}`] = r.name;
+    variables[`q${i}`] = requestedQuery(r.owner, r.name);
+    blocks.push(
+      `q${i}: search(query: $q${i}, type: ISSUE, first: 100) { nodes { ... on PullRequest { number } } }`,
+      `r${i}: repository(owner: $o${i}, name: $n${i}) {${REPO_FIELDS}${OPEN("null")}\n  }`,
+    );
+  });
+  const params = vars.length ? `(${vars.join(", ")})` : "";
+  return {
+    query: `query Poll${params} {
+  rateLimit { cost remaining limit resetAt }
+  viewer { login name }
+  ${blocks.join("\n  ")}
+}`,
+    variables,
+  };
+}
+
+/** One repo's next page of open PRs, past the first 50. */
+export const PAGE = `
+query Page($owner: String!, $name: String!, $after: String!) {
+  rateLimit { cost remaining limit resetAt }
+  repository(owner: $owner, name: $name) {${OPEN("$after")}
   }
 }`;
 
@@ -75,35 +120,50 @@ query SignTarget($owner: String!, $name: String!, $number: Int!) {
   }
 }`;
 
-/** The second query of a poll, built for what is missing. */
-export function detailsQuery(input: {
+/** What one repo of a `Details` query asks for. */
+export interface DetailsRepo extends PollRepo {
   readonly prs: ReadonlyArray<number>;
-  readonly checkRuns: ReadonlyArray<string>;
   readonly issues: ReadonlyArray<number>;
   readonly blobs: ReadonlyArray<{ readonly key: string; readonly expression: string }>;
-}): string {
+}
+
+/** The second query of a host's poll, built for what is missing: `d<i>` per repo, `texts`. */
+export function detailsQuery(input: {
+  readonly repos: ReadonlyArray<DetailsRepo>;
+  readonly checkRuns: ReadonlyArray<string>;
+}): { query: string; variables: Record<string, string> } {
   const parts: string[] = [];
-  const repo: string[] = [];
-  for (const n of input.prs)
-    repo.push(`pr${int(n)}: pullRequest(number: ${int(n)}) { ${PR_FIELDS} }`);
-  for (const n of input.issues)
-    repo.push(
-      `issue${int(n)}: issueOrPullRequest(number: ${int(n)}) { ... on Issue { title } ... on PullRequest { title } }`,
-    );
-  for (const b of input.blobs)
-    repo.push(
-      `${b.key}: object(expression: ${JSON.stringify(b.expression)}) { ... on Blob { text } }`,
-    );
-  // Always there, so the query's variables are always used.
-  parts.push(`repository(owner: $owner, name: $name) { id ${repo.join("\n")} }`);
+  const vars: string[] = [];
+  const variables: Record<string, string> = {};
+  input.repos.forEach((r, i) => {
+    const repo: string[] = [];
+    for (const n of r.prs)
+      repo.push(`pr${int(n)}: pullRequest(number: ${int(n)}) { ${PR_FIELDS} }`);
+    for (const n of r.issues)
+      repo.push(
+        `issue${int(n)}: issueOrPullRequest(number: ${int(n)}) { ... on Issue { title } ... on PullRequest { title } }`,
+      );
+    for (const b of r.blobs)
+      repo.push(
+        `${b.key}: object(expression: ${JSON.stringify(b.expression)}) { ... on Blob { text } }`,
+      );
+    vars.push(`$o${i}: String!`, `$n${i}: String!`);
+    variables[`o${i}`] = r.owner;
+    variables[`n${i}`] = r.name;
+    parts.push(`d${i}: repository(owner: $o${i}, name: $n${i}) { id ${repo.join("\n")} }`);
+  });
   if (input.checkRuns.length)
     parts.push(
       `texts: nodes(ids: ${JSON.stringify(input.checkRuns)}) { ... on CheckRun { id databaseId text } }`,
     );
-  return `query Details($owner: String!, $name: String!) {
+  const params = vars.length ? `(${vars.join(", ")})` : "";
+  return {
+    query: `query Details${params} {
   rateLimit { cost remaining limit resetAt }
   ${parts.join("\n")}
-}`;
+}`,
+    variables,
+  };
 }
 
 const int = (n: number) => {
@@ -234,45 +294,59 @@ export interface RawPr {
   readonly timelineItems: { readonly nodes: ReadonlyArray<RawTimelineItem | null> };
 }
 
+/** One repo of a poll (`r<i>`). */
+export interface RawRepo {
+  readonly nameWithOwner: string;
+  readonly viewerPermission: string | null;
+  readonly autoMergeAllowed: boolean;
+  readonly pushedAt: string | null;
+  readonly defaultBranchRef: {
+    readonly name: string;
+    readonly target: { readonly oid: string } | null;
+  } | null;
+  readonly policy: { readonly id: string } | null;
+  readonly verifier: { readonly id: string } | null;
+  readonly workflow: { readonly id: string } | null;
+  readonly signers: { readonly oid: string; readonly text: string | null } | null;
+  readonly closed?: {
+    readonly nodes: ReadonlyArray<{
+      readonly number: number;
+      readonly updatedAt: string;
+      readonly closedAt: string | null;
+    } | null>;
+  };
+  readonly open: OpenPage;
+}
+
+export interface OpenPage {
+  readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
+  readonly nodes: ReadonlyArray<RawPr | null>;
+}
+
+/** A host's poll: `viewer`, then `r<i>` (null: not found or not readable) and `q<i>` per repo. */
 export interface PollData {
   readonly rateLimit: { cost: number; remaining: number; limit: number; resetAt: string } | null;
   readonly viewer: { readonly login: string; readonly name: string | null };
-  /** Open PRs that request a review from the viewer (`requestedQuery`). Optional: older fixtures. */
-  readonly requested?: {
-    readonly nodes: ReadonlyArray<{ readonly number?: number } | null>;
-  } | null;
-  readonly repository: {
-    readonly nameWithOwner: string;
-    readonly viewerPermission: string | null;
-    readonly autoMergeAllowed: boolean;
-    readonly pushedAt: string | null;
-    readonly defaultBranchRef: {
-      readonly name: string;
-      readonly target: { readonly oid: string } | null;
-    } | null;
-    readonly policy: { readonly id: string } | null;
-    readonly verifier: { readonly id: string } | null;
-    readonly workflow: { readonly id: string } | null;
-    readonly signers: { readonly oid: string; readonly text: string | null } | null;
-    readonly closed?: {
-      readonly nodes: ReadonlyArray<{
-        readonly number: number;
-        readonly updatedAt: string;
-        readonly closedAt: string | null;
-      } | null>;
-    };
-    readonly open: {
-      readonly pageInfo: { readonly hasNextPage: boolean; readonly endCursor: string | null };
-      readonly nodes: ReadonlyArray<RawPr | null>;
-    };
-  } | null;
+  readonly [block: `r${number}`]: RawRepo | null | undefined;
+  /** Open PRs that request a review from the viewer (`requestedQuery`). */
+  readonly [search: `q${number}`]:
+    | { readonly nodes: ReadonlyArray<{ readonly number?: number } | null> }
+    | null
+    | undefined;
 }
 
+export interface PageData {
+  readonly repository: { readonly open: OpenPage } | null;
+}
+
+/** One repo of a `Details` query (`d<i>`): `pr<n>`, `issue<n>`, `signers<k>`. */
+export type DetailsRepoData = Record<
+  string,
+  (RawPr & { title: string }) | { readonly title?: string; readonly text?: string | null } | null
+>;
+
 export interface DetailsData {
-  readonly repository?: Record<
-    string,
-    (RawPr & { title: string }) | { readonly title?: string; readonly text?: string | null } | null
-  > | null;
+  readonly [block: `d${number}`]: DetailsRepoData | null | undefined;
   readonly texts?: ReadonlyArray<{
     readonly id?: string;
     readonly databaseId?: number;
