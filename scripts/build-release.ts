@@ -9,7 +9,7 @@
 // launcher. The web app's sources are not in it: the release workflow deploys
 // the web app to ui.nod.frebreco.de, and `src/server/web-url.ts` picks the
 // build matching the version stamped here. So only `src/cli.ts`, `src/server/`,
-// `src/shared/`, `src/kit/` and `src/init/` are staged, plus `templates/` (what
+// `src/service/`, `src/shared/`, `src/kit/` and `src/init/` are staged, plus `templates/` (what
 // `nod init` writes into a repo), and the manifest carries only the
 // dependencies the sources need, not React and friends. What it does carry is
 // this version's built web app, under `web/` with base `/`: the one
@@ -39,7 +39,15 @@ const DESCRIPTION =
   "Steer your team's attention across agent-written pull requests, and let humans nod them through with a signed attestation, so agents can merge on their own.";
 
 /** What `nod serve` and the kit are made of, relative to the repo root. */
-const SOURCES = ["src/cli.ts", "src/server", "src/shared", "src/kit", "src/init", "templates"];
+const SOURCES = [
+  "src/cli.ts",
+  "src/server",
+  "src/service",
+  "src/shared",
+  "src/kit",
+  "src/init",
+  "templates",
+];
 
 const VERSION = process.argv[2] ?? "0.0.0-dev";
 const SMOKE_TEST = process.argv.includes("--smoke-test");
