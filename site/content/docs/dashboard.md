@@ -73,6 +73,11 @@ Columns instead of lanes. Group by:
 
 - **Waiting on** (the default): You, one column per teammate who has to nod, Agents & CI, Merged.
 - **State**: Checks running, Needs a signature, Signed · merging, Merged.
+- **Repository**, once the dashboard shows more than one (not released): a column per repository,
+  in the order of the [repository list](/docs/settings#repositories), with its step of the ladder
+  and how many of its pull requests need you.
+
+This browser remembers the grouping.
 
 Card size follows the same tiers, and low-risk cards fold into a dashed cluster at the end of a
 column. Grouping by epic is not built yet.
@@ -144,16 +149,19 @@ command). Every further step of the [ladder](/docs/quick-start#the-ladder) is of
 - **Not now** puts the card away. This browser remembers it, per repository and step, and the next
   step does not take its place: nothing nags. A step that moves on, such as the setup PR opening,
   shows a card of its own.
-- **The avatar menu** lists every step offered under "Next steps", put away or not, and **Setup**
-  opens the setup page: the four steps of the ladder, who takes each one, where each stands, and
-  the place where they are done.
+- **The avatar menu** lists every step offered under "Next steps", put away or not; each opens the
+  setup page: the four steps of the ladder, who takes each one, where each stands, and the place
+  where they are done. **Settings** in the avatar menu lists every repository with its next step
+  and leads to its ladder ([Settings](/docs/settings#repositories)); before, the menu had
+  **Setup**.
 
 ![An admin's dashboard at the shared policy: the offer to enforce, with the command](./screenshots/offer-enforce.webp)
 
 ## Many repositories
 
 Not released, and not yet with GitHub: today `nod serve` reads the repository of the clone it runs
-in. `nod serve --fake --scenario repos` shows three fictional ones in one dashboard.
+in. `nod serve --fake --scenario repos` shows three fictional ones in one dashboard. Which
+repositories it reads is set in [Settings → Repositories](/docs/settings#repositories).
 
 - **One inbox.** The pull requests of every repository sit in the same lanes, tiers and board
   columns. Each row, card and detail panel carries a **repo chip**: the repository's short name
@@ -168,14 +176,22 @@ in. `nod serve --fake --scenario repos` shows three fictional ones in one dashbo
 - **A batch can span repositories.** The batch dialog says so ("in two repositories, one
   signature each"), and "Show exactly what is signed" lists one line per repository. One unlock
   signs them all; if any pull request changed since you looked, nothing is signed anywhere.
+- **The repo filter**, next to "By attention / Chronological" and on the board next to the
+  grouping: **All repositories**, or one, each with how many of its pull requests need you. The
+  list, the board and what you can select show only that repository's pull requests, and the card
+  above the list is that repository's next step. This browser remembers the filter; a deep link to
+  a pull request it hides shows all repositories again. It works on a phone too.
+- **The board groups by repository** too: see [Board](#board).
 - **Offers stay one card at a time**: the next step of the first repository that has one, with the
   repository named on the card. **Not now** puts it away without bringing up another
   repository's; the avatar menu lists every repository's steps, each with its repository. The
-  setup page shows one repository's ladder and the others to switch to.
+  setup page shows one repository's ladder; **‹ All repositories** there leads to Settings.
 - A [deep link](/docs/nodding#deep-links) opens the pull request in its own repository; a link for
   a repository the dashboard does not show says so.
 
 ![Three repositories in one dashboard: the repo chips, and the offer naming its repository](./screenshots/repos-list.webp)
+
+![The board grouped by repository](./screenshots/board-by-repository.webp)
 
 ## Keyboard
 
@@ -195,7 +211,8 @@ in. `nod serve --fake --scenario repos` shows three fictional ones in one dashbo
 
 ## First run and empty states
 
-A new setup shows a legend of the four sizes and the three lanes above the lanes, until you
+With no repository at all, the dashboard is a page to add the first one
+([Adding a repository](/docs/settings#adding-a-repository)); nothing else comes before it. A new setup shows a legend of the four sizes and the three lanes above the lanes, until you
 dismiss it, and the [offer](#offers) of the next step under it. Pull requests the verifier has not run on yet are counted below the lanes as "not
 classified". When nothing waits for you, the top lane says so.
 
