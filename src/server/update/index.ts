@@ -1,6 +1,6 @@
 /**
- * The update check, the channel and the installer seam (epic D). Pure server
- * parts, not wired to the protocol or the UI yet.
+ * The update check, the channel and the installer seam (epic D). Wired to the
+ * protocol by `../app-control.ts`.
  */
 
 export { CHECK_INTERVAL_MS, UpdateChecker, distTag } from "./checker";

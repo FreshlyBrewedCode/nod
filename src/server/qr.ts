@@ -33,3 +33,9 @@ export function qrLines(text: string): string[] {
   }
   return lines;
 }
+
+/** `text` as rows of `1` (dark) and `0`, no quiet zone: what the web app draws (`DeviceLink.qr`). */
+export function qrRows(text: string): string[] {
+  const { data } = encode(text, { ecc: "M", border: 0 });
+  return data.map((row) => row.map((dark) => (dark ? "1" : "0")).join(""));
+}

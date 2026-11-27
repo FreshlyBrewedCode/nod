@@ -103,6 +103,8 @@ interface SocketData {
 export interface Serving {
   readonly server: Server<SocketData>;
   readonly port: number;
+  /** Closes every socket as a stopping server does; the tabs reconnect (`--fake`'s played restart). */
+  reconnectAll(): void;
   stop(): Promise<void>;
 }
 
@@ -235,6 +237,9 @@ export function serve(options: ServeOptions): Serving {
   return {
     server,
     port: server.port ?? options.port,
+    reconnectAll() {
+      for (const ws of sockets) ws.close(CLOSE_SHUTDOWN, "nod serve restarts");
+    },
     async stop() {
       for (const ws of sockets) ws.close(CLOSE_SHUTDOWN, "nod serve stopped");
       options.session.stop();

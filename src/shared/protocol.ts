@@ -13,7 +13,8 @@
  *   change of the signing key (unlock, lock, auto-lock), and `repos` on every
  *   change of a repo's setup, my enrolment there, or the list itself (a repo
  *   added or removed: `repos` first, then the `snapshot`). Every open tab gets
- *   every push.
+ *   every push. `app` (ADR 0008) carries the version, the channel, updates and
+ *   the background service, on every change, as the tab's side sees it.
  * - Many repos (ADR 0007): `welcome.repos` lists them, each PR carries its
  *   repo key (`owner/name` on github.com, `host/owner/name` elsewhere), and a
  *   PR is (repo, number) in every request.
@@ -632,6 +633,117 @@ export interface Snapshot {
 }
 
 // ---------------------------------------------------------------------------
+// the app: version, updates, channel, the background service (ADR 0008 §8, §9, §12)
+
+/** The release channel: `stable` follows npm's `latest`, `next` every merge to main. */
+export type UpdateChannel = "stable" | "next";
+
+/** A release, as Settings → Server shows it. */
+export interface ReleaseView {
+  /** Semver without a leading `v`: `0.4.0-next.2`. */
+  readonly version: string;
+  readonly publishedAt: number;
+  /** The release notes: markdown, of which the web app renders a limited subset as text (never HTML). */
+  readonly notes: string;
+  /** The release's page on GitHub. */
+  readonly url: string;
+  readonly prerelease: boolean;
+}
+
+/** The install the user started with a click. */
+export interface InstallView {
+  readonly status: "idle" | "installing" | "installed" | "failed";
+  /** The version being or last installed. */
+  readonly version: string | null;
+  /** The tail of the package manager's output, once it finished. */
+  readonly output: string | null;
+  readonly error: string | null;
+  readonly startedAt: number | null;
+  readonly finishedAt: number | null;
+}
+
+/**
+ * What happens after an install succeeded. `restarting`: this `nod serve` is
+ * the background service, which restarts it (the app reconnects to the new
+ * version). `restart-by-hand`: a plain `nod serve` cannot restart itself;
+ * `command` starts it again. `restart-failed`: the service did not restart.
+ */
+export type AfterInstall =
+  | { readonly state: "restarting" }
+  | { readonly state: "restart-by-hand"; readonly command: string }
+  | { readonly state: "restart-failed"; readonly error: string };
+
+/** Is there an update? From the server's check of GitHub Releases. */
+export interface UpdateView {
+  readonly status: "idle" | "checking" | "up-to-date" | "available" | "error";
+  /** The newest release of the channel, from the last check that answered. */
+  readonly latest: ReleaseView | null;
+  /** Set exactly when `latest` differs from the running version; `downgrade` after a switch to stable. */
+  readonly kind: "upgrade" | "downgrade" | null;
+  readonly checkedAt: number | null;
+  readonly nextCheckAt: number | null;
+  readonly error: string | null;
+  readonly installation: InstallView;
+  readonly after: AfterInstall | null;
+}
+
+/** How nod was installed, and the command that installs the update the same way. */
+export interface InstallMethodView {
+  /** null: nod does not know (a checkout, `bunx`, Windows); it then installs nothing itself. */
+  readonly method: "npm" | "bun" | "pnpm" | "yarn" | null;
+  /** The command for the update on offer (or the channel's dist-tag); null when the method is unknown. */
+  readonly command: string | null;
+  /** With an unknown method: the commands for the usual package managers, to run by hand. */
+  readonly commands: ReadonlyArray<string>;
+}
+
+/** The background service (`nod service`, ADR 0008 §8). */
+export interface ServiceView {
+  /** `unknown`: not read yet, or reading it failed. */
+  readonly state: "unsupported" | "not-installed" | "stopped" | "running" | "unknown";
+  readonly manager: "systemd" | "launchd" | "fake" | "unsupported";
+  /** The unit file or the plist, once installed. */
+  readonly unitPath: string | null;
+  /** The command the service runs, as one line. */
+  readonly command: string | null;
+  /** This `nod serve` is the service (so an update restarts through it). */
+  readonly thisNod: boolean;
+  /** The flags "Run nod in the background" sets the service up with: this `nod serve`'s own. */
+  readonly args: ReadonlyArray<string>;
+  /** Where its output goes: a command (`journalctl …`) or a file. */
+  readonly logs: string | null;
+  readonly busy: "installing" | "uninstalling" | null;
+  readonly error: string | null;
+  /** The service was just set up from a plain `nod serve`, which stops now so the service takes the port. */
+  readonly handOver: boolean;
+}
+
+/**
+ * The app's state (Settings → Server, the update indicator): pushed as `app`
+ * on every change, per side. `mayChange`: this side may change the machine
+ * (install, channel, service), which only this machine's own side may
+ * (loopback, ADR 0008 §12); the other device's side reads it.
+ */
+export interface AppState {
+  /** The running version; null in a checkout (a development build). */
+  readonly version: string | null;
+  readonly development: boolean;
+  readonly channel: UpdateChannel;
+  readonly update: UpdateView;
+  readonly install: InstallMethodView;
+  readonly service: ServiceView;
+  readonly mayChange: boolean;
+  /** `--allow-host`'s origin, when another device can reach this `nod serve`. */
+  readonly otherDevice: { readonly origin: string } | null;
+}
+
+/** The other device's link as a QR code: rows of `1` (dark) and `0`, without a quiet zone. */
+export interface DeviceLink {
+  readonly origin: string;
+  readonly qr: ReadonlyArray<string>;
+}
+
+// ---------------------------------------------------------------------------
 // requests (client → server) and their results
 
 export type Verdict = "approve";
@@ -800,6 +912,41 @@ export interface Requests {
    * Needs the key unlocked (send `unlock` first). Errors: `locked`, `no-key`.
    */
   "test-signature": { body: Record<never, never>; result: TestSignatureResult };
+  /**
+   * The app (ADR 0008 §9): check GitHub Releases now. Resolves once the check
+   * ended; the state arrives as an `app` push. Never fails for a failed check
+   * (that is `update.status` `error`). Either side.
+   */
+  "check-update": { body: Record<never, never>; result: Record<never, never> };
+  /**
+   * Pick the release channel and check it at once. It installs nothing: an
+   * update it offers takes a click (`install-update`). This side only
+   * (loopback). Errors: `forbidden` (the other device's side).
+   */
+  "set-channel": { body: { readonly channel: UpdateChannel }; result: Record<never, never> };
+  /**
+   * Install the update on offer, the version the user saw (`version`), with
+   * the package manager nod came with. Answers once it started; the progress
+   * arrives as `app` pushes. Loopback only. Errors: `forbidden` (the other
+   * device's side), `stale` (the offer changed since), `not-found` (no update
+   * on offer), `not-implemented` (nod does not know how it was installed).
+   */
+  "install-update": { body: { readonly version: string }; result: Record<never, never> };
+  /**
+   * Run `nod serve` in the background with this `nod serve`'s flags
+   * (`service.args`). A plain `nod serve` then stops (`service.handOver`) so
+   * the service takes the port. Loopback only. Errors: `forbidden`,
+   * `not-implemented` (no service on this system), `service`.
+   */
+  "service-install": { body: Record<never, never>; result: Record<never, never> };
+  /** Stop and remove the background service. Loopback only. Errors: `forbidden`, `not-implemented`, `service`. */
+  "service-uninstall": { body: Record<never, never>; result: Record<never, never> };
+  /**
+   * The other device's link (`--allow-host`) as a QR code. It carries the
+   * remote token, so only this machine's side gets it. Errors: `forbidden`
+   * (the other device's side), `not-found` (no `--allow-host`).
+   */
+  "device-link": { body: Record<never, never>; result: DeviceLink };
 }
 
 /** A request about one repo. */
@@ -837,6 +984,8 @@ export type ErrorCode =
   | "forbidden"
   | "not-implemented"
   | "github"
+  /** The background service could not be set up, removed or restarted. */
+  | "service"
   | "internal";
 
 export interface RequestError {
@@ -892,12 +1041,19 @@ export interface Welcome {
   /** Whether the list can be changed from the web app (`managed`), or is the one `--dir` clone (`fixed`). */
   readonly repoList: RepoList;
   readonly signer: SignerState;
+  /**
+   * The app: version, channel, updates, the service, as this side sees it
+   * (added within protocol 2; absent from a server without it).
+   */
+  readonly app?: AppState;
 }
 
 export type ServerToClient =
   | Welcome
   | ({ readonly t: "snapshot" } & Snapshot)
   | { readonly t: "signer"; readonly signer: SignerState }
+  /** The app's state changed (an update found, an install's progress, the service). */
+  | { readonly t: "app"; readonly app: AppState }
   /** Every repo again, on a change of one's setup, my enrolment in one, or the list. */
   | { readonly t: "repos"; readonly repos: ReadonlyArray<RepoInfo> }
   | Reply
