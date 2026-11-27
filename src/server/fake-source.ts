@@ -16,7 +16,10 @@
  *   Each of these reads one repo. `repos` reads three (ADR 0007,
  *   `fake-repos.ts`): the mockup's enforced repo, one at the inbox step, and
  *   one with the shared policy on a fictional GHE.com host. `dir` is `team`
- *   as `nod serve --dir` reads it: a fixed list of one clone.
+ *   as `nod serve --dir` reads it: a fixed list of one clone. `insights`
+ *   and `insights-error` are `team` with my own inbox (ADR 0009): the
+ *   fixture in `inbox/fixture/`, and in `insights-error` a copy of it that
+ *   breaks once its first results are in (`inbox/fake.ts`).
  * - The repo list is managed (but in `dir`): adding a repo puts it at the
  *   inbox step with no pull requests; a name with `missing` in it is not
  *   found, one with `private` in it is forbidden. Removing works on every
@@ -81,6 +84,8 @@ import {
   type SourceRepo,
 } from "./source";
 import { canFill, sameLogin, toViews, type PrFacts } from "./view";
+import { fakeSubject } from "./inbox/fake-subjects";
+import type { InboxSubject } from "./inbox/service";
 
 export const FAKE_SCENARIOS = [
   "team",
@@ -92,6 +97,8 @@ export const FAKE_SCENARIOS = [
   "shared",
   "repos",
   "dir",
+  "insights",
+  "insights-error",
 ] as const;
 export type FakeScenario = (typeof FAKE_SCENARIOS)[number];
 
@@ -527,6 +534,13 @@ export class FakeSource implements Source {
    * is not added to it (it gets its own enrolment PR once the setup merged).
    */
   keyCreated(_publicKey: string): void {}
+
+  /** My inbox over the fake (ADR 0009): canned files, diff and history (`inbox/fake-subjects.ts`). */
+  async inboxSubject(key: RepoKey, pr: number): Promise<InboxSubject | null> {
+    const repo = this.repo(key);
+    const f = repo.facts.find((x) => x.number === pr);
+    return f ? fakeSubject(repo.name, f, this.clock.now()) : null;
+  }
 
   subscribe(listener: (change: SourceChange) => void): () => void {
     this.listeners.add(listener);

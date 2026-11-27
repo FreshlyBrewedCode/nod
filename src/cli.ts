@@ -2,8 +2,8 @@
  * The `nod` CLI entry: `nod serve` (the local server, src/server/),
  * `nod repo` (the repo list, src/server/repo-cli.ts), `nod key` (the
  * signing key, src/server/signer/key-cli.ts), `nod service` (serve in the
- * background, src/service/) and `nod init` (opens the repo-owned setup PR,
- * src/init/).
+ * background, src/service/), `nod init` (opens the repo-owned setup PR,
+ * src/init/) and `nod inbox` (my own inbox, src/server/inbox/cli.ts).
  */
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
@@ -25,6 +25,7 @@ import { FAKE_SCENARIOS, type FakeScenario } from "./server/fake-source";
 import { parseNamedHost, type NamedHost } from "./shared/named-host";
 import { KEY_HELP, parseKeyArgs, type KeyFlags } from "./server/signer/key-cli";
 import { REPO_HELP, parseRepoArgs, type RepoFlags } from "./server/repo-cli";
+import { INBOX_HELP, parseInboxArgs, type InboxFlags } from "./server/inbox/cli";
 import { DEFAULT_SERVE_PORT } from "./shared/protocol";
 import type { AppSeams } from "./server/app-control";
 import { defaultConfigFile } from "./server/config";
@@ -69,6 +70,8 @@ export interface ServeFlags {
   readonly allowHost: NamedHost | null;
   /** `--web-dir`: the built web app it serves, on loopback (the app) and on that name. */
   readonly webDir: string | null;
+  /** `--inbox`: my own inbox's folder (default `$XDG_CONFIG_HOME/nod/inbox`). */
+  readonly inbox: string | null;
 }
 
 export type Command =
@@ -77,6 +80,7 @@ export type Command =
   | { kind: "key"; flags: KeyFlags }
   | { kind: "repo"; flags: RepoFlags }
   | { kind: "service"; flags: ServiceFlags }
+  | { kind: "inbox"; flags: InboxFlags }
   | { kind: "help" }
   | { kind: "version" }
   | { kind: "error"; message: string };
@@ -91,6 +95,7 @@ commands:
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key (see below)
   service      run nod serve in the background (see below)
+  inbox        your own inbox: write it, test it on a pull request
 
 nod serve reads every repository of its list (nod repo, below), each from
 nod's own clone. With an empty list, started in a clone, it reads that
@@ -124,6 +129,9 @@ serve options:
                       with --fake: ${FAKE_INSTALLS.join(", ")} (default npm;
                       unknown: nod shows the commands only; fail: the
                       install fails)
+  --inbox <path>      your own inbox's folder (default
+                      $XDG_CONFIG_HOME/nod/inbox; with --fake: the
+                      scenario's, the built-in defaults but for insights)
   --token-file <path> where the pairing token is kept
                       (default $XDG_CONFIG_HOME/nod/serve-token); the
                       remote token is next to it, as <path>-remote
@@ -146,6 +154,7 @@ ${INIT_HELP}
 
 ${KEY_HELP}
 ${SERVICE_HELP}
+${INBOX_HELP}
 options:
   --help       show this help
   --version    show the version
@@ -161,6 +170,7 @@ export function parseArgs(argv: readonly string[]): Command {
   if (first === "key") return parseKeyArgs(rest);
   if (first === "repo") return parseRepoArgs(rest);
   if (first === "service") return parseServiceArgs(rest, parseServe);
+  if (first === "inbox") return parseInboxArgs(rest);
   return { kind: "error", message: `unknown command: ${first}` };
 }
 
@@ -191,6 +201,7 @@ function parseServe(args: string[]): Extract<Command, { kind: "serve" | "help" |
         open: { type: "boolean", default: false },
         "allow-host": { type: "string" },
         "web-dir": { type: "string" },
+        inbox: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     }));
@@ -266,6 +277,7 @@ function parseServe(args: string[]): Extract<Command, { kind: "serve" | "help" |
       open: values.open,
       allowHost,
       webDir: values["web-dir"] ?? null,
+      inbox: values.inbox ?? null,
     },
   };
 }
@@ -327,6 +339,7 @@ async function runServe(flags: ServeFlags): Promise<number> {
           void started?.stop().then(() => process.exit(0));
         },
       },
+      ...(flags.inbox !== null && { inbox: { dir: resolve(flags.inbox) } }),
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -453,6 +466,8 @@ async function main(argv: readonly string[]): Promise<number> {
       return (await import("./server/repo-cli")).runRepo(cmd.flags);
     case "service":
       return (await import("./service/cli")).runService(cmd.flags);
+    case "inbox":
+      return (await import("./server/inbox/cli")).runInbox(cmd.flags, { version: VERSION });
     case "init": {
       const { runInit } = await import("./init/init");
       return runInit(cmd.flags, { version: VERSION });

@@ -13,6 +13,7 @@ nod <command>
   init         set up .nod/ and the workflow in this repository
   key          create, show or test the signing key
   service      run nod serve in the background
+  inbox        your own inbox: write it, test it on a pull request
 
   --help       show the help
   --version    show the version
@@ -48,11 +49,12 @@ of the [repo list](#nod-repo), each from its clone in the
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
 | `--web-url <url>` | The web app the printed link opens instead of the [app](/docs/app) `nod serve` serves on `127.0.0.1`; its origin may pair. A checkout's default is the Vite dev server. Also the environment variable `NOD_WEB_URL`. Not released: the app (before, a release's default was the hosted web app), and that only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
-| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox`, `shared`, `repos` or `dir`; see [Fake scenarios](#fake-scenarios) |
+| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox`, `shared`, `repos`, `dir`, `insights` or `insights-error`; see [Fake scenarios](#fake-scenarios) |
 | `--frozen` | With `--fake`: nothing changes on its own |
 | `--fake-update <state>` | Not released. With `--fake`, the [update](/docs/updates) check: `available` (the default: a fake `0.2.0`, with `0.3.0` on offer and its release notes), `none` (up to date), `failing` (the check fails) or `downgrade` (a `0.4.0-next.2` switched to stable, offered `0.3.0`) |
 | `--fake-service <state>` | Not released. With `--fake`, the [service](/docs/background): `not-installed` (the default), `running` (this `nod serve` plays the service: an update restarts it), `stopped` or `unsupported` |
 | `--fake-install <how>` | Not released. With `--fake`, how nod was installed: `npm` (the default), `bun`, `unknown` (the page shows the commands only) or `fail` (the install fails). A fake install takes a few seconds; nothing is installed |
+| `--inbox <path>` | Not released. [Your own inbox](/docs/inbox)'s folder. Default `$XDG_CONFIG_HOME/nod/inbox`; with `--fake`, the scenario's: the built-in defaults, but for `insights` and `insights-error` |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
 | `--new-token` | Replace both tokens: every paired browser pairs again |
 | `--new-remote-token` | Replace only the remote token: the other device pairs again, this machine's browser stays paired |
@@ -91,6 +93,8 @@ onboarding first wherever the setup or the key is not ready.
 | `shared` | The shared policy, its check not required yet; your key active, you an admin. Not released | the dashboard | **Let agents merge on their own** |
 | `repos` | [Three repositories](/docs/dashboard#many-repositories): `tallyho/fieldbook` enforced, `tallyho/field-app` at the inbox step, `finance/ledger` on the fictional host `acme.ghe.com` with the shared policy; your key active in the first and the last. Not released | the dashboard, with a repo chip on every row | **Share one policy with the team**, for `tallyho/field-app` |
 | `dir` | As `team`, read as one clone the way `nod serve --dir` reads it: a [fixed list](/docs/settings#a-fixed-list). Not released | the dashboard | none |
+| `insights` | As `team`, with [your own inbox](/docs/inbox) of every kind of insight: #476 and #483 watched (+1, tags `auth` and `billing`), #481 sharing a file with your #490 (+1, `my-work`), CI changes muted (#478 leaves Worth knowing), #482 running for 8 seconds after each load (and 15 more once its panel asks for the `open` analyzer), #485 failing, #490 stuck until its process is restarted. Not released | the dashboard | none |
+| `insights-error` | As `insights`, from a copy of its `inbox.ts` that breaks once the first results are in: the inbox's status is the load error, the results stay. Fixing the file's last line (the log names it) loads it again. Not released | the dashboard | none |
 
 ## `nod repo`
 
@@ -114,6 +118,28 @@ nod repo list
 The list's order is the dashboard's wherever it needs one: the offer card shows the first
 repository's next step. Adding a repository needs `gh auth login` for its host
 (`gh auth login --hostname acme.ghe.com`) and read access to it.
+
+## `nod inbox`
+
+Not released. [Your own inbox](/docs/inbox): attention classifiers and analyzers that only your
+`nod serve` runs, in `$XDG_CONFIG_HOME/nod/inbox/`.
+
+| Command | Does |
+| --- | --- |
+| `nod inbox init` | Write `inbox.ts`, `analyzers/todo-count.ts`, `package.json` and `tsconfig.json` there. Never over a file that is there |
+| `nod inbox init --force` | Write over them |
+| `nod inbox test <pr>` | Run it on one pull request, every analyzer, and print what the panel would show. `<n>` with one repository in the list, else `owner/name#<n>`, `host/owner/name#<n>` or the pull request's URL |
+| `nod inbox test --dir <clone> <pr>` | Fetch the pull request into that clone instead of nod's own |
+| `nod inbox test --json <pr>` | Print JSON |
+| `nod inbox path` | Print the folder, and whether it has an `inbox.ts` |
+
+`--inbox <path>` works with each of them: another folder.
+
+```sh
+nod inbox init
+nod inbox test tallyho/fieldbook#482
+nod inbox test https://acme.ghe.com/finance/ledger/pull/57
+```
 
 ## `nod init`
 
@@ -187,6 +213,7 @@ Windows is not supported yet: `nod service status` says so, and the other comman
 | `$XDG_CONFIG_HOME/nod/serve-token` | The pairing token of `nod serve` |
 | `$XDG_CONFIG_HOME/nod/serve-token-remote` | The remote token, the named host's (`--allow-host`) |
 | `$XDG_CONFIG_HOME/nod/config.json` | The repo list and the update [channel](/docs/updates#the-channel). Not released. Keys nod does not know are kept when it writes the file |
+| `$XDG_CONFIG_HOME/nod/inbox/` | [Your own inbox](/docs/inbox): `inbox.ts` and what it imports. Not released |
 | `$XDG_CACHE_HOME/nod/clones/` | The clone cache: `<host>/<owner>/<repo>.git` per repository of the list. `~/.cache/nod/` when the variable is unset. Not released |
 | `$XDG_CONFIG_HOME/systemd/user/nod.service` | The service of `nod service install` on Linux. Not released |
 | `~/Library/LaunchAgents/de.frebreco.nod.plist` | The same on macOS. Not released |

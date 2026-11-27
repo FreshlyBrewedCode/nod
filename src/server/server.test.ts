@@ -32,6 +32,8 @@ function startFake(
     version: null,
     fake: { scenario: "team", live: false },
     clock,
+    // My inbox's pushes are its own tests' (`inbox/session-inbox.test.ts`).
+    inbox: null,
     ...extra,
   });
   running.push(started);

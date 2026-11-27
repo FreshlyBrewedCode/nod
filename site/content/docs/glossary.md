@@ -7,9 +7,11 @@ order: 4
 
 | Term | Meaning |
 | --- | --- |
+| **analyzer** | A function of your own inbox that looks at a pull request and returns an insight for the panel. It runs after a poll (`when: "poll"`), for pull requests whose content changed, or when you open the panel on one (`when: "open"`). Its result is kept per pull request and patch-id. Not released. [Your own inbox](/docs/inbox#analyzers) |
 | **app** | The dashboard `nod serve` serves itself at `http://127.0.0.1:<port>/`: always the server's own version, and installable from the browser. The link `nod serve` prints opens it. Not released. [The app](/docs/app) |
 | **approval** | A GitHub review that approves a pull request's head commit, by someone with write access other than its author. It fills a slot like a nod does, unless the policy asks for a nod only. Without a key you give one from the batch dialog (**Approve**). Not released. [Policy](/docs/policy#approvals), [Nodding](/docs/nodding#approve-or-nod) |
 | **ask** | What the dashboard asks of you on a pull request: Self-attest, Sign as peer, Sign as owner or Re-attest; without a key that signs in the repository, Approve. [Nodding](/docs/nodding#the-ask) |
+| **attention classifier** | A function of your own inbox that says how much of your attention a pull request gets: up a tier (+1), down a tier (−1) or into Background (mute), a tag the row shows quietly, and whether it is worth knowing about. Never the risk or what the pull request needs. Not released. [Your own inbox](/docs/inbox#attention-classifiers) |
 | **attention tier** | One of four sizes a pull request is shown in: prominent, normal, one line, folded. [Dashboard](/docs/dashboard#attention-tiers) |
 | **badge** | How many pull requests need you most (the prominent rows, in every repository): on the installed app's icon, and in the tab's title as `(3) nod`. Not released. [The app](/docs/app#the-badge) |
 | **batch** | One or more pull requests nodded with one signature, or approved on GitHub together. A batch across repositories is one signature per repository, made with one unlock. Not released: across repositories. [Nodding](/docs/nodding#the-batch-dialog) |
@@ -36,6 +38,7 @@ order: 4
 | **hosted web app** | The dashboard published at `ui.nod.frebreco.de`, where deep links point: the stable release's at the root, `main`'s at `/next`. Not paired, it hands a link over to the app or to your named host (link forwarding). [Status](/docs/status#released) |
 | **installed app** | The app installed from the browser: a window and an icon of its own, it opens even when `nod serve` is not running and says so. Not released. [The app](/docs/app#install-it) |
 | **inbox** | The first step of the ladder: the dashboard for you alone, with nothing in the repository. Your `nod serve` classifies the pull requests itself (local classification), and Needs you holds your review requests and your own stuck pull requests. Not released. [Dashboard](/docs/dashboard#the-inbox) |
+| **insight** | What an analyzer shows in the panel: a title and blocks (a breakdown, numbers, a series, files, text), never HTML. Labelled default or yours. Not released. [Your own inbox](/docs/inbox#insights) |
 | **kit** | `@frebreco/nod/kit`: the helpers the policy and the verifier import. [Architecture](/docs/architecture#the-kit) |
 | **ladder** | The four steps of adopting nod, each one opt-in: inbox, shared policy, signing, enforced. [Quick start](/docs/quick-start#the-ladder) |
 | **local classification** | At the inbox step, your `nod serve` classifying a pull request itself, with the built-in classifiers, on the file list and brief GitHub returns. For your dashboard only: nothing is posted, nothing is required. A verifier summary always wins. The panel says "classified by your nod, not the repo". Not released. [Dashboard](/docs/dashboard#the-inbox) |
@@ -50,6 +53,7 @@ order: 4
 | **offer** | A calm card above the list with the next step of the ladder for a repository and you: share one policy, sign your own agent pull requests, let agents merge on their own. One at a time, never in the way; the avatar menu lists every step offered. Not released. [Dashboard](/docs/dashboard#offers) |
 | **patch-id** | A hash of a pull request's diff against its base. It survives a clean rebase. [Nodding](/docs/nodding#when-a-nod-counts) |
 | **payload** | The one line of JSON a nod signs |
+| **personal layer** | Your own inbox, as opposed to the repo layer, the repository's policy. [Your own inbox](/docs/inbox) |
 | **peer nod** | A nod by a signer other than the pull request's author |
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |
@@ -80,3 +84,4 @@ order: 4
 | **update** | A release of your channel other than the one `nod serve` runs: newer, or older after a switch to stable. A pill in the top bar says so; Settings → Server shows its release notes and installs it when you click **Update**, never by itself. Not released. [Updates](/docs/updates) |
 | **unlock** | Decrypting the signing key into the memory of `nod serve`, for 15 minutes or one signature. With a named host, your machine and the other device each unlock on their own |
 | **verifier** | `.nod/verify.ts`, run by the workflow on every pull request event. It sets the check. [Verifier](/docs/verifier) |
+| **your own inbox** | Your attention classifiers and analyzers, in `$XDG_CONFIG_HOME/nod/inbox/`, run only by your `nod serve`: they decide how much of your attention a pull request gets and what you should know about it, never its risk or what it needs, and nothing they say reaches GitHub. Without an `inbox.ts`, the built-in defaults run. Not the inbox, the first step of the ladder. Not released. [Your own inbox](/docs/inbox) |

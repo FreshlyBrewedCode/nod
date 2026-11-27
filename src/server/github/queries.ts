@@ -16,6 +16,7 @@
 export const PR_FIELDS = `
   number title body url state isDraft merged mergedAt closedAt createdAt updatedAt
   author { login ... on User { name } }
+  labels(first: 20) { nodes { name } }
   baseRefName headRefName headRefOid
   baseRef { target { oid } }
   additions deletions changedFiles
@@ -227,6 +228,8 @@ export interface RawPr {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly author: { readonly login: string; readonly name?: string | null } | null;
+  /** For my inbox's `mute({ labels })` (ADR 0009). Optional: older fixtures. */
+  readonly labels?: { readonly nodes: ReadonlyArray<{ readonly name: string } | null> } | null;
   readonly baseRefName: string;
   readonly headRefName: string;
   readonly headRefOid: string;

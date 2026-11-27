@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import { CLOSE_BAD_TOKEN, PROTOCOL_VERSION } from "../../shared/protocol";
+import { CLOSE_BAD_TOKEN, PROTOCOL_VERSION, type InsightState } from "../../shared/protocol";
 import {
   NodClient,
   RequestFailed,
@@ -344,4 +344,66 @@ test("onWake listens to the three signals and lets go again", () => {
   becomeVisible();
   win.dispatchEvent(new Event("online"));
   expect(woke).toBe(3);
+});
+
+describe("my inbox's pushes (ADR 0009)", () => {
+  const view = (number: number) => ({ repo: "acme/widgets", number, title: `#${number}` });
+  const ready: InsightState = {
+    id: "size",
+    title: "Size",
+    origin: "yours",
+    when: "poll",
+    status: "ready",
+    insight: { blocks: [{ type: "stats", items: [{ label: "files", value: 2 }] }] },
+  };
+
+  test("inbox and insights pushes land in the state; insights replace one PR's", () => {
+    const client = start();
+    const socket = lastSocket();
+    socket.push({
+      t: "snapshot",
+      me: "bob",
+      people: [],
+      prs: [view(1), view(2)],
+      unclassified: [],
+      sync: { at: 0, error: null },
+    });
+    socket.push({
+      t: "inbox",
+      inbox: {
+        config: "yours",
+        path: "/x/inbox",
+        state: "error",
+        error: "inbox.ts does not load",
+        classifiers: [],
+        analyzers: [],
+      },
+    });
+    expect(client.state.inbox).toMatchObject({ state: "error", error: "inbox.ts does not load" });
+    socket.push({ t: "insights", repo: "ACME/widgets", pr: 2, insights: [ready] });
+    expect(client.state.snapshot!.prs.map((p) => p.insights ?? null)).toEqual([null, [ready]]);
+    const before = client.state.snapshot;
+    socket.push({ t: "insights", repo: "acme/widgets", pr: 9, insights: [ready] });
+    expect(client.state.snapshot).toBe(before);
+  });
+
+  test("the welcome's inbox, or none from an older server", () => {
+    const client = start();
+    expect(client.state.inbox).toBeNull();
+    lastSocket().push({
+      t: "welcome",
+      protocol: PROTOCOL_VERSION,
+      repos: [],
+      signer: null,
+      inbox: {
+        config: "default",
+        path: "/x",
+        state: "ready",
+        error: null,
+        classifiers: [],
+        analyzers: [],
+      },
+    });
+    expect(client.state.inbox?.config).toBe("default");
+  });
 });

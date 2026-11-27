@@ -51,6 +51,7 @@ import { sameLogin, toViews, type PrFacts } from "../view";
 import { GitHubApiError, type GitHubApi } from "./api";
 import { parseBody } from "./brief";
 import type { PatchIds } from "./clone";
+import type { InboxSubject } from "../inbox/service";
 import { classifyLocally } from "./local";
 import { mapPr, nodCheckRun, type SummaryRead } from "./map";
 import {
@@ -807,6 +808,36 @@ export class GitHubRepo {
     this.rebuild();
     this.ctx.changed();
     this.ctx.poke();
+  }
+
+  /**
+   * My inbox's view of an open PR (ADR 0009): its facts from the poll, its
+   * files and I/O from the clone, at the base tip of its patch-id. null
+   * until the patch-id is known.
+   */
+  async inboxSubject(pr: number): Promise<InboxSubject | null> {
+    const raw = this.open.find((r) => r.number === pr);
+    const ids = this.options.patchIds;
+    if (!raw || !ids?.inbox) return null;
+    const patchId = this.patchIds.get(patchKey(raw.baseRefName, raw.headRefOid));
+    if (!patchId) return null;
+    const got = await ids.inbox({ base: raw.baseRefName, headSha: raw.headRefOid });
+    if (!got) return null;
+    return {
+      pr: {
+        repo: this.name(),
+        number: raw.number,
+        title: raw.title,
+        body: raw.body ?? "",
+        author: raw.author?.login ?? "ghost",
+        labels: (raw.labels?.nodes ?? []).flatMap((l) => (l?.name ? [l.name] : [])),
+        base: raw.baseRefName,
+        head_sha: raw.headRefOid,
+      },
+      files: got.files,
+      patchId,
+      io: got.io,
+    };
   }
 
   private computePatchIds() {
