@@ -517,6 +517,51 @@ describe(".nod/verify.ts", () => {
     });
   });
 
+  describe("nobody enrolled: the allowed_signers nod init writes without a key (ADR 0006)", () => {
+    const path = () => join(checkout.dir, ".nod", "allowed_signers");
+    let before = "";
+    beforeAll(async () => {
+      before = await Bun.file(path()).text();
+      const empty = renderSetup(await loadTemplates(), { kitSpec: "^1.0.0", signers: [] }).find(
+        (f) => f.path === ".nod/allowed_signers",
+      )!.content;
+      await writeFile(path(), empty);
+      gh.rules = [];
+    });
+    afterAll(async () => {
+      await writeFile(path(), before);
+      gh.rules = [NOD_RULE];
+    });
+
+    test("a nod verifies against nobody; an approval fills the slot", async () => {
+      gh.prs.set(11, { ...gh.prs.get(8)!, number: 11 });
+      heads[11] = heads[8]!;
+      comment(11, await nod("alice", alice.privateKey, [11]));
+      const waiting = await verify({ pull_request: { number: 11, head: { sha: heads[11] } } });
+      expect(waiting.code).toBe(0);
+      expect(waiting.check).toMatchObject({ conclusion: "neutral" });
+      expect(waiting.summary!.signers).toEqual([]);
+      expect(waiting.summary!.nods[0]).toMatchObject({ reviewer: "alice", counts: false });
+
+      approve(11, "bob");
+      const r = await verify({ pull_request: { number: 11, head: { sha: heads[11] } } });
+      expect(r.check).toMatchObject({ conclusion: "success" });
+      expect(r.output!.title).toBe("approved by bob");
+    });
+
+    test("the first enrolment waits for a nod nobody can give: neutral, so it merges", async () => {
+      gh.prs.set(12, { ...gh.prs.get(7)!, number: 12 });
+      heads[12] = heads[7]!;
+      approve(12, "bob");
+      const r = await verify({ pull_request: { number: 12, head: { sha: heads[12] } } });
+      expect(r.code).toBe(0);
+      expect(r.check).toMatchObject({ conclusion: "neutral" });
+      expect(r.output!.title).toBe("waiting for a peer nod (have: bob (approved))");
+      expect(r.output!.summary).toContain("nobody other than the author is enrolled");
+      expect(gh.comments.get(12) ?? []).toEqual([]);
+    });
+  });
+
   test("a crash ends as a red check with the error, never green", async () => {
     const r = await verify({ pull_request: { number: 3, head: { sha: "f".repeat(40) } } });
     expect(r.code).toBe(1);

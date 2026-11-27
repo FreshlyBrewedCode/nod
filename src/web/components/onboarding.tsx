@@ -774,9 +774,11 @@ function SetupStep({ setup, signer, actions, onStep }: StepProps) {
         note={
           readOnly
             ? `Opening the setup PR needs write access to ${repo}. Someone who has it can open it from their nod.`
-            : pr || hasKey
+            : pr
               ? "The PR is yours to read and merge the usual way. Teammates who never install nod keep approving on GitHub."
-              : "Its first allowed signer is you: your public key goes into this PR, so you create your key first."
+              : hasKey
+                ? "Your public key goes in as its first allowed signer. The PR is yours to read and merge the usual way."
+                : "No key needed: approvals count. Signing is a step of its own, for each person, whenever they want it."
         }
       >
         {pr ? (
@@ -788,7 +790,7 @@ function SetupStep({ setup, signer, actions, onStep }: StepProps) {
           </>
         ) : readOnly ? (
           again
-        ) : hasKey ? (
+        ) : (
           <>
             {again}
             <button
@@ -798,13 +800,6 @@ function SetupStep({ setup, signer, actions, onStep }: StepProps) {
               onClick={() => void onOpen()}
             >
               {open.busy ? "Opening the setup PR…" : "Open the setup PR"}
-            </button>
-          </>
-        ) : (
-          <>
-            {again}
-            <button type="button" className={PRIMARY} onClick={() => onStep("signing")}>
-              Create your key
             </button>
           </>
         )}
@@ -934,9 +929,11 @@ function CreateKey({ progress, setup, actions, onCreated }: StepProps & { onCrea
       </div>
       <NoteBox className="mt-4">
         <b>How your key gets enrolled.</b>{" "}
-        {progress.enrolVia === "setup-pr"
-          ? "You are setting up this repository, so your public key is part of the setup PR. Teammates who join later get a one-line enrolment PR each, which one of you signs."
-          : "This repository is set up already, so your key gets a one-line enrolment PR. It touches .nod/**, so a teammate has to nod it; until it merges you can read everything and sign nothing."}
+        {progress.enrolVia === "setup-pr" && !setup.setupPr
+          ? "Nobody has opened the setup PR yet, so if you open it after this, your public key goes in as its first allowed signer. Teammates who join later get a one-line enrolment PR each, which one of you signs."
+          : progress.enrolVia === "setup-pr"
+            ? "The setup PR is open already, without your key, so your key gets its own one-line enrolment PR once it merges. While nobody is enrolled, that first one merges the usual way."
+            : "This repository is set up already, so your key gets a one-line enrolment PR. It touches .nod/**, so a teammate has to nod it; until it merges you can read everything and sign nothing."}
       </NoteBox>
       <ErrorNote failure={create.failure} lead="No key was created." />
       <Footer note="Nothing is registered on your GitHub account and no extra permission is asked for.">

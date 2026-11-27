@@ -27,7 +27,8 @@ export interface InitFlags {
 
 export const INIT_HELP = `init options:
   --signer "<login> <key>"  the first signer(s): GitHub login and ssh-ed25519
-                      public key (repeatable)
+                      public key (repeatable; optional: without one
+                      .nod/allowed_signers starts empty, approvals count)
   --signer-key <file> a public key file; the login is your gh user's
   --repo <owner/name> the repository (default: the one of --dir)
   --host <host>       its GitHub host, e.g. acme.ghe.com (default: the host of

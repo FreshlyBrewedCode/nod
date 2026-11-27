@@ -53,8 +53,15 @@ nod cannot adopt an existing OpenSSH private key.
 
 ## Enrolment
 
-The first signer's key is part of the setup PR, which merges under the repository's old rules.
-Everyone after that joins through a one-line pull request.
+If whoever opens the setup PR has a key, it is part of the setup PR, which merges under the
+repository's old rules. The setup PR needs no key, though (not released): without one
+`.nod/allowed_signers` starts empty, and everyone joins through a one-line pull request.
+
+While nobody is enrolled, approvals still count, and only what needs a signed nod waits: changes to
+`.nod/**` and `.github/workflows/**`, and rules with `approvals: false`. The first enrolment PR is
+such a change, with nobody to nod it. Before the repository is enforced its check is neutral, so it
+merges the usual way. Enforced, it cannot: enrol someone before `nod init --ruleset`, or a
+repository admin turns the ruleset off to merge the first enrolment PR.
 
 ![The setup page, signing: creating the key](./screenshots/signing-key.webp)
 
@@ -95,4 +102,4 @@ A replaced key is a new key: it needs enrolling again.
 Changes to `.nod/**` need a peer nod: a signer other than the pull request's author. If you are
 the only human in the repository, nobody can give it. Changing the policy, the verifier or the
 signers then needs a repository admin to lift the ruleset for that one merge and put it back.
-Enrolling a second person in the setup PR avoids this.
+Enrolling a second person before the repository is enforced avoids this.

@@ -109,6 +109,10 @@ Two things are built in and cannot be lowered by rules:
 - A classifier or a rule that throws counts as high risk and needs a peer nod, nod only. A broken
   policy fails safe.
 
+With nobody in `.nod/allowed_signers` (a setup PR opened without a key, not released), these and
+every `approvals: false` slot wait until someone is [enrolled](/docs/keys#enrolment); until the
+repository is enforced, their check is neutral and blocks nothing.
+
 ## Approvals
 
 > **Not released.** In a stable release, only nods fill slots.

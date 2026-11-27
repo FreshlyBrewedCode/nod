@@ -485,6 +485,27 @@ describe("onboarding", () => {
     expect(() => JSON.parse(test.payload)).toThrow(); // never a nod payload
   });
 
+  for (const scenario of ["inbox", "fresh"] as const)
+    test(`${scenario}: the setup PR opens without a key; a key made after it gets no ride`, async () => {
+      const { session, source, tab } = setup(scenario);
+      await source.ready;
+      const t = tab();
+      await session.attach(t.client);
+      if (scenario === "fresh") ok(await t.ask("pick-repo", { repo: "tallyho/fieldbook" }));
+      expect(t.last("signer")?.signer ?? { state: "no-key" }).toEqual({ state: "no-key" });
+
+      const { pr } = ok(await t.ask("open-setup-pr")) as { pr: { number: number } };
+      expect(pr.number).toBe(494);
+      expect(t.last("setup")?.setup).toMatchObject({ state: "pending", setupPr: { number: 494 } });
+
+      // As on GitHub: the open setup PR is not changed; the key waits for its own PR.
+      ok(await t.ask("create-key", { passphrase: "a long passphrase" }));
+      expect(t.last("signer")?.signer).toMatchObject({
+        key: { enrolment: { state: "not-enrolled" } },
+      });
+      expect(err(await t.ask("open-enrol-pr"))).toBe("github");
+    });
+
   test("join: a set-up repo, a new key, the enrolment PR", async () => {
     const { session, tab } = setup("join");
     const t = tab();

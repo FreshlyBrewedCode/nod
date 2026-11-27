@@ -360,7 +360,7 @@ export const CHECK_PURPOSE: Readonly<Record<SetupCheck["id"], string>> = {
   policy: "which changes need whom. Starts with a default you can edit.",
   verifier: "the verifier, readable top to bottom; it runs from the default branch only.",
   workflow: "classifies each PR and checks signatures. Never runs PR code.",
-  "allowed-signers": "the public keys that may sign. Yours goes in first.",
+  "allowed-signers": "the public keys that may sign. It may start empty: approvals count.",
   "required-check": "becomes required; required approvals go from 1 to 0. Needs a repo admin.",
   "auto-merge": "so agents can merge on their own once nod is green.",
 };
@@ -385,7 +385,7 @@ export function onboardingError(failure: Failure): string {
     case "locked":
       return "Unlock the key first.";
     case "no-key":
-      return "Create your signing key first: the setup PR enrols it as the first signer.";
+      return "There is no signing key on this machine yet. Create one under Signing first.";
     case "already-set-up":
       return "This repository is set up already. The checks above are read again.";
     case "already-enrolled":

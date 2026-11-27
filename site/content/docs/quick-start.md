@@ -94,9 +94,10 @@ When you want the team to see the same classification, take the offer **Share on
 team**, or open **Setup** in the avatar menu. The setup page shows the ladder and what the setup PR
 adds: the policy file, the verifier and its workflow, the allowed signers.
 
-The setup PR names its first allowed signer, so the page asks for your signing key first (the next
-section), then **Open the setup PR** opens it with your public key in it. Opening it needs write
-access to the repository.
+**Open the setup PR** opens it. It needs no signing key (not released; the released version asks
+for your key first): if you have one, your public key goes in as its first allowed signer, and if
+not, `.nod/allowed_signers` starts empty. Approvals count, so a repository where nobody is enrolled
+works. Opening it needs write access to the repository.
 
 ![The setup page: the ladder, on the shared policy](./screenshots/setup-ladder.webp)
 
@@ -107,7 +108,7 @@ explains every file and the limits. It adds:
 .nod/policy.ts                    what a pull request needs before it may merge
 .nod/classifiers/module-tier.ts   an example classifier: delete or adapt it
 .nod/verify.ts                    the verifier
-.nod/allowed_signers              who can nod: your public key
+.nod/allowed_signers              who can nod: your public key, or nobody yet
 .nod/package.json, .nod/bun.lock  pin the kit
 .nod/.gitignore
 .github/workflows/nod.yml         runs the verifier
@@ -119,15 +120,19 @@ Review it and merge it the way your repository merges today.
 From then on every pull request gets a `nod` check that says what it needs. Until the repository
 is enforced it never blocks a merge (not released): a pull request that still needs someone shows
 a grey, neutral check, and the verifier posts no comment. A teammate's plain GitHub approval fills
-a slot just like a nod (not released), except for changes to nod's own setup.
+a slot just like a nod (not released), except for changes to nod's own setup. Those need a signed
+nod, so with nobody enrolled they wait until someone is; until the repository is enforced, the
+check stays neutral and they merge the usual way.
 
 ## 4. Signing
 
 Signing is each person's own step. GitHub does not let you approve your own pull request; a nod
 can attest it. The offer **Sign your own agent PRs** (or the **Signing** step of the setup page)
-creates your [signing key](/docs/keys): choose a passphrase of at least 12 characters. Whoever
-opens the setup PR enrols their key with it; a teammate who joins later opens a one-line
-enrolment PR that a signer nods ([A teammate joining](/docs/keys#a-teammate-joining)). **Test
+creates your [signing key](/docs/keys): choose a passphrase of at least 12 characters. A key you
+have when you open the setup PR goes in with it; otherwise, and for a teammate who joins later,
+**Open the enrolment PR** opens a one-line pull request that a signer nods
+([A teammate joining](/docs/keys#a-teammate-joining)). The first one, with nobody enrolled to nod
+it, merges the usual way while the repository is not enforced. **Test
 signature** then unlocks the key, signs a test message and verifies it. Nothing is posted.
 
 Without a key you keep approving on GitHub; the policy counts approvals wherever it takes them.
@@ -148,8 +153,11 @@ auto-merge is enabled.
 re-ran the verifier on #12: their nod check was neutral, which would pass the new requirement.
 ```
 
-From now on every change to `.nod/` or `.github/workflows/` needs a peer nod. If you are the only
-human in the repository, read [One-human repositories](/docs/keys#one-human-repositories) first.
+From now on every change to `.nod/` or `.github/workflows/` needs a peer nod. Enrol someone
+first: with nobody in `.nod/allowed_signers`, `nod init --ruleset` still applies the ruleset but
+warns that nobody can change nod's own setup any more, not even to enrol a key (not released).
+If you are the only human in the repository, read
+[One-human repositories](/docs/keys#one-human-repositories) first.
 
 ## 6. The first nod
 

@@ -136,7 +136,7 @@ export interface Source {
   openEnrolPr(publicKey: string): Promise<PrLink>;
   /** Whether the repo trusts the key (allowed_signers on the base branch). */
   enrolment(publicKey: string): Enrolment;
-  /** A new key appeared (onboarding): the fake adds it to an open setup PR. */
+  /** A new key appeared (onboarding): the GitHub source rebuilds what I can sign. */
   keyCreated(publicKey: string): void;
   subscribe(listener: (change: SourceChange) => void): () => void;
   stop(): void;

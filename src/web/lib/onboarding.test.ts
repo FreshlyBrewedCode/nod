@@ -162,6 +162,27 @@ describe("the offers: the card shows the next one, the menu all of them", () => 
     expect(offersOf(s)).toEqual([{ rung: "shared-policy", phase: "waiting", pr: SETUP_PR }]);
   });
 
+  test("the shared policy needs no key (#61): offered, opened and merged without one", () => {
+    const inbox = state(setupStatus(REPO, "missing", null), noKey);
+    expect(setupRungOf(inbox, null)).toBe("shared-policy");
+    expect(offerWords(offersOf(inbox)[0]!, "none").action).toBe("Set it up");
+    // Its PR open, with nobody in allowed_signers: it waits; signing comes after it merges.
+    const opened = state(setupStatus(REPO, "pending", SETUP_PR), noKey);
+    expect(offersOf(opened)).toEqual([{ rung: "shared-policy", phase: "waiting", pr: SETUP_PR }]);
+    expect(rungsOf(opened).signing).toBe("later");
+    // A key made while it is open does not ride in it: signing is still later.
+    expect(
+      rungsOf(state(setupStatus(REPO, "pending", SETUP_PR), locked({ state: "not-enrolled" })))
+        .signing,
+    ).toBe("later");
+    // Merged: signing is offered, as to a teammate joining.
+    expect(offersOf(state(ready("shared-policy"), noKey))[0]).toEqual({
+      rung: "signing",
+      phase: "offer",
+      pr: null,
+    });
+  });
+
   test("a teammate joining, no key: sign your own agent PRs", () => {
     const s = state(ready("enforced", "write"), noKey);
     expect(offersOf(s)).toEqual([{ rung: "signing", phase: "offer", pr: null }]);
@@ -390,6 +411,10 @@ describe("words", () => {
       "nod serve is not signed in to acme.ghe.com. Run `gh auth login --hostname acme.ghe.com` in a terminal, then restart nod serve.",
     );
     expect(say("key-exists")).toContain("never replaces");
+    // No key is never about the setup PR any more (#61).
+    expect(say("no-key")).toBe(
+      "There is no signing key on this machine yet. Create one under Signing first.",
+    );
     expect(say("bad-key-file")).toContain("nod key show");
     expect(say("offline")).toContain("still running");
     expect(say("github", "GitHub 403: Upgrade to GitHub Pro or make this repository public")).toBe(

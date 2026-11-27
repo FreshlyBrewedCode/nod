@@ -708,7 +708,7 @@ describe("setup and enrolment", () => {
     });
   });
 
-  test("open-setup-pr runs nod init once and refuses a set-up repo", async () => {
+  test("open-setup-pr runs nod init once, with or without a key, and refuses a set-up repo", async () => {
     const t = setup({ withTeam: false });
     t.gh.files = { policy: false, verifier: false, workflow: false };
     t.gh.signers = null;
@@ -725,12 +725,15 @@ describe("setup and enrolment", () => {
       },
     });
     source.start();
-    await expect(source.openSetupPr(null)).rejects.toMatchObject({ code: "no-key" });
-    expect(await source.openSetupPr("ssh-ed25519 KEY")).toEqual({
+    // No key: the setup PR opens with an empty allowed_signers (ADR 0006).
+    expect(await source.openSetupPr(null)).toEqual({
       number: 14,
       url: `https://github.com/${REPO}/pull/14`,
     });
-    expect(opened).toEqual([{ login: ALICE, publicKey: "ssh-ed25519 KEY" }]);
+    expect(opened).toEqual([{ login: ALICE, publicKey: null }]);
+    // Opened once: a key created later is not added to it.
+    expect((await source.openSetupPr("ssh-ed25519 KEY")).number).toBe(14);
+    expect(opened).toHaveLength(1);
     expect((await source.setup()).state).toBe("pending");
     source.stop();
     const done = setup();

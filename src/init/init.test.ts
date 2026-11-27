@@ -162,16 +162,30 @@ test("--dry-run writes the files and nothing else", async () => {
   expect(lines.join("\n")).toContain("would also");
 });
 
-test("refuses an existing .nod/ without --force, and a run without a signer", async () => {
+test("refuses an existing .nod/ without --force", async () => {
   await repo.write(".nod/policy.ts", "export default {};\n");
   await repo.commit("someone set up nod already");
   await repo.git("push", "-q", "origin", "main");
   expect(await runInit(flags(), deps())).toBe(1);
   expect(lines.join("\n")).toContain(".nod/ exists already");
+});
 
-  lines = [];
-  expect(await runInit(flags({ signers: [] }), deps())).toBe(1);
-  expect(lines.join("\n")).toContain("at least one signer");
+test("without a signer: allowed_signers has its header and no key, the PR says what waits", async () => {
+  expect(await runInit(flags({ signers: [] }), deps())).toBe(0);
+  const signers = await git(origin.dir, ["show", "nod/setup:.nod/allowed_signers"]);
+  expect(signers).toStartWith("# Who can nod");
+  expect(signers.split("\n").filter((l) => l.trim() && !l.startsWith("#"))).toEqual([]);
+  expect(prBody).toContain("Enrolled here: nobody yet");
+  expect(prBody).toContain("**Nobody can sign yet.**");
+  expect(prBody).toContain("and someone enrolled");
+  expect(lines.join("\n")).toContain("Nobody is in .nod/allowed_signers yet");
+});
+
+test("with a signer the PR says nothing about an empty allowed_signers", async () => {
+  expect(await runInit(flags(), deps())).toBe(0);
+  expect(prBody).toContain("Enrolled here: `alice`");
+  expect(prBody).not.toContain("Nobody can sign yet");
+  expect(lines.join("\n")).not.toContain("Nobody is in");
 });
 
 test("refuses a dirty working tree", async () => {
@@ -198,6 +212,39 @@ test("--ruleset creates the ruleset and enables auto-merge", async () => {
   expect(post).toContain("repos/acme/widgets/rulesets");
   expect(lines.join("\n")).toContain('created the ruleset "nod"');
   expect(lines.join("\n")).toContain("auto-merge is enabled");
+  // allowed_signers could not be read: no warning about it
+  expect(lines.join("\n")).not.toContain("nobody is enrolled");
+});
+
+describe("--ruleset and who is enrolled", () => {
+  const ruleset = (signers: string) => {
+    api = {
+      "repos/acme/widgets/contents/.nod/verify.ts?ref=main": { status: 0, stdout: "" },
+      "repos/acme/widgets/contents/.nod/allowed_signers?ref=main": { status: 0, stdout: signers },
+      "apps/github-actions": { status: 0, stdout: "15368\n" },
+      "repos/acme/widgets/rulesets": { status: 0, stdout: "\n" },
+      "repos/acme/widgets": { status: 0, stdout: "true\n" },
+    };
+  };
+
+  test("nobody enrolled: it still applies the ruleset, warns, and says how to get out", async () => {
+    ruleset('# Who can nod in this repository\n#   <github-login> namespaces="nod" …\n');
+    expect(await runInit(flags({ ruleset: true }), deps())).toBe(0);
+    const out = lines.join("\n");
+    expect(out).toContain('created the ruleset "nod"');
+    expect(out).toContain("warning: nobody is enrolled in .nod/allowed_signers on main");
+    expect(out).toContain("nobody can change nod's own setup");
+    expect(out).toContain("turns the ruleset off");
+    expect(out).toContain("enrols a key");
+    const read = calls.find((c) => c.some((a) => a.includes("allowed_signers")))!;
+    expect(read).toContain("Accept: application/vnd.github.raw");
+  });
+
+  test("someone enrolled: no warning", async () => {
+    ruleset(`# header\nalice namespaces="nod" ${KEY}\n`);
+    expect(await runInit(flags({ ruleset: true }), deps())).toBe(0);
+    expect(lines.join("\n")).not.toContain("nobody is enrolled");
+  });
 });
 
 test("--ruleset re-runs the verifier on open PRs whose nod check is still neutral", async () => {

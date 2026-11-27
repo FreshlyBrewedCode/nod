@@ -48,12 +48,18 @@ nod should be useful to one person on day one with nothing in the repo, and ever
    - One card above the list offers the next step of the ladder for this repo and me; the avatar menu lists every step offered; the setup page (`#/setup`) shows the ladder and is where the steps are done.
    - "Not now" puts a card away for this browser (per host, repo, step and phase). The next step does not take its place, so dismissing never brings up another card; a step that moves on (its pull request opened) is a new card.
    - Enforcing is offered only to an admin (GitHub's `viewerPermission`, now in `SetupStatus.permission`) of a repo with the shared policy, and the card shows `nod init --ruleset`: the web app never runs it, as it changes who may merge.
-   - The setup PR still carries the opener's public key as its first signer (`nod init` refuses without one), so sharing the policy asks for a key first. A key-less setup PR is left open.
+   - The setup PR needs no key (#61, replacing "sharing the policy asks for a key first" from #42): the shared policy and signing are separate steps. See 8.
+
+8. **The shared policy without a signer** (#61). `nod init` and the `open-setup-pr` request work without a key: `.nod/allowed_signers` is written with its header and no key lines. `--signer`/`--signer-key` stay optional, and the opener's key, if they have one, is still its first line.
+   - **Nobody enrolled is a working repo.** Approvals count (2), so every slot an approval may fill works as before. The verifier and the kit take an empty `allowed_signers` as it is: no nod verifies (`ssh-keygen` finds no principal, the nod is listed as not counting), nothing crashes.
+   - **What waits.** Nods-only slots (`approvals: false`, and so the kit's protected paths `.nod/**` and `.github/workflows/**`) wait until someone enrols. The setup PR body says so when it has no signer, and so do the docs.
+   - **Bootstrapping rule.** The first enrolment PR into an empty `allowed_signers` touches `.nod/**`, a nods-only path, with nobody able to nod it. Before enforcement it merges anyway: its check is `neutral` (3), and it merges the usual way, like the setup PR did. After enforcement it cannot: a required check, nods-only protected paths and nobody enrolled mean nobody can change `.nod/` any more. `nod init --ruleset` therefore warns when nobody is enrolled on the default branch (it still applies the ruleset: the admin asked for it), and says how out: turn the ruleset off until someone has enrolled, or just for the merge of an enrolment PR. The ruleset has no bypass list, so even an admin turns it off rather than merging past it.
+   - A setup PR opened without a key stays as it is when the opener creates a key later: the key gets its own enrolment PR once the setup merged (the fake source does the same now).
 
 ## Consequences
 
 - A repo that merged the setup PR but never ran `nod init --ruleset` shows a grey `nod` check and no sticky comment; nothing about how its people merge changes.
-- A repo where nobody signs works on approvals alone, except for changes to nod's own setup, which need a peer's nod.
+- A repo where nobody signs works on approvals alone, except for changes to nod's own setup, which need a peer's nod; before it is enforced, those merge with a neutral check too (8).
 - The ruleset's 0 required approvals stays: the approvals that matter are now counted by the policy, per PR, instead of by GitHub, for every PR alike.
 - Every verifier run makes two more reads (the branch rules and the branch) and one per approver (the permission). All are readable with the workflow token's default `metadata: read`.
 - Not verified here: a real approval counting, the permission lookup with the workflow token, and the neutral check on a real PR. The owner checks them in the sandbox.
