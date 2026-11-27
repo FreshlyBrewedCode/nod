@@ -53,6 +53,10 @@ Built and not released yet, among others:
 - **The shared policy without a key.** The setup PR opens without a signing key, with nobody in
   `.nod/allowed_signers`; signing stays each person's own step. `nod init --ruleset` warns when
   nobody is enrolled. Not tried on a real repository yet. [Enrolment](/docs/keys#enrolment)
+- **Many repositories in one dashboard**, in the web app and the protocol: a repo chip on each
+  row, a batch across repositories with one signature each, offers per repository. Only with
+  `nod serve --fake --scenario repos` so far: the GitHub side still reads one repository.
+  [Many repositories](/docs/dashboard#many-repositories)
 
 ## Not built
 
@@ -64,7 +68,9 @@ Built and not released yet, among others:
   nodded".
 - **An epics view.** Grouping by epic, built on GitHub issues and sub-issues. Rows carry
   "needs first" and "unblocks" hints today.
-- **Several repositories.** One repository per `nod serve`.
+- **Several repositories from GitHub.** The dashboard shows several (see Not released), but
+  `nod serve` reads one repository, the clone it runs in. The list of repositories, nod's own
+  clones and hosts side by side come next.
 - **Adopting an existing SSH key.** nod makes its own.
 - **A light scheme** for the web app.
 - **nod on a phone, all the way.** A phone reaches `nod serve` through a named host

@@ -37,10 +37,17 @@ until paired with a local server; in a checkout it runs from the Vite dev server
 
 ## The protocol
 
-`src/shared/protocol.ts` is the contract between the two. The server pushes state: a `welcome`,
-then a full `snapshot` of the pull requests on every change, `signer` on every change of the key
-(unlock, lock), `setup` on every change of the repository's setup. The web app sends requests
-such as `unlock`, `sign` and `ack-fyi`, and each gets exactly one reply.
+`src/shared/protocol.ts` is the contract between the two. The server pushes state: a `welcome`
+with the repositories it reads (each with its host, its step of the ladder and your key's
+enrolment there), then a full `snapshot` of every repository's pull requests on every change,
+`signer` on every change of the key (unlock, lock), `repos` on every change of a repository's
+setup or your enrolment. Each pull request names its repository, and every request about one
+(`sign`, `approve`, `ack-fyi`, the setup requests) names it too: a pull request is its repository
+and its number. The web app sends requests such as `unlock`, `sign` and `ack-fyi`, and each gets
+exactly one reply.
+
+Not released: protocol 2, for [many repositories](/docs/dashboard#many-repositories). A web app
+and a `nod serve` that speak different versions do not talk; the page says which one to update.
 
 The snapshot is already relative to you: which pull requests are yours, which need you, what the
 ask is. The layout, meaning tiers, lanes, time buckets and board columns, is computed in the

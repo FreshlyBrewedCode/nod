@@ -10,7 +10,7 @@ order: 4
 | **approval** | A GitHub review that approves a pull request's head commit, by someone with write access other than its author. It fills a slot like a nod does, unless the policy asks for a nod only. Without a key you give one from the batch dialog (**Approve**). Not released. [Policy](/docs/policy#approvals), [Nodding](/docs/nodding#approve-or-nod) |
 | **ask** | What the dashboard asks of you on a pull request: Self-attest, Sign as peer, Sign as owner or Re-attest; without a key that signs in the repository, Approve. [Nodding](/docs/nodding#the-ask) |
 | **attention tier** | One of four sizes a pull request is shown in: prominent, normal, one line, folded. [Dashboard](/docs/dashboard#attention-tiers) |
-| **batch** | One or more pull requests nodded with one signature, or approved on GitHub together. [Nodding](/docs/nodding#the-batch-dialog) |
+| **batch** | One or more pull requests nodded with one signature, or approved on GitHub together. A batch across repositories is one signature per repository, made with one unlock. Not released: across repositories. [Nodding](/docs/nodding#the-batch-dialog) |
 | **batch dialog** | The dialog every way to sign or approve opens: review, unlock, signed; or review, approved |
 | **board** | The dashboard's view in columns, by who a pull request waits on or by state. [Dashboard](/docs/dashboard#board) |
 | **brief** | The pull request description an agent writes: what, why, risk, verified, look at. [Agents](/docs/agents#the-brief) |
@@ -23,7 +23,7 @@ order: 4
 | **detail panel** | The side panel (list) or drawer (board) showing one pull request |
 | **device link** | The second link `nod serve --allow-host` prints, also as a QR code. It pairs another device through the named host. [On your phone](/docs/phone) |
 | **enforced** | The last step of the ladder: the default branch requires the `nod` check (`nod init --ruleset`), so a pull request merges only once its requirement is met. Not released. [Verifier](/docs/verifier#enforced-or-not) |
-| **enrolment** | Getting a public key into `.nod/allowed_signers`, through a pull request. [Signing keys](/docs/keys#enrolment) |
+| **enrolment** | Getting a public key into `.nod/allowed_signers`, through a pull request. Per repository: each one trusts its own list. [Signing keys](/docs/keys#enrolment) |
 | **finding** | One fact a classifier reports: a tag, a sentence, optionally a risk |
 | **FYI** | A pull request people should notice without anyone having to nod. [Nodding](/docs/nodding#fyi) |
 | **FYI ack** | "Got it" on an FYI: an unsigned 👀 reaction |
@@ -42,13 +42,14 @@ order: 4
 | **nod only** | A slot that only a nod fills, never an approval: `peer({ approvals: false })`, and any change to nod's own setup. Not released. [Policy](/docs/policy#approvals) |
 | **`nod serve`** | The local server on your machine. [CLI](/docs/cli#nod-serve) |
 | **Not now** | What puts an offer away. This browser remembers it, per repository and step; the avatar menu still lists the step. Not released. [Dashboard](/docs/dashboard#offers) |
-| **offer** | A calm card above the list with the next step of the ladder for the repository and you: share one policy, sign your own agent pull requests, let agents merge on their own. One at a time, never in the way; the avatar menu lists every step offered. Not released. [Dashboard](/docs/dashboard#offers) |
+| **offer** | A calm card above the list with the next step of the ladder for a repository and you: share one policy, sign your own agent pull requests, let agents merge on their own. One at a time, never in the way; the avatar menu lists every step offered. Not released. [Dashboard](/docs/dashboard#offers) |
 | **patch-id** | A hash of a pull request's diff against its base. It survives a clean rebase. [Nodding](/docs/nodding#when-a-nod-counts) |
 | **payload** | The one line of JSON a nod signs |
 | **peer nod** | A nod by a signer other than the pull request's author |
 | **policy** | `.nod/policy.ts`: classifiers and rules that decide what a pull request needs. [Policy](/docs/policy) |
 | **prompter** | The human who prompted the agent. On GitHub, the pull request's author |
 | **review request** | GitHub asking a person or a team to review a pull request. At the inbox step, one asked of you, or of a team you are in, puts the pull request in Needs you. A mention is not one. Not released. [Dashboard](/docs/dashboard#the-inbox) |
+| **repo chip** | A repository's short name on each row, card and panel, once the dashboard shows more than one repository. With one, there is none and the top bar names it. Not released. [Dashboard](/docs/dashboard#many-repositories) |
 | **remote token** | The pairing token of the named host, kept apart from the host link's. [On your phone](/docs/phone#a-lost-phone) |
 | **requirement** | What a pull request needs before it may merge: nothing, or slots for the author (self), someone else (peer) and named people, each filled by a nod or an approval. [Policy](/docs/policy#requirements) |
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |

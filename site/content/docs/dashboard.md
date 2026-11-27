@@ -5,9 +5,10 @@ section: Using nod
 order: 1
 ---
 
-The dashboard is the web app, paired with the `nod serve` on your machine. It shows one
+The dashboard is the web app, paired with the `nod serve` on your machine. It shows your
 repository, from your point of view: the same pull request looks different to you and to a
-teammate.
+teammate. Several repositories share one dashboard, see [Many repositories](#many-repositories)
+(not released).
 
 ## Attention tiers
 
@@ -148,6 +149,33 @@ command). Every further step of the [ladder](/docs/quick-start#the-ladder) is of
   the place where they are done.
 
 ![An admin's dashboard at the shared policy: the offer to enforce, with the command](./screenshots/offer-enforce.webp)
+
+## Many repositories
+
+Not released, and not yet with GitHub: today `nod serve` reads the repository of the clone it runs
+in. `nod serve --fake --scenario repos` shows three fictional ones in one dashboard.
+
+- **One inbox.** The pull requests of every repository sit in the same lanes, tiers and board
+  columns. Each row, card and detail panel carries a **repo chip**: the repository's short name
+  (`ledger`), or more of it when two share a name. With one repository there is no chip, and the
+  top bar names the repository, as always.
+- **Each repository has its own step of the ladder.** One may be at the inbox, another enforced.
+  What a pull request asks of you follows its repository: a nod where your key is enrolled, an
+  approval on GitHub elsewhere.
+- **One key, enrolled per repository.** You unlock once for all of them; each repository's
+  `.nod/allowed_signers` decides on its own whether it trusts your key. The lock chip says "Key
+  pending" or "Key not enrolled" only when your key signs in none of them.
+- **A batch can span repositories.** The batch dialog says so ("in two repositories, one
+  signature each"), and "Show exactly what is signed" lists one line per repository. One unlock
+  signs them all; if any pull request changed since you looked, nothing is signed anywhere.
+- **Offers stay one card at a time**: the next step of the first repository that has one, with the
+  repository named on the card. **Not now** puts it away without bringing up another
+  repository's; the avatar menu lists every repository's steps, each with its repository. The
+  setup page shows one repository's ladder and the others to switch to.
+- A [deep link](/docs/nodding#deep-links) opens the pull request in its own repository; a link for
+  a repository the dashboard does not show says so.
+
+![Three repositories in one dashboard: the repo chips, and the offer naming its repository](./screenshots/repos-list.webp)
 
 ## Keyboard
 
