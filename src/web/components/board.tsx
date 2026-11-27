@@ -11,13 +11,15 @@ import type * as React from "react";
 
 import type { ClusterItem, Item, PrItem } from "../../shared/attention";
 import { kindNames, selectable } from "../../shared/attention";
+import type { PrId } from "../../shared/protocol";
+import { idOf } from "../../shared/repo-key";
 import { MINUTE, useNow } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { clusterKey, prKey } from "@/lib/focus";
 import { ago } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { checksTag, signaturePips, type Pip } from "@/lib/wording";
-import { Avatar, RiskBars, Tag } from "./bits";
+import { Avatar, RepoChip, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import { DiffIndicator } from "./diff-indicator";
 import { Segmented } from "./top-bar";
@@ -126,7 +128,7 @@ function BoardColumn({ column }: { column: BoardColumnView }) {
       <div role="listbox" aria-label={column.title} aria-multiselectable>
         {column.items.map((item) =>
           item.kind === "pr" ? (
-            <Card key={item.pr.number} item={item} />
+            <Card key={idOf(item.pr)} item={item} />
           ) : (
             <ClusterCard key={item.id} cluster={item} />
           ),
@@ -224,7 +226,17 @@ function CardShell({
  * selected. So an idle board looks like r3 `09`, and selecting never moves
  * a thing.
  */
-function AvatarOrCheckbox({ pr, login, checked }: { pr: number; login: string; checked: boolean }) {
+function AvatarOrCheckbox({
+  pr,
+  number,
+  login,
+  checked,
+}: {
+  pr: PrId;
+  number: number;
+  login: string;
+  checked: boolean;
+}) {
   const { toggleSelected, selection, people } = useDashboard();
   const shown = checked || selection.length > 0;
   return (
@@ -245,7 +257,7 @@ function AvatarOrCheckbox({ pr, login, checked }: { pr: number; login: string; c
           type="checkbox"
           tabIndex={-1}
           checked={checked}
-          aria-label={checked ? `Unselect #${pr}` : `Select #${pr} for signing`}
+          aria-label={checked ? `Unselect #${number}` : `Select #${number} for signing`}
           onChange={() => toggleSelected(pr)}
           className="peer border-line2 hover:border-tx3 checked:bg-need checked:border-need bg-panel2 absolute inset-0 m-0 cursor-pointer appearance-none rounded-[5px] border-[1.5px]"
         />
@@ -256,10 +268,11 @@ function AvatarOrCheckbox({ pr, login, checked }: { pr: number; login: string; c
 }
 
 export function Card({ item, inside = false }: { item: PrItem; inside?: boolean }) {
-  const { people, me, selection, focusRow } = useDashboard();
+  const { people, me, selection, focusRow, chips } = useDashboard();
   const now = useNow(MINUTE);
   const pr = item.pr;
-  const key = prKey(pr.number);
+  const id = idOf(pr);
+  const key = prKey(id);
   const label = `#${pr.number} ${pr.title}`;
   const activate = () => focusRow(key, { open: true });
   const pips = signaturePips(pr, me, people);
@@ -292,7 +305,7 @@ export function Card({ item, inside = false }: { item: PrItem; inside?: boolean 
   }
 
   const canSelect = selectable(pr);
-  const selected = canSelect && selection.includes(pr.number);
+  const selected = canSelect && selection.includes(id);
   return (
     <CardShell
       rowKey={key}
@@ -310,11 +323,12 @@ export function Card({ item, inside = false }: { item: PrItem; inside?: boolean 
       )}
       <div className="text-tx3 mt-[7px] flex items-center gap-[7px] text-xs">
         {canSelect ? (
-          <AvatarOrCheckbox pr={pr.number} login={pr.prompter} checked={selected} />
+          <AvatarOrCheckbox pr={id} number={pr.number} login={pr.prompter} checked={selected} />
         ) : (
           <Avatar login={pr.prompter} people={people} />
         )}
         <span>{ago(pr.openedAt, now)}</span>
+        <RepoChip repo={pr.repo} chips={chips} />
         <DiffIndicator inline added={pr.diff.added} removed={pr.diff.removed} />
         {pr.ask?.kind === "re-attest" && <Tag tag={{ text: "changed", tone: "bad" }} />}
         <span className="ml-auto flex items-center gap-[3px]" title={pr.ask?.label}>
@@ -349,7 +363,7 @@ function ClusterCard({ cluster }: { cluster: ClusterItem }) {
       </CardShell>
       {open &&
         cluster.prs.map((pr) => (
-          <Card key={pr.number} item={{ kind: "pr", pr, tier: 4, form: 4 }} inside />
+          <Card key={idOf(pr)} item={{ kind: "pr", pr, tier: 4, form: 4 }} inside />
         ))}
     </>
   );

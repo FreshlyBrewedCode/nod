@@ -8,6 +8,7 @@
 
 import type * as React from "react";
 
+import { PROTOCOL_VERSION } from "../../shared/protocol";
 import type { Status } from "@/lib/connection";
 import type { Offer } from "@/lib/forward";
 import { ForwardOffer, PasteLink } from "./forward";
@@ -86,10 +87,13 @@ export function ConnectionPage({
   status,
   reconnects,
   unpaired,
+  serverProtocol = null,
 }: {
   status: Status;
   reconnects: number;
   unpaired?: Unpaired;
+  /** `outdated`: the protocol the server speaks, to say which side is older. */
+  serverProtocol?: number | null;
 }) {
   switch (status) {
     case "unpaired":
@@ -142,7 +146,22 @@ export function ConnectionPage({
     case "outdated":
       return (
         <FullPage title="nod serve and this page do not match">
-          <p>They speak different versions of their protocol. Update nod and reload this page.</p>
+          <p>
+            {serverProtocol !== null && serverProtocol < PROTOCOL_VERSION ? (
+              <>
+                <code className="font-mono">nod serve</code> is older than this page. Update nod,
+                start <code className="font-mono">nod serve</code> again, then reload this page.
+              </>
+            ) : serverProtocol !== null && serverProtocol > PROTOCOL_VERSION ? (
+              <>
+                This page is older than <code className="font-mono">nod serve</code>. Reload it to
+                get the newer one; if it stays, open the link{" "}
+                <code className="font-mono">nod serve</code> prints.
+              </>
+            ) : (
+              "They speak different versions of their protocol. Update nod and reload this page."
+            )}
+          </p>
         </FullPage>
       );
     case "closed":

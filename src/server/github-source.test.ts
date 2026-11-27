@@ -477,9 +477,11 @@ describe("my key", () => {
     });
     // the same key under another login is not mine
     t.gh.headSigners.clear();
-    expect(t.source.enrolment(t.source.key(), FAKE_KEY.publicKey.replace("nod-fake", "x"))).toEqual({
-      state: "active",
-    });
+    expect(t.source.enrolment(t.source.key(), FAKE_KEY.publicKey.replace("nod-fake", "x"))).toEqual(
+      {
+        state: "active",
+      },
+    );
   });
 
   test("a merged enrolment turns the key active and the asks appear", async () => {
@@ -743,7 +745,9 @@ describe("setup and enrolment", () => {
     source.stop();
     const done = setup();
     done.source.start();
-    await expect(done.source.openSetupPr(done.source.key(), "x")).rejects.toMatchObject({ code: "already-set-up" });
+    await expect(done.source.openSetupPr(done.source.key(), "x")).rejects.toMatchObject({
+      code: "already-set-up",
+    });
   });
 
   test("the enrolment PR: one line on nod/enrol-<login>, through the contents API", async () => {
@@ -834,7 +838,9 @@ describe("setup and enrolment", () => {
     source.start();
     expect(await source.account()).toBeNull();
     expect(source.snapshot()).toBeNull();
-    expect((await source.setup(source.key())).checks.every((c) => c.state === "unknown")).toBe(true);
+    expect((await source.setup(source.key())).checks.every((c) => c.state === "unknown")).toBe(
+      true,
+    );
   });
 });
 
@@ -955,7 +961,9 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       // The welcome tells the web app the host.
       await s.attach(client);
       const welcome = messages.find((m) => m.t === "welcome");
-      expect(welcome).toMatchObject({ repos: [{ key: KEY, name: REPO, github: { host, webUrl } }] });
+      expect(welcome).toMatchObject({
+        repos: [{ key: KEY, name: REPO, github: { host, webUrl } }],
+      });
       expect(gh.queries("Poll").length).toBeGreaterThan(0);
       expect(gh.misdirected).toEqual([]);
       s.stop();

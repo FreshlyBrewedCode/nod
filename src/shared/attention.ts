@@ -7,7 +7,8 @@
  * The web app renders what these return; the server never calls them.
  */
 
-import type { Login, Person, PrView, WaitingOn } from "./protocol";
+import type { Login, Person, PrId, PrView, WaitingOn } from "./protocol";
+import { idOf } from "./repo-key";
 
 /** 1 prominent · 2 normal · 3 one line · 4 folded into a cluster. */
 export type Tier = 1 | 2 | 3 | 4;
@@ -88,13 +89,19 @@ function waitedSince(p: PrView): number {
  */
 export function compareAttention(a: PrView, b: PrView): number {
   return (
-    tier(a) - tier(b) || b.risk - a.risk || waitedSince(a) - waitedSince(b) || a.number - b.number
+    tier(a) - tier(b) ||
+    b.risk - a.risk ||
+    waitedSince(a) - waitedSince(b) ||
+    a.number - b.number ||
+    a.repo.localeCompare(b.repo)
   );
 }
 
 /** Newest activity first. */
 export function compareActivity(a: PrView, b: PrView): number {
-  return b.lastActivity.at - a.lastActivity.at || b.number - a.number;
+  return (
+    b.lastActivity.at - a.lastActivity.at || b.number - a.number || a.repo.localeCompare(b.repo)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -382,8 +389,8 @@ export interface Column {
   /** PRs in the column, folded ones included. */
   readonly count: number;
   readonly items: ReadonlyArray<Item>;
-  /** PRs in another column that wait on this one too, later: "also #485, after you". */
-  readonly also: ReadonlyArray<number>;
+  /** PRs (their ids) in another column that wait on this one too, later: "also #485, after you". */
+  readonly also: ReadonlyArray<PrId>;
 }
 
 export interface BoardOptions {
@@ -443,7 +450,7 @@ export function boardView(
   const { me, people = [], keyNote = null } = options;
   const groups = new Map<
     string,
-    { kind: ColumnKind; login: Login | null; prs: PrView[]; also: number[] }
+    { kind: ColumnKind; login: Login | null; prs: PrView[]; also: PrId[] }
   >();
   const group = (c: { id: string; kind: ColumnKind; login: Login | null }) => {
     let g = groups.get(c.id);
@@ -461,12 +468,12 @@ export function boardView(
       const other = columnOf(w, me);
       if (other.id === primary.id) continue;
       const g = group(other);
-      if (!g.also.includes(p.number)) g.also.push(p.number);
+      if (!g.also.includes(idOf(p))) g.also.push(idOf(p));
     }
   }
 
   const rank: Record<ColumnKind, number> = { me: 0, person: 1, anyone: 2, automation: 3, done: 4 };
-  const order = (g: { kind: ColumnKind; prs: PrView[]; also: number[] }) =>
+  const order = (g: { kind: ColumnKind; prs: PrView[]; also: PrId[] }) =>
     rank[g.kind] * 1e6 - (g.kind === "person" ? g.prs.length + g.also.length : 0);
   const title = (kind: ColumnKind, login: Login | null) =>
     kind === "me"

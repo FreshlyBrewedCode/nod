@@ -189,11 +189,14 @@ export class FakeSource implements Source {
       fieldbook.enrolments.set(this.myKey, { state: "active" });
       const app = this.inbox(FIELD_APP, pending);
       const ledger = new FakeRepo(LEDGER, LEDGER_HOST, "ready", "shared-policy", "admin");
-      ledger.facts = LEDGER_SEEDS.map((s) => seedFacts(s, this.started, LEDGER, ledger.github.webUrl));
+      ledger.facts = LEDGER_SEEDS.map((s) =>
+        seedFacts(s, this.started, LEDGER, ledger.github.webUrl),
+      );
       ledger.enrolments.set(this.myKey, { state: "active" });
       this.list = [fieldbook, app, ledger];
     } else if (scenario === "fresh") {
-      if (options.repo) this.list = [new FakeRepo(name, GITHUB_COM, "missing", "enforced", "admin")];
+      if (options.repo)
+        this.list = [new FakeRepo(name, GITHUB_COM, "missing", "enforced", "admin")];
     } else if (scenario === "inbox") {
       this.list = [this.inbox(name, pending)];
     } else if (scenario === "first-run") {
@@ -216,7 +219,12 @@ export class FakeSource implements Source {
       if (scenario === "join")
         repo.facts = repo.facts.map((f) =>
           f.number === JOIN_APPROVED
-            ? this.withApproval(f, FAKE_PEOPLE.ines.login, f.headSha, this.started - 2 * 60 * SECOND)
+            ? this.withApproval(
+                f,
+                FAKE_PEOPLE.ines.login,
+                f.headSha,
+                this.started - 2 * 60 * SECOND,
+              )
             : f,
         );
       else repo.enrolments.set(this.myKey, { state: "active" });

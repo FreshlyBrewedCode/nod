@@ -299,9 +299,9 @@ describe("unlock, sign, ack", () => {
         ]),
       ),
     ).toBe("bad-request");
-    expect(err(await sign([{ repo: R, pr: 482, head_sha: t.pr(482).headSha }], { verdict: "reject" }))).toBe(
-      "bad-request",
-    );
+    expect(
+      err(await sign([{ repo: R, pr: 482, head_sha: t.pr(482).headSha }], { verdict: "reject" })),
+    ).toBe("bad-request");
     expect(err(await t.ask("nope"))).toBe("bad-request");
     expect(t.pr(482).needsMe).toBe(true);
   });
@@ -445,8 +445,12 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
     if (!own.ok) expect(own.error.message).toMatch(/#519 is your own pull request/);
     // Nothing was approved, not even the other one.
     expect(t.pr(512).needsMe).toBe(true);
-    expect(err(await approve([{ repo: R, pr: 518, head_sha: t.pr(518).headSha }]))).toBe("not-open");
-    expect(err(await approve([{ repo: R, pr: 506, head_sha: t.pr(506).headSha }]))).toBe("not-open");
+    expect(err(await approve([{ repo: R, pr: 518, head_sha: t.pr(518).headSha }]))).toBe(
+      "not-open",
+    );
+    expect(err(await approve([{ repo: R, pr: 506, head_sha: t.pr(506).headSha }]))).toBe(
+      "not-open",
+    );
     expect(err(await approve([{ repo: R, pr: 1, head_sha: "a".repeat(40) }]))).toBe("not-found");
     expect(err(await approve([]))).toBe("bad-request");
     expect(err(await approve([{ repo: R, pr: 512, head_sha: "nope" }]))).toBe("bad-request");
@@ -577,14 +581,19 @@ test("parseRequest keeps only what the protocol defines", () => {
   expect(() =>
     parseRequest(JSON.stringify({ t: "check-setup", id: "1", repo: "not a repo" })),
   ).toThrow();
-  expect(parseRequest(JSON.stringify({ t: "check-setup", id: "1", repo: "acme.ghe.com/a/b" }))).toEqual(
-    { t: "check-setup", id: "1", repo: "acme.ghe.com/a/b" },
-  );
+  expect(
+    parseRequest(JSON.stringify({ t: "check-setup", id: "1", repo: "acme.ghe.com/a/b" })),
+  ).toEqual({ t: "check-setup", id: "1", repo: "acme.ghe.com/a/b" });
   expect(() => parseRequest(JSON.stringify({ t: "lock" }))).toThrow();
   const head = "a".repeat(40);
   expect(
     parseRequest(
-      JSON.stringify({ t: "approve", id: "2", entries: [{ repo: R, pr: 7, head_sha: head }], verdict: "x" }),
+      JSON.stringify({
+        t: "approve",
+        id: "2",
+        entries: [{ repo: R, pr: 7, head_sha: head }],
+        verdict: "x",
+      }),
     ),
   ).toEqual({ t: "approve", id: "2", entries: [{ repo: R, pr: 7, head_sha: head }] });
   expect(() =>
@@ -610,7 +619,11 @@ describe("many repos (ADR 0007)", () => {
     const { t } = await repos();
     expect(t.last("welcome")?.repos).toMatchObject([
       { key: R, name: R, setup: { step: "enforced" }, enrolment: { state: "active" } },
-      { key: APP, setup: { state: "missing", step: "inbox" }, enrolment: { state: "not-enrolled" } },
+      {
+        key: APP,
+        setup: { state: "missing", step: "inbox" },
+        enrolment: { state: "not-enrolled" },
+      },
       {
         key: LEDGER,
         name: "finance/ledger",

@@ -1,7 +1,7 @@
 /**
  * The batch dialog (concept decision 14; r2 `11`–`14`, unchanged in r3).
  * Every way to sign or approve goes through one function,
- * `openBatch(prNumbers)`: the selection bar's "Review & sign", `s`, the
+ * `openBatch(prIds)`: the selection bar's "Review & sign", `s`, the
  * row's ask, the panel's "Sign", the board's "Sign…". One surface from
  * review to signed:
  *
@@ -15,6 +15,11 @@
  * Without an active key the asks are GitHub approvals (ADR 0006): the same
  * surface, review → approving → approved (or stale, or an error), with no
  * passphrase and nothing signed. One kind per batch (`batchKind`).
+ *
+ * A batch may span repos (ADR 0007, 10): rows carry their repo chip, the
+ * sentence says "one signature each", "Show exactly what is signed" lists
+ * one payload per repo, and whether my key can sign is the worst of the
+ * batch's repos (`worstEnrolment`). One unlock signs them all.
  *
  * The steps are the pure state machine in `lib/batch.ts`.
  */
@@ -35,7 +40,16 @@ import {
 } from "react";
 
 import { attentionView } from "../../shared/attention";
-import type { PrView, SignerState, Snapshot } from "../../shared/protocol";
+import type {
+  PrId,
+  PrRef,
+  PrView,
+  RepoInfo,
+  RepoKey,
+  SignerState,
+  Snapshot,
+} from "../../shared/protocol";
+import { idOf, prId, sameRepo } from "../../shared/repo-key";
 import { afterBack, useBackStop } from "@/hooks/use-back-stop";
 import { SECOND, useNow } from "@/hooks/use-clock";
 import type { Actions } from "@/hooks/use-connection";
@@ -50,9 +64,11 @@ import {
   entriesOf,
   groupByRole,
   openModel,
+  findPr,
   outcomeOf,
   outcomeSentence,
   readiness,
+  reposOf,
   reviewAgain,
   roleShort,
   staleText,
@@ -66,12 +82,13 @@ import {
 } from "@/lib/batch";
 import { whyNotNeeded } from "@/lib/deep-link";
 import { lastOneLeft, needsYouOrder } from "@/lib/next";
+import { chipsOf, repoOf, worstEnrolment } from "@/lib/repos";
 import { STORAGE_KEYS, browserStorage, readJson, readOpened } from "@/lib/storage";
 import { ago, countdown } from "@/lib/time";
 import { keyboardOpen, sheetBox } from "@/lib/viewport";
 import { cn } from "@/lib/utils";
 import { whoOf, type People } from "@/lib/wording";
-import { Avatar, Kbd, RiskBars } from "./bits";
+import { Avatar, Kbd, RepoChip, RiskBars } from "./bits";
 import { DiffIndicator } from "./diff-indicator";
 import {
   PassphraseField,
@@ -84,34 +101,37 @@ import {
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "./ui/dialog";
 
 export interface Batch {
-  /** Open the batch dialog for these PRs (one or many). */
-  openBatch(prNumbers: ReadonlyArray<number>): void;
+  /** Open the batch dialog for these PRs (one or many, of one repo or several), by PR id. */
+  openBatch(prs: ReadonlyArray<PrId>): void;
 }
 
 const BatchContext = createContext<Batch | null>(null);
 
 export function BatchProvider({
   snapshot,
+  repos,
   signer,
   actions,
   onOpenPr,
   children,
 }: {
   snapshot: Snapshot;
+  /** The repos, with my key's enrolment in each. */
+  repos: ReadonlyArray<RepoInfo>;
   signer: SignerState | null;
   actions: Actions;
   /** Show a PR's details page (a phone's "Open the last one"). */
-  onOpenPr?: (pr: number) => void;
+  onOpenPr?: (pr: PrId) => void;
   children: ReactNode;
 }) {
   // Each opening is a fresh dialog: its own model, steps and passphrase field.
-  const [open, setOpen] = useState<{ numbers: ReadonlyArray<number>; id: number } | null>(null);
-  const openBatch = useCallback((prNumbers: ReadonlyArray<number>) => {
-    if (prNumbers.length) setOpen((o) => ({ numbers: [...prNumbers], id: (o?.id ?? 0) + 1 }));
+  const [open, setOpen] = useState<{ ids: ReadonlyArray<PrId>; id: number } | null>(null);
+  const openBatch = useCallback((ids: ReadonlyArray<PrId>) => {
+    if (ids.length) setOpen((o) => ({ ids: [...ids], id: (o?.id ?? 0) + 1 }));
   }, []);
   const value = useMemo(() => ({ openBatch }), [openBatch]);
   // "Open the last one": the sheet closes first (its history entry is popped), then the page opens.
-  const after = useRef<number | null>(null);
+  const after = useRef<PrId | null>(null);
   useEffect(() => {
     if (open !== null || after.current === null) return;
     const pr = after.current;
@@ -124,8 +144,9 @@ export function BatchProvider({
       {open && (
         <BatchDialog
           key={open.id}
-          numbers={open.numbers}
+          ids={open.ids}
           snapshot={snapshot}
+          repos={repos}
           signer={signer}
           actions={actions}
           onClose={() => setOpen(null)}
@@ -165,28 +186,31 @@ const KBD_ON_NEED = "border-[#0003] bg-[#0002] text-on-need phone:hidden";
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function BatchDialog({
-  numbers,
+  ids,
   snapshot,
+  repos,
   signer,
   actions,
   onClose,
   onOpenPr,
 }: {
-  numbers: ReadonlyArray<number>;
+  ids: ReadonlyArray<PrId>;
   snapshot: Snapshot;
+  repos: ReadonlyArray<RepoInfo>;
   signer: SignerState | null;
   actions: Actions;
   onClose: () => void;
-  onOpenPr?: (pr: number) => void;
+  onOpenPr?: (pr: PrId) => void;
 }) {
-  const { prs, people, repo } = snapshot;
+  const { prs, people } = snapshot;
+  const chips = useMemo(() => chipsOf(repos), [repos]);
   // A phone's sheet is full screen, one history entry deep (back closes it, but not while a
   // sign request is in flight) and kept above the on-screen keyboard.
   const phone = useIsPhone();
   const viewport = useVisualViewport();
   const box = phone ? sheetBox(viewport) : null;
   const keyboard = phone && keyboardOpen(viewport, window.innerHeight);
-  const [model, setModel] = useState(() => openModel(prs, numbers));
+  const [model, setModel] = useState(() => openModel(prs, ids));
   // Which PRs were opened in the UI, as of now: the "not opened" mark.
   const [opened] = useState(() => readOpened(readJson(browserStorage(), STORAGE_KEYS.opened)));
   const [state, dispatch] = useReducer(batchReducer, INITIAL_BATCH);
@@ -201,11 +225,12 @@ function BatchDialog({
     if (state.step !== "unlock") primary.current?.focus();
   }, [state.step]);
 
-  const rows = useMemo(() => batchRows(model, prs, { opened, repo }), [model, prs, opened, repo]);
+  const rows = useMemo(() => batchRows(model, prs, { opened }), [model, prs, opened]);
   // Nods or GitHub approvals: the first picked PR that asks for something decides.
   const kind = useMemo(() => batchKind(model, prs), [model, prs]);
   const included = rows.filter((r) => r.included);
-  const ready = readiness(signer);
+  // One key, enrolled per repo: a batch of nods can count on the worst of its repos.
+  const ready = readiness(signer, worstEnrolment(repos, reposOf(rows)));
   const busy =
     state.step === "signing" ||
     state.step === "approving" ||
@@ -322,14 +347,19 @@ function BatchDialog({
                 phone && onOpenPr
                   ? lastOneLeft(
                       order,
-                      state.result.posted.map((x) => x.pr),
+                      state.result.posted.map((x) => prId(x.repo, x.pr)),
                     )
                   : null
               }
               prs={prs}
+              chips={chips}
               onOpenLast={onOpenPr}
               onRetry={(failed) => {
-                const entries = failed.map((pr) => ({ pr, head_sha: model.heads[pr] ?? "" }));
+                const entries = failed.map((f) => ({
+                  repo: f.repo,
+                  pr: f.pr,
+                  head_sha: model.heads[prId(f.repo, f.pr)] ?? "",
+                }));
                 if (state.step === "approved") approve({ t: "approve", rows: [], entries });
                 else sign({ t: "sign", readiness: ready.state, rows: [], entries });
               }}
@@ -339,6 +369,7 @@ function BatchDialog({
               kind={kind}
               state={state}
               prs={prs}
+              chips={chips}
               rows={rows}
               primary={primary}
               onCancel={onClose}
@@ -356,7 +387,8 @@ function BatchDialog({
               state={state}
               rows={rows}
               people={people}
-              repo={repo}
+              repos={repos}
+              chips={chips}
               me={snapshot.me}
               phone={phone}
               details={details}
@@ -480,7 +512,8 @@ function Review({
   state,
   rows,
   people,
-  repo,
+  repos,
+  chips,
   me,
   phone,
   details,
@@ -491,14 +524,17 @@ function Review({
   state: BatchState;
   rows: ReadonlyArray<BatchRow>;
   people: People;
-  repo: string;
+  repos: ReadonlyArray<RepoInfo>;
+  chips: ReadonlyMap<RepoKey, string>;
   me: string;
   phone: boolean;
   details: boolean;
   onDetails: (open: boolean) => void;
-  onToggle: (pr: number) => void;
+  onToggle: (pr: PrId) => void;
 }) {
   const included = rows.filter((r) => r.included);
+  // What is signed (or approved), per repo: one payload each (ADR 0007, 10).
+  const batchRepos = reposOf(rows).map((key) => repoOf(repos, key) ?? null);
   const locked = state.step !== "review";
   // While the passphrase is asked (and signing after it) a phone shows titles only.
   const compact = phone && locked && state.step !== "approving";
@@ -526,16 +562,17 @@ function Review({
             )}
             {g.rows.map((r) =>
               compact ? (
-                <CompactRow key={r.pr.number} row={r} />
+                <CompactRow key={idOf(r.pr)} row={r} />
               ) : (
                 <ReviewRow
-                  key={r.pr.number}
+                  key={idOf(r.pr)}
                   kind={kind}
                   row={r}
                   people={people}
+                  chips={chips}
                   details={details && !locked}
                   disabled={locked}
-                  onToggle={() => onToggle(r.pr.number)}
+                  onToggle={() => onToggle(idOf(r.pr))}
                 />
               ),
             )}
@@ -559,19 +596,29 @@ function Review({
                     Each approval is a GitHub review of the head commit shown above, as you. Nothing
                     is signed: a new push, a rebase too, needs a new approval.
                   </p>
-                  <p className="text-tx2 m-0 mt-1.5 font-mono text-xs">
-                    {repo} · review APPROVE · commit_id head · by {me}
-                  </p>
+                  {batchRepos.map((r, i) => (
+                    <p key={r?.key ?? i} className="text-tx2 m-0 mt-1.5 font-mono text-xs">
+                      {r?.key ?? "?"} · review APPROVE · commit_id head · by {me}
+                    </p>
+                  ))}
                 </div>
               ) : (
                 <div className="mt-2 leading-[1.55]">
                   <p className="m-0">
-                    One signature covers each head commit and patch-id shown above. A clean rebase
-                    keeps it valid; a content change does not.
+                    {batchRepos.length > 1
+                      ? "One signature per repository, each over its head commits and patch-ids shown above, all made with one unlock. "
+                      : "One signature covers each head commit and patch-id shown above. "}
+                    A clean rebase keeps it valid; a content change does not.
                   </p>
-                  <p className="text-tx2 m-0 mt-1.5 font-mono text-xs">
-                    {repo} · verdict approve · level review · reviewer {me}
-                  </p>
+                  {batchRepos.map((r, i) => (
+                    <p
+                      key={r?.key ?? i}
+                      className="text-tx2 m-0 mt-1.5 font-mono text-xs [overflow-wrap:anywhere]"
+                    >
+                      {r && r.github.host !== "github.com" ? `${r.github.host} · ` : ""}
+                      repo {r?.name ?? "?"} · verdict approve · level review · reviewer {me}
+                    </p>
+                  ))}
                 </div>
               ))}
           </div>
@@ -661,6 +708,7 @@ function ReviewRow({
   kind,
   row,
   people,
+  chips,
   details,
   disabled,
   onToggle,
@@ -668,6 +716,7 @@ function ReviewRow({
   kind: BatchKind;
   row: BatchRow;
   people: People;
+  chips: ReadonlyMap<RepoKey, string>;
   details: boolean;
   disabled: boolean;
   onToggle: () => void;
@@ -700,6 +749,7 @@ function ReviewRow({
       <div className="text-tx3 mt-0.5 flex min-w-0 items-center gap-[7px] overflow-hidden text-[12.5px] whitespace-nowrap phone:flex-wrap phone:gap-y-1 phone:overflow-visible phone:text-[13px]">
         <Avatar login={pr.prompter} people={people} />
         <span>{who === "you" ? "you" : who}</span>
+        <RepoChip repo={pr.repo} chips={chips} />
         <DiffIndicator inline added={pr.diff.added} removed={pr.diff.removed} />
         <RiskBars risk={pr.risk} className={cn(pr.risk === 0 && "hidden")} />
         {row.notOpened && row.included && (
@@ -956,6 +1006,7 @@ function Signed({
   primary,
   last,
   prs,
+  chips,
   onOpenLast,
   onRetry,
 }: {
@@ -967,14 +1018,16 @@ function Signed({
   signer: SignerState | null;
   primary: RefObject<HTMLButtonElement | null>;
   /** A phone's "Open the last one": the one PR that still needs me, when exactly one does. */
-  last: number | null;
+  last: PrId | null;
   prs: ReadonlyArray<PrView>;
-  onOpenLast?: (pr: number) => void;
-  onRetry: (failed: ReadonlyArray<number>) => void;
+  chips: ReadonlyMap<RepoKey, string>;
+  onOpenLast?: (pr: PrId) => void;
+  onRetry: (failed: ReadonlyArray<PrRef>) => void;
 }) {
   const now = useNow(SECOND);
   const approved = kind === "approve";
-  const posted = shown.filter((p) => result.posted.some((x) => x.pr === p.number));
+  const of = (pr: PrView) => (x: PrRef) => x.pr === pr.number && sameRepo(x.repo, pr.repo);
+  const posted = shown.filter((p) => result.posted.some(of(p)));
   const failed = result.failed;
   const title =
     failed.length === 0
@@ -989,7 +1042,7 @@ function Signed({
     : signer?.state === "unlocked"
       ? `Signing stays unlocked for ${countdown(signer.until, now)}.`
       : "Signing is locked again.";
-  const lastPr = last === null ? null : (prs.find((p) => p.number === last) ?? null);
+  const lastPr = last === null ? null : (findPr(prs, last) ?? null);
   return (
     <>
       <SheetBar />
@@ -1017,20 +1070,23 @@ function Signed({
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-[30px] pt-2.5 pb-2 phone:px-4 phone:pt-3">
         {shown.map((pr) => {
-          const fail = failed.find((f) => f.pr === pr.number);
-          const url = result.posted.find((x) => x.pr === pr.number)?.url;
+          const fail = failed.find(of(pr));
+          const url = result.posted.find(of(pr))?.url;
           const outcome = outcomeOf(pr, people, "after");
           return (
             <div
-              key={pr.number}
+              key={idOf(pr)}
               className="border-line grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-3 border-t py-2.5 phone:grid-cols-[24px_minmax(0,1fr)] phone:items-start phone:gap-x-0 phone:gap-y-0.5"
             >
               <span className={cn("font-bold", fail ? "text-bad" : "text-ok")} aria-hidden>
                 {fail ? "✕" : "✓"}
               </span>
               <div className="min-w-0">
-                <div className="truncate phone:whitespace-normal phone:[overflow-wrap:anywhere]">
-                  {pr.title}
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="min-w-0 truncate phone:whitespace-normal phone:[overflow-wrap:anywhere]">
+                    {pr.title}
+                  </span>
+                  <RepoChip repo={pr.repo} chips={chips} />
                 </div>
                 {fail && <div className="text-bad mt-0.5 text-[12.5px]">{fail.message}</div>}
               </div>
@@ -1074,7 +1130,7 @@ function Signed({
         <span className={FOOTER_NOTE}>{note}</span>
         <span className="flex-1 phone:hidden" />
         {failed.length > 0 && (
-          <button type="button" className={GHOST} onClick={() => onRetry(failed.map((f) => f.pr))}>
+          <button type="button" className={GHOST} onClick={() => onRetry(failed)}>
             Retry {plural(failed.length, approved ? "approval" : "post")}
           </button>
         )}
@@ -1087,7 +1143,7 @@ function Signed({
               ref={primary}
               type="button"
               className={PRIMARY}
-              onClick={() => onOpenLast(lastPr.number)}
+              onClick={() => onOpenLast(idOf(lastPr))}
             >
               Open the last one
             </button>
@@ -1109,6 +1165,7 @@ function Stale({
   kind,
   state,
   prs,
+  chips,
   rows,
   primary,
   onCancel,
@@ -1116,12 +1173,15 @@ function Stale({
   kind: BatchKind;
   state: Extract<BatchState, { step: "stale" }>;
   prs: ReadonlyArray<PrView>;
+  chips: ReadonlyMap<RepoKey, string>;
   rows: ReadonlyArray<BatchRow>;
   primary: RefObject<HTMLButtonElement | null>;
   onCancel: () => void;
 }) {
   const { stale } = state;
-  const unchanged = rows.filter((r) => r.included && !stale.some((s) => s.pr === r.pr.number));
+  const unchanged = rows.filter(
+    (r) => r.included && !stale.some((s) => s.pr === r.pr.number && sameRepo(s.repo, r.pr.repo)),
+  );
   return (
     <>
       <Header title={`Nothing was ${kind === "approve" ? "approved" : "signed"}`}>
@@ -1135,10 +1195,10 @@ function Stale({
       <div className="min-h-0 flex-1 overflow-auto px-[30px] pt-2.5 pb-2 phone:px-4">
         <div className="text-tx3 mt-4 pb-1.5 text-[12.5px]">Changed since you looked</div>
         {stale.map((s) => {
-          const pr = prs.find((p) => p.number === s.pr) ?? null;
+          const pr = findPr(prs, prId(s.repo, s.pr)) ?? null;
           return (
             <div
-              key={s.pr}
+              key={prId(s.repo, s.pr)}
               className="border-line grid grid-cols-[20px_minmax(0,1fr)] items-center gap-3 border-t py-2.5"
             >
               <span className="text-need font-bold" aria-hidden>
@@ -1146,8 +1206,9 @@ function Stale({
               </span>
               <div className="min-w-0">
                 <div className="truncate">{pr?.title ?? `#${s.pr}`}</div>
-                <div className="text-tx3 mt-0.5 text-[12.5px]">
-                  #{s.pr} · <span className="font-mono text-xs">{staleText(s, null)}</span>
+                <div className="text-tx3 mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[12.5px]">
+                  <RepoChip repo={s.repo} chips={chips} />#{s.pr} ·{" "}
+                  <span className="font-mono text-xs">{staleText(s, null)}</span>
                   {pr && ` · ${pr.lastActivity.text}`}
                 </div>
               </div>

@@ -147,6 +147,8 @@ export interface MenuOffer {
   readonly rung: Rung;
   readonly title: string;
   readonly line: string;
+  /** The repo it is about, by key: named only when there are several (ADR 0007, 11). */
+  readonly repo?: string;
 }
 
 /**
@@ -171,8 +173,8 @@ export function Me({
   people: ReadonlyArray<Person>;
   /** The ladder's steps offered to me, in order. */
   offers?: ReadonlyArray<MenuOffer>;
-  /** Opens the setup page, on a step or on the next one. */
-  onSetup: (rung?: Rung) => void;
+  /** Opens the setup page, on a step (of a repo) or on the next one. */
+  onSetup: (rung?: Rung, repo?: string) => void;
   /** Shows the legend again (phone only). */
   onLegend?: () => void;
   /** `nod serve --fake`: said in the menu on a phone, where the top bar has no room. */
@@ -204,16 +206,18 @@ export function Me({
             </p>
             {offers.map((o) => (
               <button
-                key={o.rung}
+                key={`${o.repo ?? ""}:${o.rung}`}
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  onSetup(o.rung);
+                  onSetup(o.rung, o.repo);
                 }}
                 className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
               >
                 {o.title}
-                <span className="text-tx3 fs-code block">{o.line}</span>
+                <span className="text-tx3 fs-code block [overflow-wrap:anywhere]">
+                  {o.repo ? `${o.repo} · ${o.line}` : o.line}
+                </span>
               </button>
             ))}
           </div>

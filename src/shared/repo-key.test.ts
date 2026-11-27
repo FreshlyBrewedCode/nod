@@ -1,14 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  chipLabels,
-  idOf,
-  parsePrId,
-  parseRepoKey,
-  prId,
-  repoKey,
-  sameRepo,
-} from "./repo-key";
+import { chipLabels, idOf, parsePrId, parseRepoKey, prId, repoKey, sameRepo } from "./repo-key";
 
 describe("repo keys (ADR 0007)", () => {
   test("github.com leaves the host out; every other host is named, lowercase", () => {
@@ -46,7 +38,8 @@ describe("repo keys (ADR 0007)", () => {
       repo: "acme.ghe.com/finance/ledger",
       number: 57,
     });
-    for (const bad of ["482", "a/b#", "a/b#0", "a/b#x", "nope#1"]) expect(parsePrId(bad)).toBeNull();
+    for (const bad of ["482", "a/b#", "a/b#0", "a/b#x", "nope#1"])
+      expect(parsePrId(bad)).toBeNull();
   });
 });
 

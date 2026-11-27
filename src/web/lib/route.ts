@@ -6,6 +6,9 @@
  *   #/board                            the board
  *   #/setup                            the setup page: the ladder, on the next step
  *   #/setup/<step>                     on that step: inbox, shared-policy, signing, enforced
+ *   #/setup/[<host>/]<owner>/<repo>[/<step>]
+ *                                      the same for one repo of several (ADR 0007, 11);
+ *                                      the host only off github.com, as in deep links
  *   #/forward?to=https://<name[:port]> asks the hosted page to remember where this
  *                                      browser's nod is (`lib/forward.ts`, ADR 0005 §7)
  *   #/pr/<owner>/<repo>/<n>            a deep link to one PR: its landing
@@ -31,6 +34,8 @@
  */
 
 import { GITHUB_COM, hostName } from "../../kit/host.ts";
+import type { RepoKey } from "../../shared/protocol";
+import { parseRepoKey, repoKey } from "../../shared/repo-key";
 
 export type Route =
   | { readonly view: "list" }
@@ -38,6 +43,8 @@ export type Route =
   | { readonly view: "board" }
   | {
       readonly view: "setup";
+      /** The repo, by its key; none: the card's repo, else the first (`setupRepoOf`). */
+      readonly repo?: RepoKey;
       /** The ladder's step to open on; none: the next one (`setupRungOf`). */
       readonly step?: SetupStep;
     }
@@ -104,11 +111,7 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 0) return LIST;
   if (parts.length === 1 && parts[0] === "chrono") return { view: "chrono" };
   if (parts.length === 1 && parts[0] === "board") return { view: "board" };
-  if (parts.length === 1 && parts[0] === "setup") return { view: "setup" };
-  if (parts.length === 2 && parts[0] === "setup")
-    return (SETUP_STEPS as ReadonlyArray<string>).includes(parts[1]!)
-      ? { view: "setup", step: parts[1] as SetupStep }
-      : { view: "setup" };
+  if (parts[0] === "setup") return setupRoute(parts.slice(1));
   if (parts.length === 1 && parts[0] === "forward") {
     const to = new URLSearchParams(params).getAll("to");
     return { view: "forward", to: to.length === 1 ? to[0]! : null };
@@ -129,6 +132,36 @@ export function parseRoute(hash: string): Route {
   return LIST;
 }
 
+/** GitHub owners have no dots: that tells `<host>/<owner>/<repo>` from `<owner>/<repo>/<step>`. */
+const OWNER = /^[\w-]+$/;
+
+/** A repo key from two (`owner/repo`) or three (`host/owner/repo`) route parts; else null. */
+function repoFrom(parts: ReadonlyArray<string>): RepoKey | null {
+  if (parts.length !== 2 && parts.length !== 3) return null;
+  const host = parts.length === 3 ? hostName(parts[0]!) : GITHUB_COM;
+  const [owner = "", name = ""] = parts.slice(-2);
+  if (!host || !OWNER.test(owner) || !NAME.test(name)) return null;
+  return repoKey(host, `${owner}/${name}`);
+}
+
+/**
+ * `#/setup/…`: an optional repo, then an optional step. A last part that is
+ * a step word is the step unless the parts before it are no repo (a repo
+ * may be called `signing`). Anything else: the plain setup page.
+ */
+function setupRoute(rest: ReadonlyArray<string>): Route {
+  if (rest.length === 0) return { view: "setup" };
+  const last = rest.at(-1)!;
+  if ((SETUP_STEPS as ReadonlyArray<string>).includes(last)) {
+    const step = last as SetupStep;
+    if (rest.length === 1) return { view: "setup", step };
+    const repo = repoFrom(rest.slice(0, -1));
+    if (repo) return { view: "setup", repo, step };
+  }
+  const repo = repoFrom(rest);
+  return repo ? { view: "setup", repo } : { view: "setup" };
+}
+
 const repoPath = (host: string, repo: string) => {
   const [owner = "", name = ""] = repo.split("/");
   const path = `${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
@@ -143,8 +176,11 @@ export function formatRoute(route: Route): string {
       return "#/chrono";
     case "board":
       return "#/board";
-    case "setup":
-      return route.step ? `#/setup/${route.step}` : "#/setup";
+    case "setup": {
+      const parsed = route.repo ? parseRepoKey(route.repo) : null;
+      const repo = parsed ? `/${repoPath(parsed.host, parsed.name)}` : "";
+      return `#/setup${repo}${route.step ? `/${route.step}` : ""}`;
+    }
     case "forward":
       return route.to === null ? "#/forward" : `#/forward?to=${encodeURIComponent(route.to)}`;
     case "pr":

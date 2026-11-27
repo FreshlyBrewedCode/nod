@@ -14,7 +14,8 @@
  *   calm page each (`components/onboarding.tsx`). Nothing else gates (ADR
  *   0006): no setup, no key;
  * - the setup page at `#/setup` and `#/setup/<step>`: the ladder, where the
- *   steps the dashboard offers are done;
+ *   steps the dashboard offers are done; with several repos, of the repo
+ *   in the route (`#/setup/<repo>/<step>`), else of the first with an offer;
  * - the dashboard once a snapshot is in (a deep link shows its landing there).
  *   A socket that drops keeps it: the last view stays, with a hint
  *   (`lib/reconnect.ts`), not the page for "not running".
@@ -24,10 +25,10 @@ import { ClockProvider } from "@/hooks/use-clock";
 import { ConnectionProvider, useConnection } from "@/hooks/use-connection";
 import { useForward } from "@/hooks/use-forward";
 import { useRoute } from "@/hooks/use-route";
-import { githubOf } from "@/lib/deep-link";
 import { offerFor } from "@/lib/forward";
 import { isFramed } from "@/lib/guard";
-import { landingOf, setupRungOf } from "@/lib/onboarding";
+import { landingOf, setupRepoOf, setupRungOf } from "@/lib/onboarding";
+import { githubOfRepo } from "@/lib/repos";
 import { isStandalone } from "@/lib/phone";
 import { isLinkRoute } from "@/lib/route";
 import { Dashboard } from "./components/dashboard";
@@ -49,7 +50,7 @@ export function App() {
 }
 
 function Gate() {
-  const { status, welcome, snapshot, signer, setup, actions, reconnects } = useConnection();
+  const { status, welcome, snapshot, signer, repos, actions, reconnects } = useConnection();
   const [route, go] = useRoute();
   const forward = useForward();
   const linkRoute = isLinkRoute(route) ? route : null;
@@ -82,27 +83,43 @@ function Gate() {
   // A drop keeps the last view (the dashboard says so after a moment); a
   // refused pairing or another protocol is no drop and gets its page.
   if ((!snapshot && status !== "open") || status === "refused" || status === "outdated")
-    return <ConnectionPage status={status} reconnects={reconnects} unpaired={unpaired} />;
-
-  if (welcome && setup) {
-    const landing = landingOf({ me: welcome.me, setup });
-    if (landing === "sign-in") return <SignInPage github={githubOf(welcome)} />;
-    if (landing === "pick-repo" && welcome.me)
-      return <PickRepoPage me={welcome.me} setup={setup} actions={actions} />;
-  }
-  if (welcome && setup && signer && route.view === "setup") {
-    const ladder = { me: welcome.me, setup, signer };
     return (
-      <SetupPage
-        {...ladder}
-        github={githubOf(welcome)}
-        people={snapshot?.people ?? []}
-        actions={actions}
-        step={setupRungOf(ladder, route.step ?? null)}
-        onStep={(step) => go({ view: "setup", step }, { replace: true })}
-        onLeave={snapshot ? () => go({ view: "list" }) : null}
+      <ConnectionPage
+        status={status}
+        reconnects={reconnects}
+        unpaired={unpaired}
+        serverProtocol={welcome?.protocol ?? null}
       />
     );
+
+  if (welcome && repos) {
+    const landing = landingOf({ me: welcome.me, repos });
+    if (landing === "sign-in") return <SignInPage github={githubOfRepo(repos, repos[0]?.key)} />;
+    if (landing === "pick-repo" && welcome.me)
+      return <PickRepoPage me={welcome.me} actions={actions} />;
+  }
+  if (welcome && repos && signer && route.view === "setup") {
+    const ladder = setupRepoOf(
+      repos.map((repo) => ({ me: welcome.me, repo, signer })),
+      route.repo ?? null,
+    );
+    if (ladder) {
+      const asked = route.repo ? { repo: route.repo } : {};
+      return (
+        <SetupPage
+          {...ladder}
+          // Another repo is another page: its own steps' state.
+          key={ladder.repo.key}
+          repos={repos}
+          people={snapshot?.people ?? []}
+          actions={actions}
+          step={setupRungOf(ladder, route.step ?? null)}
+          onStep={(step) => go({ view: "setup", ...asked, step }, { replace: true })}
+          onRepo={(repo) => go({ view: "setup", repo }, { replace: true })}
+          onLeave={snapshot ? () => go({ view: "list" }) : null}
+        />
+      );
+    }
   }
 
   if (snapshot)
@@ -111,7 +128,7 @@ function Gate() {
         snapshot={snapshot}
         welcome={welcome}
         signer={signer}
-        setup={setup}
+        repos={repos ?? []}
         status={status}
         actions={actions}
         route={route}

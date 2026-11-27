@@ -5,8 +5,8 @@
  *
  *   const { status, welcome, snapshot, signer, actions } = useConnection();
  *   await actions.unlock(passphrase, { minutes: 15 });
- *   await actions.sign([{ pr: 482, head_sha: pr.headSha }]);
- *   await actions.approve([{ pr: 482, head_sha: pr.headSha }]);
+ *   await actions.sign([{ repo: pr.repo, pr: 482, head_sha: pr.headSha }]);
+ *   await actions.approve([{ repo: pr.repo, pr: 482, head_sha: pr.headSha }]);
  *
  * Actions resolve with the request's result and reject with `RequestFailed`
  * (its `code` is the protocol's error code, or `offline` / `timeout`). The
@@ -25,7 +25,13 @@ import {
   type ReactNode,
 } from "react";
 
-import type { RequestBody, RequestResult, RequestType, SignEntry } from "../../shared/protocol";
+import type {
+  PrRef,
+  RequestBody,
+  RequestResult,
+  RequestType,
+  SignEntry,
+} from "../../shared/protocol";
 import {
   INITIAL_STATE,
   NodClient,
@@ -47,14 +53,14 @@ export interface Actions {
     options?: { minutes?: number; once?: boolean },
   ): Promise<RequestResult<"unlock">>;
   lock(): Promise<RequestResult<"lock">>;
-  /** Nod a batch at the heads the user looked at; `note` is the comment's human line. */
+  /** Nod a batch (it may span repos) at the heads the user looked at; `note` is the comment's human line. */
   sign(
     entries: ReadonlyArray<SignEntry>,
     options?: { note?: string },
   ): Promise<RequestResult<"sign">>;
   /** Approve a batch on GitHub at the heads the user looked at: no key, no unlock (ADR 0006). */
   approve(entries: ReadonlyArray<SignEntry>): Promise<RequestResult<"approve">>;
-  ackFyi(pr: number): Promise<RequestResult<"ack-fyi">>;
+  ackFyi(pr: PrRef): Promise<RequestResult<"ack-fyi">>;
   refresh(): Promise<RequestResult<"refresh">>;
   /** Forget this browser's pairing (it needs the host link again). */
   unpair(): void;
@@ -125,7 +131,7 @@ export function useNodConnection(): Connection {
       lock: () => request("lock", {}),
       sign: (entries, options = {}) => request("sign", { entries, verdict: "approve", ...options }),
       approve: (entries) => request("approve", { entries }),
-      ackFyi: (pr) => request("ack-fyi", { pr }),
+      ackFyi: (ref) => request("ack-fyi", ref),
       refresh: () => request("refresh", {}),
       unpair: () => {
         forgetPairing(window.localStorage);

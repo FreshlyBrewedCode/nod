@@ -11,7 +11,7 @@
 import { Lock, LockOpen } from "lucide-react";
 import { useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 
-import { DEFAULT_UNLOCK_MINUTES, type SignerState } from "../../shared/protocol";
+import { DEFAULT_UNLOCK_MINUTES, type Enrolment, type SignerState } from "../../shared/protocol";
 import { SECOND, useNow } from "@/hooks/use-clock";
 import type { Actions } from "@/hooks/use-connection";
 import { readiness, type Failure, type Readiness } from "@/lib/batch";
@@ -192,12 +192,22 @@ const CHIP =
 /**
  * The lock chip. Unlocked: a countdown, and a click locks. Locked: a click
  * opens a small popover to unlock (the same rules as in the dialog). No key
- * or a pending key: quiet, with a popover that says what to do.
+ * or a pending key: quiet, with a popover that says what to do. One key for
+ * every repo: `enrolment` is the best of them (`bestEnrolment`), so the chip
+ * says "pending" or "not enrolled" only when the key signs in none.
  */
-export function LockChip({ signer, actions }: { signer: SignerState | null; actions: Actions }) {
+export function LockChip({
+  signer,
+  enrolment,
+  actions,
+}: {
+  signer: SignerState | null;
+  enrolment: Enrolment | null;
+  actions: Actions;
+}) {
   const now = useNow(SECOND);
   const [open, setOpen] = useState(false);
-  const ready = readiness(signer);
+  const ready = readiness(signer, enrolment);
 
   if (signer?.state === "unlocked" && ready.state === "unlocked")
     return (

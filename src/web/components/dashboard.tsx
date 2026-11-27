@@ -5,6 +5,11 @@
  * open clusters, the panel and the drawer) and hands it to rows and cards
  * through `useDashboard`. Above the list, the offer card: the next step of
  * the ladder (`offer.tsx`); the avatar menu lists every step offered.
+ *
+ * Many repos (ADR 0007): one inbox of every repo's PRs, each row with its
+ * repo chip once there is more than one (`chipsOf`); a PR is its id
+ * (`<repo>#<n>`) for focus, selection and the batch. With one repo the top
+ * bar names it and nothing else changes.
  */
 
 import {
@@ -31,16 +36,24 @@ import {
   type ColumnKind,
   type StateColumnId,
 } from "../../shared/attention";
-import { ladderStepOf } from "../../shared/protocol";
-import type { PrView, SetupStatus, SignerState, Snapshot, Welcome } from "../../shared/protocol";
+import type {
+  PrId,
+  PrView,
+  RepoInfo,
+  RepoKey,
+  SignerState,
+  Snapshot,
+  Welcome,
+} from "../../shared/protocol";
+import { idOf } from "../../shared/repo-key";
 import type { Actions } from "@/hooks/use-connection";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useReconnectNotice } from "@/hooks/use-reconnect-notice";
 import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
 import { useBackStop } from "@/hooks/use-back-stop";
 import { useIsPhone } from "@/hooks/use-is-phone";
-import { canSignWith } from "@/lib/batch";
-import { githubOf } from "@/lib/deep-link";
+import { canSignWith, findPr } from "@/lib/batch";
+import { bestEnrolment, chipsOf, enrolmentIn, githubOfRepo } from "@/lib/repos";
 import { forwardSetupUrl } from "@/lib/forward";
 import type { Status } from "@/lib/connection";
 import {
@@ -59,11 +72,12 @@ import {
   cardOf,
   dismiss,
   keyStateOf,
-  offerKey,
+  offerKeyOf,
   offerWords,
   offersOf,
   readDismissed,
   type Rung,
+  type ServerState,
 } from "@/lib/onboarding";
 import { isLinkRoute, viewFor, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
@@ -96,7 +110,8 @@ export interface DashboardProps {
   readonly snapshot: Snapshot;
   readonly welcome: Welcome | null;
   readonly signer: SignerState | null;
-  readonly setup: SetupStatus | null;
+  /** The repos, with their setup and my enrolment (ADR 0007). */
+  readonly repos: ReadonlyArray<RepoInfo>;
   readonly status: Status;
   readonly actions: Actions;
   readonly route: Route;
@@ -106,10 +121,11 @@ export interface DashboardProps {
 export function Dashboard(props: DashboardProps) {
   // "Open the last one" on the sign sheet (above the dashboard) shows a PR's page, which is
   // the dashboard's: the dashboard registers how.
-  const openPr = useRef<(pr: number) => void>(() => {});
+  const openPr = useRef<(pr: PrId) => void>(() => {});
   return (
     <BatchProvider
       snapshot={props.snapshot}
+      repos={props.repos}
       signer={props.signer}
       actions={props.actions}
       onOpenPr={(pr) => openPr.current(pr)}
@@ -154,13 +170,13 @@ function DashboardInner({
   snapshot,
   welcome,
   signer,
-  setup,
+  repos,
   status,
   actions,
   route,
   go,
   openPrRef,
-}: DashboardProps & { openPrRef: { current: (pr: number) => void } }) {
+}: DashboardProps & { openPrRef: { current: (pr: PrId) => void } }) {
   const { openBatch } = useBatch();
   const notice = useReconnectNotice(status === "open");
   const now = useNow(MINUTE);
@@ -169,21 +185,25 @@ function DashboardInner({
   const phone = useIsPhone();
   const view: View = viewFor(route, phone);
   const me = snapshot.me;
+  const chips = useMemo(() => chipsOf(repos), [repos]);
 
   // -- FYI acks leave the lane at once; the next snapshot confirms ---------
   // Kept until the snapshot says so (an ack that failed is dropped again).
-  const [acking, setAcking] = useState<ReadonlySet<number>>(new Set());
+  const [acking, setAcking] = useState<ReadonlySet<PrId>>(new Set());
   const prs = useMemo(
     () =>
       acking.size
-        ? snapshot.prs.map((p) => (acking.has(p.number) ? { ...p, fyiForMe: false } : p))
+        ? snapshot.prs.map((p) => (acking.has(idOf(p)) ? { ...p, fyiForMe: false } : p))
         : snapshot.prs,
     [snapshot.prs, acking],
   );
   const ackFyi = useCallback(
-    (pr: number) => {
-      setAcking((a) => new Set(a).add(pr));
-      actions.ackFyi(pr).catch(() => setAcking((a) => new Set([...a].filter((n) => n !== pr))));
+    (pr: PrView) => {
+      const id = idOf(pr);
+      setAcking((a) => new Set(a).add(id));
+      actions
+        .ackFyi({ repo: pr.repo, pr: pr.number })
+        .catch(() => setAcking((a) => new Set([...a].filter((n) => n !== id))));
     },
     [actions],
   );
@@ -215,11 +235,12 @@ function DashboardInner({
     setGroup(g);
   };
   // The inbox step asks for no key: what waits on me there is a review on GitHub.
-  const inbox = setup !== null && ladderStepOf(setup) === "inbox";
-  const keyNote = inbox ? null : keyNoteOf(signer);
+  const inbox = repos.length > 0 && repos.every((r) => r.setup.step === "inbox");
+  // One key for every repo: the "You" column is muted only when it signs in none of them.
+  const keyNote = inbox ? null : keyNoteOf(signer, bestEnrolment(repos));
   const columns = useMemo(
-    () => (view === "board" ? boardColumns(prs, group, snapshot, now, keyNote) : []),
-    [view, prs, group, snapshot, now, keyNote],
+    () => (view === "board" ? boardColumns(prs, group, snapshot, now, keyNote, chips) : []),
+    [view, prs, group, snapshot, now, keyNote, chips],
   );
   const columnKeys = useMemo(
     () => columns.map((c) => itemKeys(c.items, expanded)),
@@ -267,7 +288,7 @@ function DashboardInner({
 
   // -- focus -------------------------------------------------------------------
   // `pr`: the last PR that had focus; the panel keeps it while a cluster has focus.
-  const [focusState, setFocusState] = useState<{ key: FocusKey | null; pr: number | null }>({
+  const [focusState, setFocusState] = useState<{ key: FocusKey | null; pr: PrId | null }>({
     key: null,
     pr: null,
   });
@@ -288,24 +309,21 @@ function DashboardInner({
     });
   }, [keys]);
   const panelPr = prOfKey(focus) ?? focusState.pr;
-  const shownPr = panelPr === null ? null : (prs.find((p) => p.number === panelPr) ?? null);
+  const shownPr = panelPr === null ? null : (findPr(prs, panelPr) ?? null);
   // A phone shows the details as a full-screen page, one history entry deep: back closes it.
   const pageOpen = phone && drawerOpen && shownPr !== null && !onBoard;
   useBackStop(pageOpen, () => setDrawerOpen(false));
   const needOrder = useMemo(() => needsYouOrder(lanes[0]!.items), [lanes]);
 
   // "Opened in the UI", per PR, for the batch dialog's "not opened" mark.
+  const shownRepo = shownPr?.repo ?? null;
   const shownNumber = shownPr?.number ?? null;
   useEffect(() => {
-    if (!panelOpen || shownNumber === null) return;
+    if (!panelOpen || shownNumber === null || shownRepo === null) return;
     const storage = browserStorage();
     const opened = readOpened(readJson(storage, STORAGE_KEYS.opened));
-    writeJson(
-      storage,
-      STORAGE_KEYS.opened,
-      markOpened(opened, snapshot.repo, shownNumber, Date.now()),
-    );
-  }, [panelOpen, shownNumber, snapshot.repo]);
+    writeJson(storage, STORAGE_KEYS.opened, markOpened(opened, shownRepo, shownNumber, Date.now()));
+  }, [panelOpen, shownNumber, shownRepo]);
 
   // Closing the drawer gives the DOM focus back to its card.
   const wasDrawerOpen = useRef(false);
@@ -317,22 +335,19 @@ function DashboardInner({
 
   // -- selection -----------------------------------------------------------------
   const [selection, dispatch] = useReducer(selectionReducer, []);
-  const selectableNumbers = useMemo(
-    () => prs.filter((p) => selectable(p)).map((p) => p.number),
-    [prs],
-  );
-  useEffect(() => dispatch({ t: "keep", prs: selectableNumbers }), [selectableNumbers]);
+  const selectableIds = useMemo(() => prs.filter((p) => selectable(p)).map(idOf), [prs]);
+  useEffect(() => dispatch({ t: "keep", prs: selectableIds }), [selectableIds]);
   const toggleSelected = useCallback(
-    (pr: number) => {
-      if (selectableNumbers.includes(pr)) dispatch({ t: "toggle", pr });
+    (pr: PrId) => {
+      if (selectableIds.includes(pr)) dispatch({ t: "toggle", pr });
     },
-    [selectableNumbers],
+    [selectableIds],
   );
 
   // -- a deep link shows its landing; "Open" there shows the PR in the list --
   const landing = isLinkRoute(route) ? route : null;
   const openInList = useCallback(
-    (pr: number) => {
+    (pr: PrId) => {
       setFocusState({ key: prKey(pr), pr });
       setPrefs((p) => ({ ...p, open: true }));
       // On a phone "Open" shows the PR's page over the list.
@@ -432,7 +447,7 @@ function DashboardInner({
       if (s.onLanding) return;
       const board = s.view === "board";
       const focusedPr = prOfKey(s.focus);
-      const pr = focusedPr === null ? null : s.prs.find((p) => p.number === focusedPr);
+      const pr = focusedPr === null ? null : findPr(s.prs, focusedPr);
       const move = (delta: number, boardMove: BoardMove) => {
         e.preventDefault();
         scrollOnFocus.current = true;
@@ -470,14 +485,14 @@ function DashboardInner({
           if (s.selection.length) return dispatch({ t: "clear" });
           return;
         case "x":
-          if (pr && selectable(pr)) dispatch({ t: "toggle", pr: pr.number });
+          if (pr && selectable(pr)) dispatch({ t: "toggle", pr: idOf(pr) });
           return;
         case "s":
           if (s.selection.length) return openBatch(s.selection);
-          if (pr?.ask) return openBatch([pr.number]);
+          if (pr?.ask) return openBatch([idOf(pr)]);
           return;
         case "e":
-          if (pr?.fyiForMe) ackFyi(pr.number);
+          if (pr?.fyiForMe) ackFyi(pr);
           return;
       }
     };
@@ -503,30 +518,40 @@ function DashboardInner({
     setLegendAsked(true);
     document.getElementById("list-scroll")?.scrollTo({ top: 0 });
   };
-  const showLegend = legendAsked || (!legendDismissed && (firstRun || setup?.state === "pending"));
+  const firstSetup = repos.length > 0 && repos.every((r) => r.setup.state === "pending");
+  const showLegend = legendAsked || (!legendDismissed && (firstRun || firstSetup));
 
   // -- the ladder's offers: one card, every one in the avatar menu -------------
+  // Per repo (ADR 0007, 11): the card is the first repo's next step; the menu lists all.
   const [dismissed, setDismissed] = useState(() =>
     readDismissed(readJson(browserStorage(), STORAGE_KEYS.offers)),
   );
-  const ladder = welcome && setup && signer ? { me: welcome.me, setup, signer } : null;
-  const offers = ladder ? offersOf(ladder) : [];
-  const github = githubOf(welcome);
-  const card = ladder ? cardOf(ladder, dismissed, github.host) : null;
+  const many = repos.length > 1;
+  const ladders: ServerState[] =
+    welcome && signer ? repos.map((repo) => ({ me: welcome.me, repo, signer })) : [];
+  const card = cardOf(ladders, dismissed);
   const dismissCard = () => {
-    if (!card || !setup?.repo) return;
-    const next = dismiss(dismissed, offerKey(github.host, setup.repo, card));
+    if (!card) return;
+    const next = dismiss(dismissed, offerKeyOf(card.repo, card.offer));
     writeJson(browserStorage(), STORAGE_KEYS.offers, next);
     setDismissed(next);
   };
-  const toSetup = (rung?: Rung) => go(rung ? { view: "setup", step: rung } : { view: "setup" });
-  const keyState = signer ? keyStateOf(signer) : "none";
-  const menuOffers = offers.map((o) => ({ rung: o.rung, ...offerWords(o, keyState) }));
+  const toSetup = (rung?: Rung, repo?: RepoKey) =>
+    go({ view: "setup", ...(many && repo && { repo }), ...(rung && { step: rung }) });
+  const menuOffers = ladders.flatMap(({ repo }, i) =>
+    offersOf(ladders[i]!).map((o) => ({
+      rung: o.rung,
+      ...offerWords(o, signer ? keyStateOf(signer, repo.enrolment) : "none"),
+      ...(many && { repo: repo.key }),
+    })),
+  );
 
   const since = useLastVisit(now);
   const state: DashboardState = {
     snapshot,
-    github,
+    repos,
+    chips,
+    githubOf: (pr) => githubOfRepo(repos, pr.repo),
     me,
     people: snapshot.people,
     focus,
@@ -540,7 +565,7 @@ function DashboardInner({
     setPanelOpen,
     ackFyi,
     openBatch,
-    signing: canSignWith(signer),
+    signingIn: (pr) => canSignWith(signer, enrolmentIn(repos, pr.repo)),
   };
 
   const needs = lanes[0]!;
@@ -573,20 +598,24 @@ function DashboardInner({
         )}
       >
         {showLegend && <Legend onDismiss={dismissLegend} />}
-        {card && setup && signer && (
+        {card && signer && (
           <OfferCard
-            key={offerKey(github.host, setup.repo ?? "", card)}
-            offer={card}
-            setup={setup}
+            key={offerKeyOf(card.repo, card.offer)}
+            offer={card.offer}
+            repo={card.repo}
+            named={many}
             signer={signer}
-            onTake={() => toSetup(card.rung)}
+            onTake={() => toSetup(card.offer.rung, card.repo.key)}
             onDismiss={dismissCard}
           />
         )}
         {view === "chrono" && !firstRun ? (
           buckets.map((b) => <BucketSection key={b.id} bucket={b} />)
         ) : firstRun ? (
-          <FirstRunLanes unclassified={snapshot.unclassified.length} repo={snapshot.repo} />
+          <FirstRunLanes
+            unclassified={snapshot.unclassified.length}
+            repo={repos.length === 1 ? repos[0]!.key : "your repositories"}
+          />
         ) : (
           <>
             {needs.count > 0 && merged > 0 && (
@@ -646,7 +675,10 @@ function DashboardInner({
         {/* The avatar's 44 px target sits at the edge: less padding there. */}
         <TopBarShell className="phone:pr-1 phone:pl-3.5">
           <Logo />
-          <span className="text-tx3 min-w-0 truncate text-[13px]">{snapshot.repo}</span>
+          {/* One repo: its name, as always. Several: each row says its own (the repo chip). */}
+          {repos.length === 1 && (
+            <span className="text-tx3 min-w-0 truncate text-[13px]">{repos[0]!.name}</span>
+          )}
           <Segmented
             className="phone:hidden"
             label="View"
@@ -664,7 +696,7 @@ function DashboardInner({
             </span>
           )}
           <ShortcutsHelp open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
-          <LockChip signer={signer} actions={actions} />
+          <LockChip signer={signer} enrolment={bestEnrolment(repos)} actions={actions} />
           <Me
             login={me}
             people={snapshot.people}
@@ -691,7 +723,7 @@ function DashboardInner({
             <LinkLanding
               route={landing}
               snapshot={{ ...snapshot, prs }}
-              github={github}
+              repos={repos}
               signer={signer}
               onOpen={openInList}
               onList={() => go({ view: "list" })}
@@ -745,7 +777,7 @@ function DashboardInner({
       </div>
       {pageOpen && (
         <DetailPage
-          key={shownPr.number}
+          key={idOf(shownPr)}
           pr={shownPr}
           order={needOrder}
           onClose={() => setDrawerOpen(false)}
@@ -849,6 +881,7 @@ function boardColumns(
   snapshot: Snapshot,
   now: number,
   keyNote: string | null,
+  chips: ReadonlyMap<RepoKey, string>,
 ): ReadonlyArray<BoardColumnView> {
   const merged = prs.filter((p) => p.mergedAt !== null);
   const doneAside =
@@ -890,7 +923,7 @@ function boardColumns(
         oldestWait(c, now)
       ) : null,
     items: c.items,
-    footer: alsoText(c, prs, snapshot),
+    footer: alsoText(c, prs, snapshot, chips),
     empty: WAIT_EMPTY[c.kind],
   }));
 }
@@ -906,11 +939,17 @@ function oldestWait(column: Column, now: number): string | null {
   return ms >= 60 * MINUTE ? duration(ms) : null;
 }
 
-/** "also #485, after you": PRs in another column that wait on this one later. */
-function alsoText(column: Column, prs: ReadonlyArray<PrView>, snapshot: Snapshot): string | null {
+/** "also #485, after you": PRs in another column that wait on this one later ("ledger #57" with several repos). */
+function alsoText(
+  column: Column,
+  prs: ReadonlyArray<PrView>,
+  snapshot: Snapshot,
+  chips: ReadonlyMap<RepoKey, string>,
+): string | null {
   if (!column.also.length) return null;
-  const after = column.also.map((n) => {
-    const first = prs.find((p) => p.number === n)?.waitingOn[0];
+  const after = column.also.map((id) => {
+    const pr = findPr(prs, id);
+    const first = pr?.waitingOn[0];
     const who =
       !first || first.kind === "me"
         ? "you"
@@ -919,7 +958,8 @@ function alsoText(column: Column, prs: ReadonlyArray<PrView>, snapshot: Snapshot
             ? "you"
             : shortName(first.login, snapshot.people)
           : "the agent";
-    return `#${n}, after ${who}`;
+    const chip = pr ? chips.get(pr.repo) : undefined;
+    return `${chip ? `${chip} ` : ""}#${pr?.number ?? id}, after ${who}`;
   });
   return `also ${after.join("; ")}`;
 }
@@ -932,13 +972,13 @@ function SignColumn({ column }: { column: Column }) {
   const { openBatch, selection } = useDashboard();
   const mine = prsOf(column).filter((p) => p.ask);
   if (!mine.length) return null;
-  const picked = selection.filter((n) => mine.some((p) => p.number === n));
-  const numbers = picked.length ? picked : mine.map((p) => p.number);
+  const picked = selection.filter((id) => mine.some((p) => idOf(p) === id));
+  const ids = picked.length ? picked : mine.map(idOf);
   const verb = actWord(mine) === "approve" ? "Approve" : "Sign";
   return (
     <button
       type="button"
-      onClick={() => openBatch(numbers)}
+      onClick={() => openBatch(ids)}
       title={
         picked.length
           ? `${verb} the selected ones (s)`
