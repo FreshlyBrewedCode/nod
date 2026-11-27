@@ -12,7 +12,8 @@
   },
   "type": "module",
   "exports": {
-    "./kit": "./src/kit/index.ts"
+    "./kit": "./src/kit/index.ts",
+    "./kit/inbox": "./src/kit/inbox/index.ts"
   },
   "scripts": {
     "dev": "vite",

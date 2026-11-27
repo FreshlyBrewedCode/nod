@@ -134,8 +134,9 @@ function smokeTestVersion(installed: string, work: string): void {
 }
 
 /**
- * A consumer's `.nod/verify.ts` imports the kit by its package name. Resolves
- * `@frebreco/nod/kit` from a scratch project next to the installed copy, under
+ * A consumer's `.nod/verify.ts` imports the kit by its package name, and an
+ * `inbox.ts` the inbox entry (ADR 0009). Resolves `@frebreco/nod/kit` and
+ * `@frebreco/nod/kit/inbox` from a scratch project next to the installed copy, under
  * Bun, the way the verifier's workflow runs it.
  */
 async function smokeTestKit(work: string): Promise<void> {
@@ -144,7 +145,7 @@ async function smokeTestKit(work: string): Promise<void> {
   const probe = join(project, "probe.ts");
   await writeFile(
     probe,
-    'import * as kit from "@frebreco/nod/kit";\nif (kit.KIT_VERSION === undefined) throw new Error("no KIT_VERSION");\nconsole.log("kit ok");\n',
+    'import * as kit from "@frebreco/nod/kit";\nimport * as inbox from "@frebreco/nod/kit/inbox";\nif (kit.KIT_VERSION === undefined) throw new Error("no KIT_VERSION");\nif (inbox.INBOX_VERSION === undefined) throw new Error("no INBOX_VERSION");\nconsole.log("kit ok");\n',
   );
   const result = Bun.spawnSync({
     cmd: [process.execPath, probe],
@@ -291,7 +292,7 @@ const manifest = {
   type: "module",
   bin: { nod: "bin/nod.js" },
   // Raw TypeScript: a consumer running Bun imports it as is.
-  exports: { "./kit": "./src/kit/index.ts" },
+  exports: { "./kit": "./src/kit/index.ts", "./kit/inbox": "./src/kit/inbox/index.ts" },
   engines: { bun: ">=1.4.1" },
   homepage: "https://nod.frebreco.de",
   repository: { type: "git", url: REPOSITORY_URL },
