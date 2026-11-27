@@ -154,7 +154,7 @@ export interface MenuOffer {
 /**
  * Me, and the avatar menu: who `nod serve` is signed in as, the steps of the
  * ladder offered to me (each opens the setup page on it, dismissed or not),
- * and "Setup" for the whole ladder (`#/setup`). On a phone
+ * and "Settings" (`#/settings`: the repositories, and from each its ladder). On a phone
  * the menu also holds what the top bar has no room for: "How this list works"
  * (the legend, where a desktop has the `?` key) and the fake-data note. On
  * the named host's page it offers "Open links from GitHub here", the way to
@@ -165,6 +165,7 @@ export function Me({
   people,
   offers = [],
   onSetup,
+  onSettings,
   onLegend,
   fake = false,
   linksHere = null,
@@ -173,8 +174,10 @@ export function Me({
   people: ReadonlyArray<Person>;
   /** The ladder's steps offered to me, in order. */
   offers?: ReadonlyArray<MenuOffer>;
-  /** Opens the setup page, on a step (of a repo) or on the next one. */
+  /** Opens the setup page on an offer's step (of a repo). */
   onSetup: (rung?: Rung, repo?: string) => void;
+  /** Opens the settings page. */
+  onSettings: () => void;
   /** Shows the legend again (phone only). */
   onLegend?: () => void;
   /** `nod serve --fake`: said in the menu on a phone, where the top bar has no room. */
@@ -226,12 +229,12 @@ export function Me({
           type="button"
           onClick={() => {
             setOpen(false);
-            onSetup();
+            onSettings();
           }}
           className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
         >
-          Setup
-          <span className="text-tx3 fs-code block">the ladder, step by step</span>
+          Settings
+          <span className="text-tx3 fs-code block">repositories, and each one’s ladder</span>
         </button>
         {onLegend && (
           <button

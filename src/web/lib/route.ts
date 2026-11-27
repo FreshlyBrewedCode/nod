@@ -9,6 +9,8 @@
  *   #/setup/[<host>/]<owner>/<repo>[/<step>]
  *                                      the same for one repo of several (ADR 0007, 11);
  *                                      the host only off github.com, as in deep links
+ *   #/settings                         the settings page, on its first section
+ *   #/settings/<section>               on that section: repositories (`SETTINGS_SECTIONS`)
  *   #/forward?to=https://<name[:port]> asks the hosted page to remember where this
  *                                      browser's nod is (`lib/forward.ts`, ADR 0005 §7)
  *   #/pr/<owner>/<repo>/<n>            a deep link to one PR: its landing
@@ -49,6 +51,11 @@ export type Route =
       readonly step?: SetupStep;
     }
   | {
+      readonly view: "settings";
+      /** The section to show; none: the first (`SETTINGS_SECTIONS`). */
+      readonly section?: SettingsSection;
+    }
+  | {
       readonly view: "forward";
       /**
        * The `to` parameter as given, unchecked (`lib/forward.ts` checks it);
@@ -75,6 +82,14 @@ export type View = "list" | "chrono" | "board";
 /** The ladder's steps, as `#/setup/<step>` names them (`RUNGS` in `lib/onboarding.ts`). */
 export const SETUP_STEPS = ["inbox", "shared-policy", "signing", "enforced"] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
+
+/**
+ * The settings page's sections, in the nav's order (`lib/settings.ts` has
+ * their words, `components/settings.tsx` their pages). Only sections with
+ * something in them are listed: a new one is a word here and a page there.
+ */
+export const SETTINGS_SECTIONS = ["repositories"] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** A deep link: what a link from a PR comment opens. */
 export type LinkRoute = Extract<Route, { view: "pr" | "batch" }>;
@@ -112,6 +127,12 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 1 && parts[0] === "chrono") return { view: "chrono" };
   if (parts.length === 1 && parts[0] === "board") return { view: "board" };
   if (parts[0] === "setup") return setupRoute(parts.slice(1));
+  if (parts[0] === "settings") {
+    const section = parts[1];
+    return parts.length === 2 && (SETTINGS_SECTIONS as ReadonlyArray<string>).includes(section!)
+      ? { view: "settings", section: section as SettingsSection }
+      : { view: "settings" };
+  }
   if (parts.length === 1 && parts[0] === "forward") {
     const to = new URLSearchParams(params).getAll("to");
     return { view: "forward", to: to.length === 1 ? to[0]! : null };
@@ -181,6 +202,8 @@ export function formatRoute(route: Route): string {
       const repo = parsed ? `/${repoPath(parsed.host, parsed.name)}` : "";
       return `#/setup${repo}${route.step ? `/${route.step}` : ""}`;
     }
+    case "settings":
+      return route.section ? `#/settings/${route.section}` : "#/settings";
     case "forward":
       return route.to === null ? "#/forward" : `#/forward?to=${encodeURIComponent(route.to)}`;
     case "pr":

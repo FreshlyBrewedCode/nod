@@ -95,8 +95,8 @@ describe("where a first open lands: nothing gates but gh and a repo", () => {
     expect(landingOf({ me: null, repos: one(setupStatus("missing", null)) })).toBe("sign-in");
   });
 
-  test("no repo picked (fake fresh): the repo picker", () => {
-    expect(landingOf({ me: ME, repos: [] })).toBe("pick-repo");
+  test("an empty repo list (fake fresh): add a repository", () => {
+    expect(landingOf({ me: ME, repos: [] })).toBe("add-repo");
   });
 
   test("a repo with nothing in it and no key: the dashboard", () => {
@@ -366,12 +366,13 @@ describe("every fake scenario: where a first open lands, which card shows", () =
     team: ["dashboard", null],
     clear: ["dashboard", null],
     "first-run": ["dashboard", "shared-policy:waiting"],
-    fresh: ["pick-repo", null],
+    fresh: ["add-repo", null],
     join: ["dashboard", "signing:offer"],
     inbox: ["dashboard", "shared-policy:offer"],
     shared: ["dashboard", "enforced:offer"],
     // The first repo with an offer: the one at the inbox step, the second.
     repos: ["dashboard", "tallyho/field-app shared-policy:offer"],
+    dir: ["dashboard", null],
   };
 
   for (const scenario of FAKE_SCENARIOS)

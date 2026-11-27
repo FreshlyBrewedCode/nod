@@ -52,6 +52,21 @@ describe("parseRoute", () => {
       expect(parseRoute(bad)).toEqual({ view: "setup" });
   });
 
+  test("the settings page, on a section; an unknown section is its first", () => {
+    expect(parseRoute("#/settings")).toEqual({ view: "settings" });
+    expect(parseRoute("#/settings/repositories")).toEqual({
+      view: "settings",
+      section: "repositories",
+    });
+    expect(parseRoute("#/settings/repositories?host=x&token=y")).toEqual({
+      view: "settings",
+      section: "repositories",
+    });
+    expect(parseRoute("#/settings/nope")).toEqual({ view: "settings" });
+    expect(parseRoute("#/settings/repositories/extra")).toEqual({ view: "settings" });
+    expect(viewOf({ view: "settings" })).toBe("list");
+  });
+
   test("a deep link to a PR", () => {
     expect(parseRoute("#/pr/tallyho/fieldbook/482")).toEqual({
       view: "pr",
@@ -148,6 +163,8 @@ describe("formatRoute", () => {
       { view: "setup", step: "enforced" },
       { view: "setup", repo: "tallyho/field-app" },
       { view: "setup", repo: "acme.ghe.com/finance/ledger", step: "signing" },
+      { view: "settings" },
+      { view: "settings", section: "repositories" },
       { view: "forward", to: "https://nod.example.test:8445" },
       { view: "forward", to: "odd & ?#= value" },
       { view: "forward", to: null },

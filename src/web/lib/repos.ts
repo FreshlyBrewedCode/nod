@@ -31,6 +31,16 @@ export function chipsOf(repos: Repos): ReadonlyMap<RepoKey, string> {
   return repos.length > 1 ? chipLabels(repos.map((r) => r.key)) : new Map();
 }
 
+/**
+ * The remembered repo filter (`STORAGE_KEYS.repoFilter`): the repo it names,
+ * as the list spells its key; null (all repos) for a repo the list no longer
+ * has, with one repo (no filter is offered), or for anything else.
+ */
+export function readRepoFilter(value: unknown, repos: Repos): RepoKey | null {
+  if (typeof value !== "string" || repos.length < 2) return null;
+  return repoOf(repos, value)?.key ?? null;
+}
+
 /** My key's enrolment in a repo; null without a key (or a repo it does not know). */
 export function enrolmentIn(repos: Repos, key: RepoKey | null | undefined): Enrolment | null {
   return repoOf(repos, key)?.enrolment ?? null;

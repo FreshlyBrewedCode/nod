@@ -1,7 +1,7 @@
 /**
  * What this browser remembers, besides the pairing (`connection.ts`): the
  * panel, the PRs opened in the UI, the dismissed legend and offers, the last
- * visit.
+ * visit, the board's grouping and the repo filter.
  * JSON in localStorage under `nod.*`; a broken or blocked storage reads as
  * nothing and never throws.
  */
@@ -13,8 +13,10 @@ export const STORAGE_KEYS = {
   opened: "nod.opened",
   legend: "nod.legend",
   lastVisit: "nod.lastVisit",
-  /** The board's group-by: "wait" or "state". */
+  /** The board's group-by: "wait", "state" or "repo" (`readGroup`). */
   board: "nod.board",
+  /** The repo filter: a repo key, or null for all (`readRepoFilter` in `repos.ts`). */
+  repoFilter: "nod.repoFilter",
   /** The offers put away with "Not now" (`offerKey` in `onboarding.ts`), per repo and step. */
   offers: "nod.offers",
 } as const;
@@ -41,6 +43,22 @@ export function writeJson(storage: KeyValue | null, key: string, value: unknown)
   } catch {
     // full or blocked: forgetting is fine
   }
+}
+
+// ---------------------------------------------------------------------------
+// the board's grouping
+
+export type GroupBy = "wait" | "state" | "repo";
+
+/**
+ * The board's remembered grouping. "repo" only while there are several repos
+ * (with one the option is not offered): else, and for anything unknown,
+ * "wait", the board's own.
+ */
+export function readGroup(value: unknown, manyRepos: boolean): GroupBy {
+  if (value === "state") return "state";
+  if (value === "repo" && manyRepos) return "repo";
+  return "wait";
 }
 
 // ---------------------------------------------------------------------------

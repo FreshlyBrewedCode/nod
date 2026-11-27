@@ -7,8 +7,8 @@
  * The web app renders what these return; the server never calls them.
  */
 
-import type { Login, Person, PrId, PrView, WaitingOn } from "./protocol";
-import { idOf } from "./repo-key";
+import type { Login, Person, PrId, PrView, RepoKey, WaitingOn } from "./protocol";
+import { idOf, sameRepo } from "./repo-key";
 
 /** 1 prominent · 2 normal · 3 one line · 4 folded into a cluster. */
 export type Tier = 1 | 2 | 3 | 4;
@@ -571,6 +571,51 @@ export function stateBoardView(prs: ReadonlyArray<PrView>): ReadonlyArray<StateC
 }
 
 // ---------------------------------------------------------------------------
+// the board, grouped by repository (ADR 0007, 1)
+
+export interface RepoColumn {
+  /** `repo:<key>`, lowercase. */
+  readonly id: string;
+  readonly repo: RepoKey;
+  readonly count: number;
+  /** How many of them need me. */
+  readonly needsMe: number;
+  readonly items: ReadonlyArray<Item>;
+}
+
+/**
+ * The board grouped by repository: one column per repo, in the list's order
+ * (`repos`, the server's: the inbox's), even an empty one. Inside a column
+ * the same cards and cluster as the other groupings: cards by attention, the
+ * folded ones (merged included) as one cluster at the end. A PR of a repo
+ * the list does not hold (dropped meanwhile) is left out.
+ */
+export function repoBoardView(
+  prs: ReadonlyArray<PrView>,
+  repos: ReadonlyArray<RepoKey>,
+): ReadonlyArray<RepoColumn> {
+  return repos.map((repo) => {
+    const inColumn = prs.filter((p) => sameRepo(p.repo, repo));
+    const id = `repo:${repo.toLowerCase()}`;
+    return {
+      id,
+      repo,
+      count: inColumn.length,
+      needsMe: inColumn.filter((p) => p.needsMe).length,
+      items: columnItems(id, inColumn, false),
+    };
+  });
+}
+
+/**
+ * The repo filter (ADR 0007, 1): the PRs of one repo, or all of them when
+ * none is chosen.
+ */
+export function inRepo(prs: ReadonlyArray<PrView>, repo: RepoKey | null): ReadonlyArray<PrView> {
+  return repo === null ? prs : prs.filter((p) => sameRepo(p.repo, repo));
+}
+
+// ---------------------------------------------------------------------------
 // the list's hints and summaries
 
 /**
@@ -594,15 +639,17 @@ export function oldestWaitingSince(prs: ReadonlyArray<PrView>): number | null {
 
 /**
  * What merged on its own since a time, for "Since yesterday 17:42: 5 merged on
- * their own": merged PRs that carry no nod of mine, and that a policy let
- * through (not classified locally).
+ * their own": merged PRs that carry no nod of mine, and that an enforced
+ * policy let through (not classified locally, not a check that is not
+ * required yet: there a person merged it).
  */
 export function mergedOnTheirOwn(prs: ReadonlyArray<PrView>, since: number): number {
   return prs.filter(
     (p) =>
       p.state === "merged" &&
-      // At the inbox step nothing merges on its own: a person merged it.
+      // At the inbox step, and before the check is required, a person merged it.
       p.classifiedBy !== "local" &&
+      p.requirement.enforced !== false &&
       p.mergedAt !== null &&
       p.mergedAt >= since &&
       !p.signatures.some((s) => s.byMe),
