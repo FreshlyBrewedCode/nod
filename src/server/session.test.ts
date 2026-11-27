@@ -457,23 +457,127 @@ describe("approve (ADR 0006): a GitHub approval, no key", () => {
   });
 });
 
+describe("the repo list (ADR 0007, 2)", () => {
+  test("the welcome says whether the list can be changed", async () => {
+    for (const [scenario, list] of [
+      ["team", "managed"],
+      ["fresh", "managed"],
+      ["dir", "fixed"],
+    ] as const) {
+      const { session, tab } = setup(scenario);
+      const t = tab();
+      await session.attach(t.client);
+      expect(t.last("welcome")?.repoList).toBe(list);
+    }
+  });
+
+  test("adding: any spelling of a repo; repos is pushed before the snapshot, then the reply", async () => {
+    const { session, tab } = setup("repos");
+    const t = tab();
+    await session.attach(t.client);
+    const before = t.messages.length;
+    const reply = ok(
+      await t.ask("add-repo", { repo: "https://acme.ghe.com/finance/payroll/pull/3" }),
+    ) as { repo: { key: string; name: string; github: { host: string }; setup: { step: string } } };
+    expect(reply.repo).toMatchObject({
+      key: "acme.ghe.com/finance/payroll",
+      name: "finance/payroll",
+      github: { host: "acme.ghe.com" },
+      setup: { step: "inbox" },
+    });
+    expect(t.messages.slice(before).map((m) => m.t)).toEqual(["repos", "snapshot", "reply"]);
+    expect(t.last("repos")?.repos.map((r) => r.key)).toEqual([
+      R,
+      "tallyho/field-app",
+      "acme.ghe.com/finance/ledger",
+      "acme.ghe.com/finance/payroll",
+    ]);
+    // Again: nothing changes, the repo as the list has it.
+    const n = t.messages.length;
+    expect(ok(await t.ask("add-repo", { repo: "ACME.ghe.com/Finance/Payroll" }))).toMatchObject({
+      repo: { key: "acme.ghe.com/finance/payroll" },
+    });
+    expect(t.messages.slice(n).map((m) => m.t)).toEqual(["reply"]);
+  });
+
+  test("adding: what is no repo, not found or not readable is refused", async () => {
+    const { session, tab } = setup("repos");
+    const t = tab();
+    await session.attach(t.client);
+    for (const [repo, code] of [
+      ["fieldbook", "bad-request"],
+      ["https://github.com/tallyho", "bad-request"],
+      ["tallyho/missing-repo", "not-found"],
+      ["tallyho/private-notes", "forbidden"],
+    ] as const)
+      expect([repo, err(await t.ask("add-repo", { repo }))]).toEqual([repo, code]);
+    expect(err(await t.ask("add-repo", { repo: 42 }))).toBe("bad-request");
+    expect(t.last("repos")).toBeUndefined();
+  });
+
+  test("removing: the repo and its PRs go; the last one leaves an empty list", async () => {
+    const { session, source, tab } = setup("repos");
+    await source.ready;
+    const t = tab();
+    await session.attach(t.client);
+    ok(await t.ask("remove-repo", { repo: "acme.ghe.com/finance/ledger" }));
+    expect(t.last("repos")?.repos.map((r) => r.key)).toEqual([R, "tallyho/field-app"]);
+    expect(t.snapshot()!.prs.some((p) => p.repo.startsWith("acme.ghe.com/"))).toBe(false);
+    expect(err(await t.ask("remove-repo", { repo: "acme.ghe.com/finance/ledger" }))).toBe(
+      "not-found",
+    );
+    ok(await t.ask("remove-repo", { repo: R }));
+    ok(await t.ask("remove-repo", { repo: "tallyho/field-app" }));
+    expect(t.last("repos")?.repos).toEqual([]);
+    // A tab that connects now: the welcome with no repo, no snapshot.
+    const u = tab();
+    await session.attach(u.client);
+    expect(u.messages.map((m) => m.t)).toEqual(["welcome"]);
+    expect(err(await t.ask("remove-repo", { repo: R }))).toBe("no-repo");
+  });
+
+  test("suggestions: the busiest first, never one the list has", async () => {
+    const { session, tab } = setup("repos");
+    const t = tab();
+    await session.attach(t.client);
+    const { suggestions } = ok(await t.ask("suggest-repos")) as {
+      suggestions: { key: string; myOpenPrs: number; reviewRequests: number }[];
+    };
+    expect(suggestions.map((s) => s.key)).toEqual([
+      "acme.ghe.com/finance/payroll",
+      "tallyho/fieldbook-docs",
+      "tallyho/infra",
+    ]);
+    expect(suggestions[0]).toMatchObject({ myOpenPrs: 1, reviewRequests: 2 });
+    ok(await t.ask("add-repo", { repo: "tallyho/infra" }));
+    const again = ok(await t.ask("suggest-repos")) as { suggestions: { key: string }[] };
+    expect(again.suggestions.map((s) => s.key)).not.toContain("tallyho/infra");
+  });
+
+  test("a fixed list (--dir): adding and removing are refused, nothing is suggested", async () => {
+    const { session, tab } = setup("dir");
+    const t = tab();
+    await session.attach(t.client);
+    const add = await t.ask("add-repo", { repo: "tallyho/infra" });
+    expect(err(add)).toBe("forbidden");
+    if (!add.ok) expect(add.error.message).toMatch(/--dir/);
+    expect(err(await t.ask("remove-repo", { repo: R }))).toBe("forbidden");
+    expect(ok(await t.ask("suggest-repos")) as unknown).toEqual({ suggestions: [] });
+    expect(t.last("repos")).toBeUndefined();
+  });
+});
+
 describe("onboarding", () => {
-  test("fresh: pick a repo, create a key, open the setup PR, test signature", async () => {
+  test("fresh: add a repo, create a key, open the setup PR, test signature", async () => {
     const { session, tab } = setup("fresh");
     const t = tab();
     await session.attach(t.client);
-    const repos = ok(await t.ask("list-repos")) as {
-      account: { login: string };
-      repos: { repo: string }[];
-    };
-    expect(repos.account.login).toBe("mara-l");
-    expect(repos.repos[0]).toMatchObject({ repo: "tallyho/fieldbook", current: true });
     expect(err(await t.ask("check-setup", { repo: R }))).toBe("no-repo");
 
-    const picked = ok(await t.ask("pick-repo", { repo: "tallyho/fieldbook" })) as {
-      setup: { state: string };
+    const added = ok(await t.ask("add-repo", { repo: "tallyho/fieldbook" })) as {
+      repo: { key: string; setup: { state: string } };
     };
-    expect(picked.setup.state).toBe("missing");
+    expect(added.repo).toMatchObject({ key: R, setup: { state: "missing" } });
     expect(t.last("repos")?.repos[0]).toMatchObject({ key: R, setup: { state: "missing" } });
 
     expect(err(await t.ask("create-key", { passphrase: "short" }))).toBe("weak-passphrase");
@@ -509,7 +613,7 @@ describe("onboarding", () => {
       await source.ready;
       const t = tab();
       await session.attach(t.client);
-      if (scenario === "fresh") ok(await t.ask("pick-repo", { repo: "tallyho/fieldbook" }));
+      if (scenario === "fresh") ok(await t.ask("add-repo", { repo: "tallyho/fieldbook" }));
       expect(t.last("signer")?.signer ?? { state: "no-key" }).toEqual({ state: "no-key" });
 
       const { pr } = ok(await t.ask("open-setup-pr", { repo: R })) as { pr: { number: number } };

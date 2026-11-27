@@ -11,15 +11,17 @@
  *   sends `welcome`, then `snapshot` (when it reads a repo). Afterwards it
  *   pushes a full `snapshot` on every change of the PRs, `signer` on every
  *   change of the signing key (unlock, lock, auto-lock), and `repos` on every
- *   change of a repo's setup or my enrolment there. Every open tab gets every
- *   push.
+ *   change of a repo's setup, my enrolment there, or the list itself (a repo
+ *   added or removed: `repos` first, then the `snapshot`). Every open tab gets
+ *   every push.
  * - Many repos (ADR 0007): `welcome.repos` lists them, each PR carries its
  *   repo key (`owner/name` on github.com, `host/owner/name` elsewhere), and a
  *   PR is (repo, number) in every request.
  * - The client sends requests. Each carries an `id` the client picks; the
  *   server answers each with exactly one `reply` of the same `id`. A reply's
  *   result is typed by the request (`Requests` below). State changes caused by
- *   a request also arrive as pushes, so a client may ignore the reply's result.
+ *   a request also arrive as pushes, so a client may ignore the reply's result;
+ *   a `repos` push a request caused arrives before its reply.
  * - Everything shown on screen is derived from the `snapshot` view model by
  *   the pure functions in `attention.ts`. The view model is already relative
  *   to the user (`me`): `mine`, `needsMe`, `ask`, `fyiForMe`, `waitingOn`.
@@ -87,7 +89,11 @@ export interface GitHubInfo {
   readonly webUrl: string;
 }
 
-/** A repo offered in onboarding step 1 (`list-repos`, the fake's first run). */
+/**
+ * A repo the GitHub source's clone offered to pick, before the repo list
+ * (protocol 2 asks with `suggest-repos` instead). Only the GitHub source's
+ * own `listRepos` still returns it, until #48 replaces that source.
+ */
 export interface RepoChoice {
   readonly repo: RepoName;
   /** The repo of the folder `nod serve` was started in. */
@@ -201,6 +207,28 @@ export interface RepoInfo {
    * branch, ADR 0002): each repo is its own trust root. null: no key yet.
    */
   readonly enrolment: Enrolment | null;
+}
+
+/**
+ * Whether the web app may change the repo list (ADR 0007, 2). `managed`: the
+ * list in nod's config file, changed from settings (`add-repo`, `remove-repo`)
+ * and `nod repo`; it may be empty. `fixed`: `nod serve --dir <clone>` reads
+ * that one clone and never writes the list; settings shows it read-only.
+ */
+export type RepoList = "managed" | "fixed";
+
+/**
+ * A repo worth adding (`suggest-repos`): one where I have open pull requests
+ * or review requests, found by one search per host. Never one already read.
+ */
+export interface RepoSuggestion {
+  readonly key: RepoKey;
+  readonly name: RepoName;
+  readonly github: GitHubInfo;
+  /** My open pull requests there. */
+  readonly myOpenPrs: number;
+  /** Open pull requests there that request a review from me or a team I am in. */
+  readonly reviewRequests: number;
 }
 
 /**
@@ -721,20 +749,32 @@ export interface Requests {
   /** Read GitHub now instead of waiting for the next poll. A new snapshot follows. */
   refresh: { body: Record<never, never>; result: Record<never, never> };
   /**
-   * Onboarding step 1, while `nod serve` reads no repo (the fake's first
-   * run): the `gh` account and the repos to pick from. The GitHub source
-   * lists only the clone `nod serve` runs in (`--dir`), and `pick-repo`
-   * accepts only that one; adding and removing repos is #48's.
+   * Add a repo to the list (`managed` only). `repo` is what the person typed
+   * or pasted: `owner/name` (github.com), `host/owner/name`, or a GitHub URL
+   * of the repo or anything in it (`parseRepoInput`). The server checks that
+   * the account can read it, adds it, pushes `repos` and then `snapshot`, and
+   * answers with the repo as the list now has it. Adding a repo the list has
+   * already answers with it and changes nothing. Errors: `bad-request` (not a
+   * repo name or link), `not-found` (no such repo, or not visible to the
+   * account), `forbidden` (a `fixed` list, or the host's `gh` login cannot
+   * read it), `github`.
    */
-  "list-repos": {
-    body: Record<never, never>;
-    result: { readonly account: Account; readonly repos: ReadonlyArray<RepoChoice> };
-  };
+  "add-repo": { body: { readonly repo: string }; result: { readonly repo: RepoInfo } };
   /**
-   * Pick the first repo. The server re-reads the setup, pushes `repos` and
-   * then `snapshot`. Errors: `not-found`, `forbidden`.
+   * Stop reading a repo (`managed` only): nothing changes in the repository,
+   * its clone is a cache. Pushes `repos`, then `snapshot`. Removing the last
+   * one leaves an empty list. Errors: `not-found`, `forbidden` (a `fixed` list).
    */
-  "pick-repo": { body: { readonly repo: RepoName }; result: { readonly setup: SetupStatus } };
+  "remove-repo": { body: RepoBody; result: Record<never, never> };
+  /**
+   * Repos worth adding: where I have open pull requests or review requests,
+   * on every host the list has (github.com when it is empty), the busiest
+   * first, without those already read. May be empty. Errors: `github`.
+   */
+  "suggest-repos": {
+    body: Record<never, never>;
+    result: { readonly suggestions: ReadonlyArray<RepoSuggestion> };
+  };
   /** The shared policy: re-check a repo's setup. Errors: `not-found`. */
   "check-setup": { body: RepoBody; result: { readonly setup: SetupStatus } };
   /**
@@ -852,8 +892,10 @@ export interface Welcome {
    * is not logged in (onboarding step 1 says so).
    */
   readonly me: Account | null;
-  /** Every repo it reads, in its order; empty before the first one is picked (the fake's first run). */
+  /** Every repo it reads, in its order; empty while a `managed` list has none yet. */
   readonly repos: ReadonlyArray<RepoInfo>;
+  /** Whether the list can be changed from the web app (`managed`), or is the one `--dir` clone (`fixed`). */
+  readonly repoList: RepoList;
   readonly signer: SignerState;
 }
 
@@ -861,7 +903,7 @@ export type ServerToClient =
   | Welcome
   | ({ readonly t: "snapshot" } & Snapshot)
   | { readonly t: "signer"; readonly signer: SignerState }
-  /** Every repo again, on a change of one's setup or my enrolment in one. */
+  /** Every repo again, on a change of one's setup, my enrolment in one, or the list. */
   | { readonly t: "repos"; readonly repos: ReadonlyArray<RepoInfo> }
   | Reply
   /** Not caused by a request: a failed poll, a failed auto-merge watch, … */
