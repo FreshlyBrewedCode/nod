@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { evaluateNods, type NodEvaluation, type PullRequestState } from "./evaluate.ts";
+import type { Enforcement } from "./enforcement.ts";
+import {
+  evaluateNods,
+  type ApprovalEvaluation,
+  type NodEvaluation,
+  type PullRequestState,
+} from "./evaluate.ts";
 import type { PolicyResult } from "./policy.ts";
 import { named, none, peer, self, strictest } from "./requirement.ts";
 import type { VerifiedNod } from "./sshsig.ts";
@@ -49,27 +55,104 @@ const policy = (over: Partial<PolicyResult> = {}): PolicyResult => ({
   ...over,
 });
 
-const summarize = (p: PolicyResult, nods: VerifiedNod[], errors: string[] = []): CheckSummary =>
+const approval = (reviewer: string, counts = true): ApprovalEvaluation => ({
+  reviewer,
+  counts,
+  commit_id: pr.head_sha,
+  submitted_at: "2026-11-18T18:50:00Z",
+  why_not: counts ? null : { code: "permission", detail: "no write access to the repository" },
+});
+
+const summarize = (
+  p: PolicyResult,
+  nods: VerifiedNod[],
+  errors: string[] = [],
+  more: { approvals?: ApprovalEvaluation[]; enforcement?: Enforcement } = {},
+): CheckSummary =>
   buildSummary({
     pr,
     policy: p,
-    nods: evaluateNods({ pr, requirement: p.requirement, verified: nods }),
+    nods: evaluateNods({
+      pr,
+      requirement: p.requirement,
+      verified: nods,
+      approvals: more.approvals ?? [],
+    }),
     signers: ["alice", "bob", "carol"],
     errors,
+    enforcement: more.enforcement,
     now: new Date("2026-11-18T19:00:00Z"),
   });
+
+const notEnforced: Enforcement = { enforced: false, by: null };
 
 describe("checkTitle and conclusion", () => {
   test("waiting", () => {
     const s = summarize(policy(), []);
-    expect(checkTitle(s)).toBe("waiting for a peer nod");
+    expect(checkTitle(s)).toBe("waiting for a peer approval or nod");
     expect(checkConclusion(s)).toBe("failure");
   });
 
   test("waiting, with what is there", () => {
     expect(checkTitle(summarize(policy(), [nod("alice")]))).toBe(
-      "waiting for a peer nod (have: alice (self))",
+      "waiting for a peer approval or nod (have: alice (self))",
     );
+    expect(
+      checkTitle(
+        summarize(policy({ requirement: peer({ approvals: false }) }), [], [], {
+          approvals: [approval("bob")],
+        }),
+      ),
+    ).toBe("waiting for a peer nod (have: bob (approved))");
+  });
+
+  test("approved", () => {
+    const s = summarize(policy(), [], [], { approvals: [approval("bob")] });
+    expect(checkTitle(s)).toBe("approved by bob");
+    expect(checkConclusion(s)).toBe("success");
+    expect(s.filled).toEqual([{ slot: "peer", reviewer: "bob", by: "approval" }]);
+    const both = summarize(
+      policy({ requirement: strictest(peer, named("carol")) }),
+      [nod("carol")],
+      [],
+      {
+        approvals: [approval("bob")],
+      },
+    );
+    expect(checkTitle(both)).toBe("nodded by carol (peer), approved by bob");
+  });
+
+  test("not enforced: an unmet requirement is neutral, a met one success", () => {
+    const waiting = summarize(policy(), [], [], { enforcement: notEnforced });
+    expect(checkConclusion(waiting)).toBe("neutral");
+    expect(checkTitle(waiting)).toBe("waiting for a peer approval or nod");
+    expect(waiting.enforcement).toEqual(notEnforced);
+    const done = summarize(policy(), [nod("bob")], [], { enforcement: notEnforced });
+    expect(checkConclusion(done)).toBe("success");
+  });
+
+  test("not enforced, a verifier error is still a failure", () => {
+    const s = summarize(policy(), [], ["could not list the comments"], {
+      enforcement: notEnforced,
+    });
+    expect(checkConclusion(s)).toBe("failure");
+  });
+
+  test("a verifier written before ADR 0006 (no approvals, no enforcement) reads as before", () => {
+    const old = buildSummary({
+      pr,
+      policy: policy(),
+      nods: evaluateNods({ pr, requirement: peer, verified: [nod("alice")] }),
+      signers: ["alice", "bob"],
+    });
+    expect(checkTitle(old)).toBe("waiting for a peer nod (have: alice (self))");
+    expect(checkConclusion(old)).toBe("failure");
+  });
+
+  test("without an enforcement, a summary is enforced as before", () => {
+    const s = summarize(policy(), []);
+    expect(s.enforcement).toMatchObject({ enforced: true, by: "unknown" });
+    expect(checkConclusion(s)).toBe("failure");
   });
 
   test("nodded", () => {
@@ -81,7 +164,7 @@ describe("checkTitle and conclusion", () => {
   test("named", () => {
     expect(
       checkTitle(summarize(policy({ requirement: strictest(peer, named("carol")) }), [])),
-    ).toBe("waiting for a nod from carol");
+    ).toBe("waiting for an approval or nod from carol");
   });
 
   test("no nod needed", () => {
@@ -132,6 +215,32 @@ describe("encode and decode", () => {
     expect(text).toStartWith("<!-- nod:summary v1 -->\n```json\n{\n");
     expect(decodeSummary(text)).toEqual(s);
     expect(decodeSummary(`Some words first.\r\n\r\n${text.replace(/\n/g, "\r\n")}`)).toEqual(s);
+  });
+
+  test("a summary of an older verifier reads as nods only, no approvals, enforced", () => {
+    const s = summarize(policy({ requirement: strictest(peer, named("carol")) }), [nod("alice")]);
+    const { approvals: _a, filled: _f, enforcement: _e, ...old } = s;
+    old.missing = [{ kind: "named", login: "carol" }];
+    const back = decodeSummary(encodeSummary(old as CheckSummary))!;
+    expect(back.approvals).toEqual([]);
+    expect(back.filled).toEqual([]);
+    expect(back.enforcement).toMatchObject({ enforced: true, by: "unknown" });
+    expect(back.requirement).toEqual({
+      level: "peer",
+      named: ["carol"],
+      nodsOnly: { level: "peer", named: ["carol"] },
+    });
+    expect(checkConclusion(back)).toBe("failure");
+    expect(checkTitle(back)).toBe("waiting for a nod from carol (have: alice (self))");
+  });
+
+  test("approvals, slots and enforcement round-trip", () => {
+    const s = summarize(policy({ requirement: peer({ approvals: false }) }), [nod("bob")], [], {
+      approvals: [approval("carol"), approval("mallory", false)],
+      enforcement: { enforced: true, by: "ruleset" },
+    });
+    expect(decodeSummary(encodeSummary(s))).toEqual(s);
+    expect(s.requirement.nodsOnly).toEqual({ level: "peer", named: [] });
   });
 
   test("garbage gives null", () => {

@@ -129,7 +129,7 @@ describe("the module-tier example", () => {
   test("a new module has no tier yet", async () => {
     const r = await evaluatePolicy(policy, context([file("modules/fresh/index.ts")], {}, base));
     expect(r.reasons.map((f) => f.tag)).toContain("new-module");
-    expect(r.requirement).toEqual(self);
+    expect(r.requirement).toEqual(self());
   });
 });
 
@@ -192,10 +192,15 @@ describe("built-in safety", () => {
     });
   });
 
-  test("changes to .nod/** and workflows always need a peer", async () => {
+  test("changes to .nod/** and workflows always need a peer's nod, not an approval", async () => {
     for (const path of [".nod/allowed_signers", ".nod/policy.ts", ".github/workflows/nod.yml"]) {
       const r = await evaluatePolicy(empty, context([file(path)]));
-      expect(r).toMatchObject({ category: "decide", risk: 3, requirement: peer });
+      expect(r).toMatchObject({ category: "decide", risk: 3 });
+      expect(r.requirement).toEqual({
+        level: "peer",
+        named: [],
+        nodsOnly: { level: "peer", named: [] },
+      });
       expect(r.reasons[0]).toMatchObject({ classifier: "nod", tag: "protected", risk: 3 });
     }
   });
@@ -211,7 +216,7 @@ describe("built-in safety", () => {
     );
     expect(
       (await evaluatePolicy(custom, context([file(".nod/allowed_signers")]))).requirement,
-    ).toEqual(peer);
+    ).toEqual(peer({ approvals: false }));
   });
 
   test("a throwing classifier fails safe", async () => {
@@ -224,7 +229,7 @@ describe("built-in safety", () => {
     );
     expect(r).toMatchObject({
       risk: 3,
-      requirement: peer,
+      requirement: peer({ approvals: false }),
       errors: ["brokenTiers: module.json is not JSON"],
     });
     expect(r.reasons[0]).toMatchObject({ classifier: "brokenTiers", tag: "error", risk: 3 });
@@ -241,11 +246,42 @@ describe("built-in safety", () => {
       ],
     });
     const r = await evaluatePolicy(p, context([file("a.ts")]));
-    expect(r.requirement).toEqual(peer);
+    expect(r.requirement).toEqual(peer({ approvals: false }));
     expect(r.errors).toEqual([
       "throws: boom",
       "async: returned something that is not a requirement or fyi",
     ]);
+  });
+});
+
+describe("approvals (ADR 0006)", () => {
+  test("peer and self as plain values accept approvals; called with approvals: false, nods only", async () => {
+    const p = definePolicy({
+      classifiers: [],
+      rules: [
+        rule("plain", () => peer),
+        rule("nod only", () => self({ approvals: false })),
+        rule("bob", () => named("bob", { approvals: false })),
+      ],
+    });
+    const r = await evaluatePolicy(p, context([file("a.ts")]));
+    expect(r.requirement).toEqual({
+      level: "peer",
+      named: ["bob"],
+      nodsOnly: { level: "self", named: ["bob"] },
+    });
+    // The rules list carries plain objects, never the `peer` function itself.
+    expect(typeof r.rules[0]!.requirement).toBe("object");
+    expect(JSON.parse(JSON.stringify(r.rules[0]))).toEqual({
+      rule: "plain",
+      requirement: { level: "peer", named: [] },
+      fyi: false,
+    });
+  });
+
+  test("enforced: true is kept, anything else is left out", () => {
+    expect(definePolicy({ classifiers: [], rules: [], enforced: true }).enforced).toBe(true);
+    expect("enforced" in definePolicy({ classifiers: [], rules: [] })).toBe(false);
   });
 });
 
@@ -254,15 +290,15 @@ describe("defaultRules", () => {
 
   test("risk 0 → none, 1–2 → self, 3 → peer", async () => {
     expect((await evaluatePolicy(p, context([file("a.ts", 10)]))).requirement).toEqual(none);
-    expect((await evaluatePolicy(p, context([file("a.ts", 60)]))).requirement).toEqual(self);
-    expect((await evaluatePolicy(p, context([file("a.ts", 500)]))).requirement).toEqual(self);
-    expect((await evaluatePolicy(p, context([file("a.ts", 5000)]))).requirement).toEqual(peer);
+    expect((await evaluatePolicy(p, context([file("a.ts", 60)]))).requirement).toEqual(self());
+    expect((await evaluatePolicy(p, context([file("a.ts", 500)]))).requirement).toEqual(self());
+    expect((await evaluatePolicy(p, context([file("a.ts", 5000)]))).requirement).toEqual(peer());
   });
 
   test(".github/** needs a peer", async () => {
     expect(
       (await evaluatePolicy(p, context([file(".github/dependabot.yml")]))).requirement,
-    ).toEqual(peer);
+    ).toEqual(peer());
   });
 
   test("custom FYI tags", async () => {

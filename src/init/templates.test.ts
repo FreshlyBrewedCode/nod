@@ -110,20 +110,45 @@ interface FakeComment {
   updated_at: string;
 }
 
+interface FakeReview {
+  user: { login: string; type: string };
+  state: string;
+  commit_id: string;
+  submitted_at: string;
+}
+
 interface FakeGitHub {
   url: string;
   prs: Map<number, Record<string, unknown>>;
   comments: Map<number, FakeComment[]>;
+  reviews: Map<number, FakeReview[]>;
+  /** Role per login; anyone else is a 404 (not a collaborator). */
+  permissions: Map<string, string>;
+  /** What `rules/branches/main` answers; a number is an error status. */
+  rules: unknown[] | number;
   checks: Record<string, unknown>[];
   labels: Map<number, string[]>;
   createdLabels: string[];
   stop: () => void;
 }
 
+/** The ruleset `nod init --ruleset` creates, as `rules/branches` lists it. */
+const NOD_RULE = {
+  type: "required_status_checks",
+  parameters: { required_status_checks: [{ context: "nod", integration_id: 15368 }] },
+};
+
 function fakeGitHub(): FakeGitHub {
   const state = {
     prs: new Map<number, Record<string, unknown>>(),
     comments: new Map<number, FakeComment[]>(),
+    reviews: new Map<number, FakeReview[]>(),
+    permissions: new Map<string, string>([
+      ["alice", "admin"],
+      ["bob", "write"],
+      ["carol", "write"],
+    ]),
+    rules: [NOD_RULE] as unknown[] | number,
     checks: [] as Record<string, unknown>[],
     labels: new Map<number, string[]>(),
     createdLabels: [] as string[],
@@ -144,6 +169,22 @@ function fakeGitHub(): FakeGitHub {
         const labels = (state.labels.get(Number(m[1])) ?? []).map((name) => ({ name }));
         return json({ ...pr, labels });
       }
+      if (req.method === "GET" && (m = /^\/pulls\/(\d+)\/reviews$/.exec(p)))
+        return json(
+          url.searchParams.get("page") === "1" ? (state.reviews.get(Number(m[1])) ?? []) : [],
+        );
+      if (req.method === "GET" && (m = /^\/collaborators\/([^/]+)\/permission$/.exec(p))) {
+        const role = state.permissions.get(decodeURIComponent(m[1]!));
+        return role
+          ? json({ permission: role, role_name: role })
+          : json({ message: "Not Found" }, 404);
+      }
+      if (req.method === "GET" && p === "/rules/branches/main")
+        return typeof fake.rules === "number"
+          ? json({ message: "Server Error" }, fake.rules)
+          : json(fake.rules);
+      if (req.method === "GET" && p === "/branches/main")
+        return json({ name: "main", protected: false });
       if (req.method === "GET" && (m = /^\/issues\/(\d+)\/comments$/.exec(p)))
         return json(
           url.searchParams.get("page") === "1" ? (state.comments.get(Number(m[1])) ?? []) : [],
@@ -190,7 +231,13 @@ function fakeGitHub(): FakeGitHub {
       return json({ message: `unexpected ${req.method} ${p}` }, 500);
     },
   });
-  return { url: `http://127.0.0.1:${server.port}`, ...state, stop: () => server.stop(true) };
+  // `rules` is read from here, so a test can swap it.
+  const fake: FakeGitHub = {
+    url: `http://127.0.0.1:${server.port}`,
+    ...state,
+    stop: () => server.stop(true),
+  };
+  return fake;
 }
 
 describe(".nod/verify.ts", () => {
@@ -225,6 +272,8 @@ describe(".nod/verify.ts", () => {
     const changes: Record<number, [string, string]> = {
       1: ["modules/icons/star.svg", "<svg/>\n"],
       2: ["core/engine.ts", "export const engine = 2;\n"],
+      7: [".nod/allowed_signers", "# nobody\n"],
+      8: ["app/a.ts", "export const a = 8;\n"],
     };
     for (const [n, [path, content]] of Object.entries(changes)) {
       await work.git("checkout", "-q", "-b", `pr-${n}`, "main");
@@ -236,7 +285,7 @@ describe(".nod/verify.ts", () => {
     // GitHub's side: a bare remote. The runner's side: a clone of main, like actions/checkout.
     bare = await tempDir("nod-bare-");
     await git(bare.dir, ["init", "-q", "--bare"]);
-    await work.git("push", "-q", bare.dir, "main", "pr-1", "pr-2");
+    await work.git("push", "-q", bare.dir, "main", "pr-1", "pr-2", "pr-7", "pr-8");
     checkout = await tempDir("nod-checkout-");
     await git(checkout.dir, ["clone", "-q", "--branch", "main", bare.dir, "."]);
     // `bun install` stand-in: the kit from this repo.
@@ -244,7 +293,7 @@ describe(".nod/verify.ts", () => {
     await symlink(KIT_ROOT, join(checkout.dir, ".nod", "node_modules", "@frebreco", "nod"), "dir");
 
     gh = fakeGitHub();
-    for (const n of [1, 2, 3]) {
+    for (const n of [1, 2, 3, 7, 8]) {
       gh.prs.set(n, {
         number: n,
         title: `PR ${n}`,
@@ -326,12 +375,24 @@ describe(".nod/verify.ts", () => {
     gh.comments.set(n, list);
   }
 
+  function approve(n: number, login: string, state = "APPROVED", commit = heads[n]!) {
+    const list = gh.reviews.get(n) ?? [];
+    list.push({
+      user: { login, type: "User" },
+      state,
+      commit_id: commit,
+      submitted_at: "2026-11-26T09:00:00Z",
+    });
+    gh.reviews.set(n, list);
+  }
+
   test("a core change waits for a peer: red check, sticky comment, labels", async () => {
     const r = await verify({ pull_request: { number: 2, head: { sha: heads[2] } } });
     expect(r.code).toBe(0);
     expect(r.check).toMatchObject({ name: "nod", head_sha: heads[2], conclusion: "failure" });
-    expect(r.output!.title).toBe("waiting for a peer nod");
+    expect(r.output!.title).toBe("waiting for a peer approval or nod");
     expect(r.summary).toMatchObject({ pr: 2, category: "decide", risk: 3, satisfied: false });
+    expect(r.summary!.enforcement).toEqual({ enforced: true, by: "ruleset" });
     expect(r.summary!.signers).toEqual(["alice", "bob"]);
     const sticky = gh.comments.get(2)!.find((c) => c.body.startsWith(STICKY_MARKER))!;
     expect(sticky.body).toContain("https://ui.nod.frebreco.de/#/pr/acme/widgets/2");
@@ -354,7 +415,7 @@ describe(".nod/verify.ts", () => {
   test("alice's self nod is not enough; bob's peer nod turns it green, the sticky is updated in place", async () => {
     comment(2, await nod("alice", alice.privateKey, [2]));
     const self = await verify({ issue: { number: 2, pull_request: {} } });
-    expect(self.output!.title).toBe("waiting for a peer nod (have: alice (self))");
+    expect(self.output!.title).toBe("waiting for a peer approval or nod (have: alice (self))");
 
     comment(2, await nod("bob", bob.privateKey, [2]));
     const peer = await verify({ issue: { number: 2, pull_request: {} } });
@@ -379,6 +440,81 @@ describe(".nod/verify.ts", () => {
     expect(r.output!.title).toBe("no nod needed");
     expect(r.summary).toMatchObject({ category: "auto", requirement: { level: "none" } });
     expect(gh.labels.get(1)!.sort()).toEqual(["nod:auto", "nod:risk-0"]);
+  });
+
+  describe("GitHub approvals (ADR 0006)", () => {
+    test("bob's approval of the head fills the peer slot; mallory's does not count", async () => {
+      approve(8, "mallory"); // not a collaborator
+      const waiting = await verify({ pull_request: { number: 8, head: { sha: heads[8] } } });
+      expect(waiting.check).toMatchObject({ conclusion: "failure" });
+      expect(waiting.summary!.approvals[0]).toMatchObject({
+        reviewer: "mallory",
+        counts: false,
+        why_not: { code: "permission" },
+      });
+      approve(8, "bob");
+      const r = await verify({ pull_request: { number: 8, head: { sha: heads[8] } } });
+      expect(r.check).toMatchObject({ conclusion: "success" });
+      expect(r.output!.title).toBe("approved by bob");
+      expect(r.summary!.filled).toEqual([{ slot: "self", reviewer: "bob", by: "approval" }]);
+    });
+
+    test("an approval of an earlier commit, or one taken back, does not count", async () => {
+      gh.prs.set(9, { ...gh.prs.get(8)!, number: 9 });
+      heads[9] = heads[8]!;
+      approve(9, "bob", "APPROVED", heads[1]!);
+      approve(9, "carol");
+      approve(9, "carol", "CHANGES_REQUESTED");
+      const r = await verify({ pull_request: { number: 9, head: { sha: heads[9] } } });
+      expect(r.check).toMatchObject({ conclusion: "failure" });
+      expect(r.summary!.approvals.map((a) => [a.reviewer, a.counts])).toEqual([["bob", false]]);
+    });
+
+    test("changes to nod's own setup need a peer's nod: an approval is not enough", async () => {
+      approve(7, "bob");
+      const r = await verify({ pull_request: { number: 7, head: { sha: heads[7] } } });
+      expect(r.check).toMatchObject({ conclusion: "failure" });
+      expect(r.output!.title).toBe("waiting for a peer nod (have: bob (approved))");
+      expect(r.summary!.requirement.nodsOnly).toEqual({ level: "peer", named: [] });
+    });
+  });
+
+  describe("not enforced (ADR 0006)", () => {
+    afterAll(() => {
+      gh.rules = [NOD_RULE];
+    });
+
+    test("an unmet requirement is neutral, no sticky comment is posted", async () => {
+      gh.rules = [];
+      gh.prs.set(10, { ...gh.prs.get(2)!, number: 10 });
+      heads[10] = heads[2]!;
+      const r = await verify({ pull_request: { number: 10, head: { sha: heads[10] } } });
+      expect(r.code).toBe(0);
+      expect(r.check).toMatchObject({ conclusion: "neutral" });
+      expect(r.output!.title).toBe("waiting for a peer approval or nod");
+      expect(r.output!.summary).toContain("Not enforced");
+      expect(r.summary!.enforcement).toEqual({ enforced: false, by: null });
+      expect(gh.comments.get(10) ?? []).toEqual([]);
+      expect(gh.labels.get(10)!.sort()).toEqual(["nod:decide", "nod:risk-3"]);
+    });
+
+    test("a met requirement is still success; a sticky posted while enforced is kept current", async () => {
+      gh.rules = [];
+      // PR 2 got its sticky comment while enforced, and bob's nod since
+      const r = await verify({ issue: { number: 2, pull_request: {} } });
+      expect(r.check).toMatchObject({ conclusion: "success" });
+      const stickies = gh.comments.get(2)!.filter((c) => c.body.startsWith(STICKY_MARKER));
+      expect(stickies).toHaveLength(1);
+      expect(stickies[0]!.body).toContain("Not enforced");
+    });
+
+    test("a failed lookup counts as enforced", async () => {
+      gh.rules = 500;
+      const r = await verify({ pull_request: { number: 10, head: { sha: heads[10] } } });
+      expect(r.check).toMatchObject({ conclusion: "failure" });
+      expect(r.summary!.enforcement).toMatchObject({ enforced: true, by: "unknown" });
+      expect(r.output!.summary).toContain("Treated as enforced");
+    });
   });
 
   test("a crash ends as a red check with the error, never green", async () => {

@@ -2,7 +2,8 @@
  * The one sticky PR comment the verifier keeps up to date: where the PR
  * stands, what it needs from whom, why, and a deep link into the nod UI.
  * Display only; the gate never reads it. Logins are written in backticks so
- * nobody gets pinged.
+ * nobody gets pinged. The same text is the `nod` check's summary; the
+ * comment itself is only posted while the check is enforced (ADR 0006).
  */
 import { RISK_NAMES } from "./classifiers/types.ts";
 import { GITHUB_COM, hostName } from "./host.ts";
@@ -92,14 +93,23 @@ export function renderSticky(
       `Nodded: ${counting.map((n) => `\`${n.reviewer}\` (${n.role}, ${n.matched})`).join(", ")}`,
     );
   }
-  const ignored = summary.nods.filter((n) => !n.counts);
+  const approvals = summary.approvals ?? [];
+  const approved = approvals.filter((a) => a.counts);
+  if (approved.length) {
+    lines.push("", `Approved on GitHub: ${approved.map((a) => `\`${a.reviewer}\``).join(", ")}`);
+  }
+  const ignored = [
+    ...summary.nods
+      .filter((n) => !n.counts)
+      .map((n) => `\`${n.reviewer ?? "unknown"}\`: ${escapeMd(n.why_not?.detail ?? "")}`),
+    ...approvals
+      .filter((a) => !a.counts)
+      .map((a) => `\`${a.reviewer}\`'s approval: ${escapeMd(a.why_not?.detail ?? "")}`),
+  ];
   if (ignored.length) {
-    const shown = ignored
-      .slice(0, 5)
-      .map((n) => `\`${n.reviewer ?? "unknown"}\`: ${escapeMd(n.why_not?.detail ?? "")}`);
     lines.push(
       "",
-      `Not counted: ${shown.join("; ")}${ignored.length > 5 ? ` and ${ignored.length - 5} more` : ""}`,
+      `Not counted: ${ignored.slice(0, 5).join("; ")}${ignored.length > 5 ? ` and ${ignored.length - 5} more` : ""}`,
     );
   }
 
@@ -125,6 +135,18 @@ export function renderSticky(
       lines.push(`> ${e.source} error: ${escapeMd(e.message)}`);
   }
 
+  if (summary.enforcement?.enforced === false) {
+    lines.push(
+      "",
+      `Not enforced: \`${escapeCode(summary.base)}\` does not require the \`nod\` check, so it never blocks a merge. \`nod init --ruleset\` makes it required.`,
+    );
+  } else if (summary.enforcement?.by === "unknown" && summary.enforcement.detail) {
+    lines.push(
+      "",
+      `Treated as enforced: whether \`${escapeCode(summary.base)}\` requires the \`nod\` check is unknown (${escapeMd(summary.enforcement.detail)}).`,
+    );
+  }
+
   lines.push(
     "",
     `[Open in nod](${prDeepLink(uiBase, summary.repo, summary.pr, host)}) to look and nod. A link never approves by itself.`,
@@ -133,11 +155,20 @@ export function renderSticky(
 }
 
 function neededFrom(m: CheckSummary["missing"][number], summary: CheckSummary): string {
-  if (m.kind === "named") return `a nod from \`${m.login}\``;
-  if (m.kind === "self") return `a nod from \`${m.login}\` (self) or anyone enrolled`;
+  if (m.kind === "named")
+    return m.approval ? `an approval or a nod from \`${m.login}\`` : `a nod from \`${m.login}\``;
+  if (m.kind === "self")
+    return m.approval
+      ? `a nod from \`${m.login}\` (self) or anyone enrolled, or an approval from anyone with write access`
+      : `a nod from \`${m.login}\` (self) or anyone enrolled`;
   const peers = summary.signers.filter((s) => s.toLowerCase() !== summary.author.toLowerCase());
-  if (peers.length === 0) return "a peer nod, but nobody other than the author is enrolled";
-  return `a peer nod from ${peers.map((p) => `\`${p}\``).join(" or ")}`;
+  const nodFrom = peers.length
+    ? `a peer nod from ${peers.map((p) => `\`${p}\``).join(" or ")}`
+    : "";
+  if (m.approval)
+    return `an approval from anyone with write access but the author${nodFrom ? `, or ${nodFrom}` : ""}`;
+  if (!nodFrom) return "a peer nod, but nobody other than the author is enrolled";
+  return nodFrom;
 }
 
 /** Escapes text from the PR (paths, messages) for Markdown and defuses @mentions. */

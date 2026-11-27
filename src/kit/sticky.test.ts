@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { evaluateNods, type PullRequestState } from "./evaluate.ts";
+import type { Enforcement } from "./enforcement.ts";
+import { evaluateNods, type ApprovalEvaluation, type PullRequestState } from "./evaluate.ts";
 import type { PolicyResult } from "./policy.ts";
-import { none, peer, self } from "./requirement.ts";
+import { named, none, peer, self, strictest } from "./requirement.ts";
 import type { VerifiedNod } from "./sshsig.ts";
 import {
   batchDeepLink,
@@ -40,6 +41,7 @@ const render = (
   policy: Partial<PolicyResult>,
   nods: VerifiedNod[] = [],
   signers = ["alice", "bob", "carol"],
+  more: { approvals?: ApprovalEvaluation[]; enforcement?: Enforcement } = {},
 ) => {
   const p: PolicyResult = {
     category: "decide",
@@ -57,8 +59,14 @@ const render = (
   const summary = buildSummary({
     pr,
     policy: p,
-    nods: evaluateNods({ pr, requirement: p.requirement, verified: nods }),
+    nods: evaluateNods({
+      pr,
+      requirement: p.requirement,
+      verified: nods,
+      approvals: more.approvals ?? [],
+    }),
     signers,
+    enforcement: more.enforcement,
     now: new Date("2026-11-18T19:00:00Z"),
   });
   return renderSticky(summary, { uiBase: "https://ui.example.test/" });
@@ -69,9 +77,9 @@ describe("renderSticky", () => {
     expect(render({})).toBe(
       [
         STICKY_MARKER,
-        "**nod** · decide · risk high · waiting for a peer nod",
+        "**nod** · decide · risk high · waiting for a peer approval or nod",
         "",
-        "- Needs a peer nod from `bob` or `carol`",
+        "- Needs an approval from anyone with write access but the author, or a peer nod from `bob` or `carol`",
         "",
         "<details><summary>Why: 2 reasons</summary>",
         "",
@@ -96,12 +104,65 @@ describe("renderSticky", () => {
 
   test("self nod wording", () => {
     expect(render({ risk: 1, requirement: self })).toContain(
-      "- Needs a nod from `alice` (self) or anyone enrolled",
+      "- Needs a nod from `alice` (self) or anyone enrolled, or an approval from anyone with write access",
+    );
+    expect(render({ risk: 1, requirement: self({ approvals: false }) })).toContain(
+      "- Needs a nod from `alice` (self) or anyone enrolled\n",
     );
   });
 
   test("no peer enrolled yet", () => {
-    expect(render({}, [], ["alice"])).toContain("nobody other than the author is enrolled");
+    expect(render({ requirement: peer({ approvals: false }) }, [], ["alice"])).toContain(
+      "nobody other than the author is enrolled",
+    );
+    expect(render({}, [], ["alice"])).toContain(
+      "- Needs an approval from anyone with write access but the author\n",
+    );
+  });
+
+  test("named wording", () => {
+    const text = render({
+      requirement: strictest(named("carol"), named("dave", { approvals: false })),
+    });
+    expect(text).toContain("- Needs an approval or a nod from `carol`");
+    expect(text).toContain("- Needs a nod from `dave`");
+  });
+
+  test("approvals: counted and not", () => {
+    const ok: ApprovalEvaluation = {
+      reviewer: "bob",
+      counts: true,
+      commit_id: pr.head_sha,
+      submitted_at: null,
+      why_not: null,
+    };
+    const text = render({}, [], undefined, {
+      approvals: [
+        ok,
+        {
+          ...ok,
+          reviewer: "mallory",
+          counts: false,
+          why_not: { code: "permission", detail: "no write access to the repository" },
+        },
+      ],
+    });
+    expect(text).toContain("approved by bob");
+    expect(text).toContain("Approved on GitHub: `bob`");
+    expect(text).toContain("Not counted: `mallory`'s approval: no write access to the repository");
+  });
+
+  test("not enforced says so; an assumed enforcement says why", () => {
+    const off = render({}, [], undefined, { enforcement: { enforced: false, by: null } });
+    expect(off).toContain(
+      "Not enforced: `main` does not require the `nod` check, so it never blocks a merge. `nod init --ruleset` makes it required.",
+    );
+    const unknown = render({}, [], undefined, {
+      enforcement: { enforced: true, by: "unknown", detail: "could not look it up: GitHub 500" },
+    });
+    expect(unknown).toContain("Treated as enforced");
+    expect(unknown).toContain("GitHub 500");
+    expect(render({})).not.toContain("enforced");
   });
 
   test("auto and FYI are calm one-liners", () => {
@@ -162,7 +223,7 @@ test("deep links name the host off github.com, in the sticky comment too", () =>
       rules: [],
       errors: [],
     },
-    nods: { nods: [], satisfied: false, missing: [{ kind: "peer" }] },
+    nods: { nods: [], approvals: [], satisfied: false, filled: [], missing: [{ kind: "peer" }] },
     signers: [],
   });
   expect(

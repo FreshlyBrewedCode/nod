@@ -4,6 +4,7 @@
  * Errors never contain the token, and the token goes to `apiUrl`'s origin
  * only: a redirect elsewhere is refused, not followed with it.
  */
+import type { PullRequestReview } from "./evaluate.ts";
 import { fetchWithToken } from "./host.ts";
 import { isRepoName } from "./nod.ts";
 import { isStickyComment } from "./sticky.ts";
@@ -155,13 +156,77 @@ export async function listIssueComments(
   return out;
 }
 
+/** Every review on a PR, oldest first, all pages (up to `maxPages` × 100, default 5000). */
+export async function listReviews(
+  options: GitHubOptions,
+  number: number,
+  maxPages = 50,
+): Promise<PullRequestReview[]> {
+  type Raw = {
+    user?: { login: string; type: string } | null;
+    state: string;
+    commit_id?: string | null;
+    submitted_at?: string | null;
+  };
+  const out: PullRequestReview[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const items = await githubRequest<Raw[]>(
+      options,
+      "GET",
+      `${repoPath(options)}/pulls/${int(number)}/reviews?per_page=100&page=${page}`,
+    );
+    for (const r of items) {
+      out.push({
+        reviewer: r.user?.login ?? "",
+        reviewerType: r.user?.type ?? "",
+        state: r.state,
+        commit_id: r.commit_id ?? null,
+        submitted_at: r.submitted_at ?? null,
+      });
+    }
+    if (items.length < 100) break;
+  }
+  return out;
+}
+
+/** A person's role on a repo, as GitHub names it. */
+export type RepoPermission = "admin" | "maintain" | "write" | "triage" | "read" | "none";
+
+/**
+ * `GET /repos/{repo}/collaborators/{login}/permission`: the person's role
+ * (`role_name`, else `permission`). Throws when GitHub does not answer.
+ */
+export async function getRepoPermission(
+  options: GitHubOptions,
+  login: string,
+): Promise<RepoPermission> {
+  if (!login || login.length > 100) throw new Error(`not a login: ${login}`);
+  const r = await githubRequest<{ permission?: string; role_name?: string }>(
+    options,
+    "GET",
+    `${repoPath(options)}/collaborators/${encodeURIComponent(login)}/permission`,
+  );
+  const role = r.role_name ?? r.permission ?? "none";
+  const known: readonly string[] = ["admin", "maintain", "write", "triage", "read", "none"];
+  return (known.includes(role) ? role : "none") as RepoPermission;
+}
+
+/** Whether a role may approve so that it counts: `admin`, `maintain` or `write`, as on GitHub. */
+export function canWrite(permission: RepoPermission): boolean {
+  return permission === "admin" || permission === "maintain" || permission === "write";
+}
+
 /** Input of {@link createCheckRun}. */
 export interface CheckRunInput {
   head_sha: string;
   /** Default `nod`. */
   name?: string;
-  /** Only these two: `neutral` and `skipped` would pass a required check. */
-  conclusion: "success" | "failure";
+  /**
+   * `success`, `failure`, or `neutral` while the check is not enforced
+   * (ADR 0006): `neutral` passes a required check, so it is only for a
+   * branch that does not require it. `skipped` and the rest are refused.
+   */
+  conclusion: "success" | "failure" | "neutral";
   title: string;
   summary: string;
   text?: string;
@@ -174,8 +239,12 @@ export async function createCheckRun(
   options: GitHubOptions,
   input: CheckRunInput,
 ): Promise<number> {
-  if (input.conclusion !== "success" && input.conclusion !== "failure") {
-    throw new Error("a nod check concludes only success or failure");
+  if (
+    input.conclusion !== "success" &&
+    input.conclusion !== "failure" &&
+    input.conclusion !== "neutral"
+  ) {
+    throw new Error("a nod check concludes only success, failure or neutral");
   }
   const run = await githubRequest<{ id: number }>(
     options,
@@ -202,14 +271,16 @@ export async function createCheckRun(
  * Creates or updates the sticky comment. The existing one is a comment that
  * starts with the sticky marker and was posted by a bot (`authorType`
  * `Bot`), or by `author` when given, so a marker planted by someone else is
- * left alone. Returns the comment id.
+ * left alone. Returns the comment id. With `create: false` an existing one
+ * is updated but none is created (the check is not enforced, ADR 0006), and
+ * `null` is returned when there is none.
  */
 export async function upsertStickyComment(
   options: GitHubOptions,
   number: number,
   body: string,
-  match: { author?: string; comments?: readonly IssueComment[] } = {},
-): Promise<number> {
+  match: { author?: string; comments?: readonly IssueComment[]; create?: boolean } = {},
+): Promise<number | null> {
   const comments = match.comments ?? (await listIssueComments(options, number));
   const mine = comments.find(
     (c) =>
@@ -225,6 +296,7 @@ export async function upsertStickyComment(
     });
     return mine.id;
   }
+  if (match.create === false) return null;
   const created = await githubRequest<{ id: number }>(
     options,
     "POST",

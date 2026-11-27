@@ -12,9 +12,11 @@ the pull request merges once the `nod` check and the other required checks are g
 ## What an agent sees
 
 - **The check `nod`** on the pull request, red or green, with a title such as "waiting for a peer
-  nod", "nodded by mara-l (self)" or "no nod needed".
-- **One sticky comment** by the verifier: the category, the risk, what is still needed and from
-  whom, and why. It is updated in place. See [the verifier](/docs/verifier#the-sticky-comment).
+  approval or nod", "nodded by mara-l (self)" or "no nod needed". While the repository does not
+  require it yet, a check that waits is grey (neutral) instead of red (not released).
+- **One sticky comment** by the verifier, once the check is required: the category, the risk,
+  what is still needed and from whom, and why. It is updated in place. See
+  [the verifier](/docs/verifier#the-sticky-comment).
 - **Labels** `nod:auto`, `nod:decide`, `nod:fyi` and `nod:risk-0` to `nod:risk-3`. They are for
   display; nothing reads them to decide.
 

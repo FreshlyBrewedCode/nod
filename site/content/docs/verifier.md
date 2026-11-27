@@ -18,12 +18,17 @@ on:
     types: [opened, synchronize, reopened, edited] # edited: a base change needs a new verdict
   issue_comment:
     types: [created, edited, deleted] # nods arrive as comments
+  pull_request_review:
+    types: [submitted, dismissed] # approvals count too
 
 permissions: {}
 
 jobs:
   verify:
-    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    if: >-
+      github.event_name == 'pull_request_target' || github.event.issue.pull_request ||
+      (github.event_name == 'pull_request_review' &&
+      github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       checks: write # the `nod` check run on the PR head
@@ -53,6 +58,11 @@ What matters in it:
 
 - It runs on every pull request event and every pull request comment, always **from the default
   branch**. The policy, the allowed signers and the verifier's code are the default branch's.
+- It also runs when a review is submitted or dismissed (not released), so an approval counts at
+  once. That event has no `_target` variant and runs the workflow file as the pull request has
+  it, so the job skips pull requests from forks, whose token cannot set the check; there an
+  approval counts on the pull request's next event. The verifier still comes from the default
+  branch.
 - It never checks out, installs or runs code from the pull request. The pull request's commits
   are fetched as git objects and only diffed.
 - The job is named `verify`, not `nod`: a job named `nod` would itself be a green check called
@@ -71,39 +81,71 @@ requests, allow `.github/workflows/nod.yml` under **Settings → Actions → Gen
 3. Compute the changed files and the patch-id with `git`.
 4. Classify with [`.nod/policy.ts`](/docs/policy): findings, risk, category, requirement.
 5. Verify every `nod` block in the pull request's comments with `ssh-keygen -Y verify`, against
-   `.nod/allowed_signers`.
-6. Evaluate which nods [count](/docs/nodding#when-a-nod-counts) and whether the requirement is
-   met.
-7. Create the check run `nod` on the head commit.
-8. Update the sticky comment and the labels.
+   `.nod/allowed_signers`, and read the pull request's GitHub approvals.
+6. Evaluate which nods [count](/docs/nodding#when-a-nod-counts), which
+   [approvals](/docs/policy#approvals) count, and whether the requirement is met.
+7. Ask GitHub whether the base branch requires the `nod` check: [enforced or not](#enforced-or-not).
+8. Create the check run `nod` on the head commit.
+9. Update the labels, and the sticky comment once the check is enforced.
 
 The cryptography is OpenSSH's and the diff is git's. The kit, `@frebreco/nod/kit`, provides the
 helpers the file calls; the flow itself is in your repository.
 
 ## The check
 
-The check run is named `nod` and concludes only `success` or `failure`. Its title says where the
-pull request stands:
+The check run is named `nod`. It concludes `success` when the requirement is met, and `failure`
+when it is not, or `neutral` while the check is [not enforced](#enforced-or-not). Its title says
+where the pull request stands:
 
 ```
 no nod needed
-waiting for a self nod
-waiting for a peer nod (have: mara-l (self))
+waiting for a self nod or an approval
+waiting for a peer approval or nod (have: mara-l (self))
+waiting for a peer nod (have: jonas-r (approved))
 nodded by mara-l (self), jonas-r (peer)
+approved by jonas-r
 ```
 
 A ruleset on the default branch requires this check, from the GitHub Actions app, with zero
-required approvals. `nod init --ruleset` creates that ruleset and turns auto-merge on.
+required approvals: the approvals that matter are counted by the policy instead.
+`nod init --ruleset` creates that ruleset and turns auto-merge on.
 
 **The verifier fails closed.** If it crashes, or the policy file is broken, the result is a red
-`nod` check with the error in it, never a green one.
+`nod` check with the error in it, never a green one. A crash is red even when the check is not
+enforced.
+
+## Enforced or not
+
+> **Not released.** In a stable release the check is red whenever the requirement is not met.
+
+Until the default branch requires the `nod` check, a red ✗ would only be noise: it blocks nothing.
+So the verifier asks GitHub on every run whether the pull request's base branch requires a check
+named `nod`, through a ruleset (yours or your organization's) or classic branch protection, and
+concludes:
+
+| | Requirement met | Requirement not met |
+| --- | --- | --- |
+| **Enforced** | `success` | `failure`, and the sticky comment |
+| **Not enforced** | `success` | `neutral` (grey), no sticky comment |
+
+A neutral check passes a required check. So **any doubt counts as enforced**: if GitHub does not
+answer, or the branch is protected in a way the workflow's token cannot read, the run concludes
+as if enforced and says so in its summary. `enforced: true` in
+[`definePolicy`](/docs/policy#enforced-or-not) skips the question and always concludes `success`
+or `failure`.
+
+Switching enforcement on leaves the neutral checks of open pull requests behind, and those would
+pass the new requirement until the verifier runs again. `nod init --ruleset` therefore re-runs the
+verifier on every open pull request into the default branch whose `nod` check is still neutral,
+and names the ones it could not re-run: a push or any comment re-runs it too.
 
 From comment to green check takes about 12 to 20 seconds on GitHub's runners.
 
 ## The summary
 
 Each check run carries a machine-readable **summary** in its output: what the verifier found,
-which nods it saw, and what is missing. This is what `nod serve` reads to build the dashboard.
+which nods and approvals it saw, which slot each filled, what is missing, and whether the check
+is enforced. This is what `nod serve` reads to build the dashboard.
 
 ```json
 { "v": 1, "repo": "tallyho/fieldbook", "pr": 31, "author": "mara-l", "base": "main",
@@ -116,19 +158,25 @@ which nods it saw, and what is missing. This is what `nod serve` reads to build 
   "nods": [
     { "reviewer": "mara-l", "role": "self", "counts": true, "matched": "head_sha", "why_not": null,
       "verdict": "approve", "level": "review", "signed_at": "2026-11-18T20:26:13.014Z" } ],
-  "satisfied": false, "missing": [ { "kind": "peer" } ],
+  "approvals": [],
+  "satisfied": false, "filled": [], "missing": [ { "kind": "peer", "approval": true } ],
+  "enforcement": { "enforced": true, "by": "ruleset" },
   "signers": [ "mara-l", "jonas-r", "inescal" ], "errors": [] }
 ```
 
+`approvals`, `filled` and `enforcement` are not released. A slot only a nod fills shows up in
+`requirement.nodsOnly`; in `filled`, each slot says whether a `nod` or an `approval` filled it.
+
 ## The sticky comment
 
-One comment per pull request, updated in place. It says the same in words, for people and
-agents:
+One comment per pull request, updated in place. It is posted once the check is
+[enforced](#enforced-or-not); before that the same text is only in the check, and a comment posted
+earlier is kept current. It says the same in words, for people and agents:
 
 ```md
-**nod** · decide · risk high · waiting for a peer nod (have: mara-l (self))
+**nod** · decide · risk high · waiting for a peer approval or nod (have: mara-l (self))
 
-- Needs a peer nod from `jonas-r` or `inescal`
+- Needs an approval from anyone with write access but the author, or a peer nod from `jonas-r` or `inescal`
 
 Nodded: `mara-l` (self, head_sha)
 

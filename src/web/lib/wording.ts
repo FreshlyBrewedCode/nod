@@ -177,7 +177,10 @@ export function signaturePips(
   people: People,
 ): ReadonlyArray<Pip> {
   return pr.requirement.slots.map((slot) => {
-    const signer = slot.signature === null ? null : (pr.signatures[slot.signature]?.by ?? null);
+    const signer =
+      slot.signature === null
+        ? (slot.approval ?? null)
+        : (pr.signatures[slot.signature]?.by ?? null);
     const who = slot.who ?? signer;
     const initial = who ? initialOf(who, people) : "+1";
     const mineToFill =
@@ -188,7 +191,9 @@ export function signaturePips(
       slot.state === "ok" ? "ok" : slot.state === "stale" ? "stale" : mineToFill ? "me" : "open";
     const state =
       tone === "ok"
-        ? "signed"
+        ? slot.approval && slot.signature === null
+          ? "approved on GitHub"
+          : "signed"
         : tone === "stale"
           ? "signed before the content changed"
           : tone === "me"
@@ -252,6 +257,11 @@ export function slotText(
         : shortName(slot.who, people);
   const who = `${person}, as ${lowerFirst(slot.label)}`;
   if (slot.state === "missing") return { who, detail: "missing" };
+  if (slot.state === "ok" && !signature && slot.approval)
+    return {
+      who,
+      detail: `approved on GitHub${slot.who === null ? ` by ${shortName(slot.approval, people)}` : ""}`,
+    };
   if (slot.state === "stale" || !signature)
     return { who, detail: "signed before, but the content changed" };
   const when = sinceText(signature.at, now, utcOffsetMinutes);

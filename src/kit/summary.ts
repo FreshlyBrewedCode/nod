@@ -4,7 +4,14 @@
  * there and never runs repo code itself.
  */
 import type { Finding, Risk } from "./classifiers/types.ts";
-import type { NodEvaluation, NodsOutcome, PullRequestState } from "./evaluate.ts";
+import type { Enforcement } from "./enforcement.ts";
+import type {
+  ApprovalEvaluation,
+  FilledSlot,
+  NodEvaluation,
+  NodsOutcome,
+  PullRequestState,
+} from "./evaluate.ts";
 import type { Category, PolicyResult } from "./policy.ts";
 import { describeMissing, type MissingNod, type Requirement } from "./requirement.ts";
 
@@ -14,7 +21,10 @@ export interface SummaryError {
   message: string;
 }
 
-/** Version 1 of the check summary. Fields only get added within a version. */
+/**
+ * Version 1 of the check summary. Fields only get added within a version;
+ * {@link decodeSummary} fills the ones an older verifier did not write.
+ */
 export interface CheckSummary {
   v: 1;
   repo: string;
@@ -26,14 +36,26 @@ export interface CheckSummary {
   category: Category;
   risk: Risk;
   fyi: boolean;
+  /** `nodsOnly` is the part a GitHub approval never fills (ADR 0006). */
   requirement: Requirement;
   /** Findings, highest risk first. */
   reasons: Finding[];
   /** Every nod found on the PR and whether it counts. */
   nods: NodEvaluation[];
+  /** Every GitHub approval (each reviewer's latest deciding review) and whether it counts. Older verifiers: `[]`. */
+  approvals: ApprovalEvaluation[];
   /** The requirement is met and the verifier had no error: the check is `success`. */
   satisfied: boolean;
+  /** The filled slots, and whether a nod or an approval filled each. Older verifiers: `[]`. */
+  filled: FilledSlot[];
+  /** What is still needed; each entry says whether an approval would fill it. */
   missing: MissingNod[];
+  /**
+   * Whether the `nod` check is enforced on the base branch (ADR 0006): if
+   * not, an unmet requirement concludes `neutral`. Older verifiers always
+   * concluded `success` or `failure`: `{ enforced: true, by: "unknown" }`.
+   */
+  enforcement: Enforcement;
   /** Logins enrolled in `.nod/allowed_signers` on the base branch. */
   signers: string[];
   errors: SummaryError[];
@@ -51,9 +73,12 @@ export function buildSummary(input: {
   signers: readonly string[];
   /** Verifier errors (e.g. a failed fetch). Any of them makes the check fail. */
   errors?: readonly string[];
+  /** From {@link getEnforcement}. Default: enforced (`success` or `failure`, as before ADR 0006). */
+  enforcement?: Enforcement;
   now?: Date;
 }): CheckSummary {
   const { pr, policy, nods, signers, errors = [], now = new Date() } = input;
+  const enforcement = input.enforcement ?? ASSUMED;
   const allErrors: SummaryError[] = [
     ...policy.errors.map((message) => ({ source: "policy" as const, message })),
     ...errors.map((message) => ({ source: "verifier" as const, message })),
@@ -69,37 +94,61 @@ export function buildSummary(input: {
     category: policy.category,
     risk: policy.risk,
     fyi: policy.fyi,
-    requirement: { level: policy.requirement.level, named: [...policy.requirement.named] },
+    requirement: plainRequirement(policy.requirement),
     reasons: policy.reasons,
     nods: nods.nods,
+    approvals: nods.approvals ?? [],
     satisfied: nods.satisfied && errors.length === 0,
+    filled: nods.filled ?? [],
     missing: nods.missing,
+    enforcement: { ...enforcement },
     signers: [...signers],
     errors: allErrors,
     generated_at: now.toISOString(),
   };
 }
 
-/** The only two conclusions the verifier uses: `neutral` and `skipped` would pass a required check. */
-export function checkConclusion(summary: CheckSummary): "success" | "failure" {
-  return summary.satisfied ? "success" : "failure";
+/** What a summary without enforcement says: enforced, as every verifier before ADR 0006 behaved. */
+const ASSUMED: Enforcement = Object.freeze({ enforced: true, by: "unknown" });
+
+function plainRequirement(r: Requirement): Requirement {
+  return {
+    level: r.level,
+    named: [...r.named],
+    ...(r.nodsOnly ? { nodsOnly: { level: r.nodsOnly.level, named: [...r.nodsOnly.named] } } : {}),
+  };
 }
 
 /**
- * The check run title, e.g. "waiting for a peer nod", "nodded by alice
- * (self), bob (peer)" or "no nod needed".
+ * The check's conclusion: `success` when the requirement is met; when it is
+ * not, `failure` if the check is enforced and `neutral` if it is not
+ * (ADR 0006). A verifier error is always `failure`. `neutral` passes a
+ * required check, which is why it needs a clear "not enforced".
+ */
+export function checkConclusion(summary: CheckSummary): "success" | "failure" | "neutral" {
+  if (summary.satisfied) return "success";
+  const verifierError = summary.errors.some((e) => e.source === "verifier");
+  return summary.enforcement?.enforced === false && !verifierError ? "neutral" : "failure";
+}
+
+/**
+ * The check run title, e.g. "waiting for a peer approval or nod", "nodded
+ * by alice (self), bob (peer)", "approved by bob" or "no nod needed".
  */
 export function checkTitle(summary: CheckSummary): string {
   const verifierError = summary.errors.find((e) => e.source === "verifier");
   if (verifierError) return clip(`verifier error: ${verifierError.message}`);
   const by = nodders(summary.nods);
+  const approvedBy = approvers(summary.approvals ?? []);
   if (summary.satisfied) {
     if (summary.requirement.level === "none" && summary.requirement.named.length === 0) {
       return summary.category === "fyi" ? "no nod needed (FYI)" : "no nod needed";
     }
-    return clip(`nodded by ${by}`);
+    const parts = [by && `nodded by ${by}`, approvedBy && `approved by ${approvedBy}`];
+    return clip(parts.filter(Boolean).join(", "));
   }
-  return clip(`waiting for ${describeMissing(summary.missing)}${by ? ` (have: ${by})` : ""}`);
+  const have = [by, approvedBy && `${approvedBy} (approved)`].filter(Boolean).join(", ");
+  return clip(`waiting for ${describeMissing(summary.missing)}${have ? ` (have: ${have})` : ""}`);
 }
 
 /** Display-only labels for the PR: `nod:auto|decide|fyi`, `nod:risk-N`, and `nod:fyi` for an FYI that also needs a nod. */
@@ -132,18 +181,21 @@ export function encodeSummary(summary: CheckSummary, limit = CHECK_TEXT_LIMIT): 
       truncated: true,
       reasons: summary.reasons.slice(0, 50),
       nods: [...counting, ...others(summary, 20)],
+      approvals: summary.approvals.slice(0, 50),
     },
     {
       ...summary,
       truncated: true,
       reasons: summary.reasons.slice(0, 10).map(shortReason),
       nods: counting.slice(0, 50),
+      approvals: summary.approvals.filter((a) => a.counts).slice(0, 50),
     },
     {
       ...summary,
       truncated: true,
       reasons: [],
       nods: counting.slice(0, 20),
+      approvals: summary.approvals.filter((a) => a.counts).slice(0, 20),
       signers: summary.signers.slice(0, 50),
     },
   ];
@@ -151,10 +203,21 @@ export function encodeSummary(summary: CheckSummary, limit = CHECK_TEXT_LIMIT): 
     const text = wrap(JSON.stringify(s));
     if (text.length <= limit) return text;
   }
-  return wrap(JSON.stringify({ ...attempts[3]!, nods: [], errors: summary.errors.slice(0, 5) }));
+  return wrap(
+    JSON.stringify({
+      ...attempts[3]!,
+      nods: [],
+      approvals: [],
+      errors: summary.errors.slice(0, 5),
+    }),
+  );
 }
 
-/** Reads a summary back from `output.text`. Returns `null` for anything that is not a v1 summary. */
+/**
+ * Reads a summary back from `output.text`. Returns `null` for anything that
+ * is not a v1 summary. A summary from an older verifier gets the fields it
+ * lacks, as it behaved: no approvals, every slot a nod-only slot, enforced.
+ */
 export function decodeSummary(text: unknown): CheckSummary | null {
   if (typeof text !== "string") return null;
   const at = text.indexOf(MARKER);
@@ -167,7 +230,30 @@ export function decodeSummary(text: unknown): CheckSummary | null {
   } catch {
     return null;
   }
-  return isSummary(value) ? value : null;
+  return isSummary(value) ? withDefaults(value) : null;
+}
+
+/** Fills what summaries before ADR 0006 did not write. */
+function withDefaults(s: CheckSummary): CheckSummary {
+  const old = s as Partial<CheckSummary> & CheckSummary;
+  if (Array.isArray(old.approvals) && old.enforcement && Array.isArray(old.filled)) return s;
+  const before = !Array.isArray(old.approvals);
+  return {
+    ...s,
+    requirement:
+      before && !s.requirement.nodsOnly
+        ? {
+            ...s.requirement,
+            nodsOnly: { level: s.requirement.level, named: [...s.requirement.named] },
+          }
+        : s.requirement,
+    approvals: Array.isArray(old.approvals) ? old.approvals : [],
+    filled: Array.isArray(old.filled) ? old.filled : [],
+    enforcement:
+      old.enforcement && typeof old.enforcement.enforced === "boolean"
+        ? old.enforcement
+        : { enforced: true, by: "unknown" },
+  };
 }
 
 function isSummary(v: unknown): v is CheckSummary {
@@ -195,6 +281,18 @@ function isSummary(v: unknown): v is CheckSummary {
     Array.isArray(s.signers) &&
     Array.isArray(s.errors)
   );
+}
+
+/** The approvals that count, as "bob, carol". */
+export function approvers(approvals: readonly ApprovalEvaluation[]): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of approvals) {
+    if (!a.counts || seen.has(a.reviewer.toLowerCase())) continue;
+    seen.add(a.reviewer.toLowerCase());
+    out.push(a.reviewer);
+  }
+  return out.join(", ");
 }
 
 /** The nods that count, as "alice (self), bob (peer)", one per reviewer. */

@@ -19,6 +19,7 @@ import {
   diffSize,
   encodeSummary,
   enrolledLogins,
+  evaluateApprovals,
   evaluateNods,
   evaluatePolicy,
   gitFileReader,
@@ -31,6 +32,7 @@ import {
   serializePayload,
   verifyNodBlocks,
   type NodPayload,
+  type PullRequestReview,
   type PullRequestState,
 } from "./index.ts";
 import { makeKey, sshSign, tempDir, tempRepo } from "./test-support.ts";
@@ -95,7 +97,7 @@ async function prState(n: number): Promise<PullRequestState> {
 }
 
 /** What `.nod/verify.ts` does for one PR, minus the GitHub calls. */
-async function verify(n: number, commentBodies: string[]) {
+async function verify(n: number, commentBodies: string[], reviews: PullRequestReview[] = []) {
   const pr = await prState(n);
   const files = await changedFiles({ repoDir: repo.dir, baseTip: "main", head: pr.head_sha });
   const result = await evaluatePolicy(policy, {
@@ -106,7 +108,12 @@ async function verify(n: number, commentBodies: string[]) {
   const { verified, rejected } = await verifyNodBlocks(commentBodies.flatMap(parseNodComments), {
     allowedSignersPath,
   });
-  const nods = evaluateNods({ pr, requirement: result.requirement, verified, rejected });
+  const approvals = await evaluateApprovals({
+    pr,
+    reviews,
+    canApprove: async (login) => ["bob", "carol"].includes(login),
+  });
+  const nods = evaluateNods({ pr, requirement: result.requirement, verified, rejected, approvals });
   const signers = enrolledLogins(
     (await gitFileReader(repo.dir, "main")(".nod/allowed_signers")) ?? "",
   );
@@ -134,8 +141,10 @@ async function sign(reviewer: string, privateKey: string, prs: number[]): Promis
 }
 
 test("no nods: PR #1 waits for a self nod, PR #2 for a peer", async () => {
-  expect(checkTitle(await verify(1, ["no nod here"]))).toBe("waiting for a self nod");
-  expect(checkTitle(await verify(2, []))).toBe("waiting for a peer nod");
+  expect(checkTitle(await verify(1, ["no nod here"]))).toBe(
+    "waiting for a self nod or an approval",
+  );
+  expect(checkTitle(await verify(2, []))).toBe("waiting for a peer approval or nod");
 });
 
 test("alice's batch nod covers both PRs, as self; PR #2 still needs a peer", async () => {
@@ -144,7 +153,7 @@ test("alice's batch nod covers both PRs, as self; PR #2 still needs a peer", asy
   expect(checkConclusion(one)).toBe("success");
   expect(checkTitle(one)).toBe("nodded by alice (self)");
   const two = await verify(2, [body]);
-  expect(checkTitle(two)).toBe("waiting for a peer nod (have: alice (self))");
+  expect(checkTitle(two)).toBe("waiting for a peer approval or nod (have: alice (self))");
 
   const withBob = await verify(2, [body, await sign("bob", bob.privateKey, [2])]);
   expect(checkTitle(withBob)).toBe("nodded by alice (self), bob (peer)");
@@ -155,6 +164,25 @@ test("alice's batch nod covers both PRs, as self; PR #2 still needs a peer", asy
   expect(renderSticky(withBob, { uiBase: "https://ui.example.test" })).toContain(
     "https://ui.example.test/#/pr/acme/widgets/2",
   );
+});
+
+test("carol approves #2 on GitHub: the peer slot is filled by her approval", async () => {
+  const head = heads[2]!;
+  const review = (state: string, commit_id = head): PullRequestReview => ({
+    reviewer: "carol",
+    reviewerType: "User",
+    state,
+    commit_id,
+    submitted_at: "2026-11-26T09:00:00Z",
+  });
+  const s = await verify(2, [], [review("APPROVED")]);
+  expect(checkConclusion(s)).toBe("success");
+  expect(checkTitle(s)).toBe("approved by carol");
+  expect(s.filled).toEqual([{ slot: "peer", reviewer: "carol", by: "approval" }]);
+  // an approval of an earlier commit does not count
+  const stale = await verify(2, [], [review("APPROVED", heads[1]!)]);
+  expect(stale.satisfied).toBe(false);
+  expect(stale.approvals[0]!.why_not?.code).toBe("stale");
 });
 
 test("a forged nod (bob's key, claiming alice) is listed and does not count", async () => {

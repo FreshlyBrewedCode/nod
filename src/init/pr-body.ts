@@ -1,7 +1,8 @@
 /**
  * The setup PR's title and description: what each file is, why this PR
- * merges under the old rule, the one step a repo admin takes after the
- * merge, and the honest limits of Actions mode (ADR 0003).
+ * merges under the old rule, that the check never blocks until a repo
+ * admin requires it (ADR 0006), that step, and the honest limits of Actions
+ * mode (ADR 0003).
  */
 import { GITHUB_COM, githubHost } from "../kit/host.ts";
 import { RULESET_NAME } from "./ruleset.ts";
@@ -58,29 +59,31 @@ export function setupPrBody(ctx: SetupPrContext): string {
     : "nobody yet (add a key before merging, or nothing can ever be nodded)";
 
   const lines = [
-    "This PR sets up **nod** in this repository: a check named `nod` that turns green once the right humans have nodded a PR with a signed comment, so that agents can merge their own PRs with auto-merge. The logic lives here, in `.nod/`, readable top to bottom. The npm package only provides helpers.",
+    "This PR sets up **nod** in this repository: a check named `nod` that turns green once the right humans have looked at a PR, with a plain GitHub approval or a signed nod comment, so that agents can merge their own PRs with auto-merge. The logic lives here, in `.nod/`, readable top to bottom. The npm package only provides helpers.",
+    "",
+    `**Nothing is blocked yet.** Until a repo admin makes \`nod\` required on \`${defaultBranch}\` (the step below), the check never blocks a merge: a PR that still needs someone shows a grey, neutral \`nod\` check that says who, and the verifier posts no comment. Everyone keeps merging the way they do today.`,
     "",
     "## What each file is",
     "",
     "| File | What it is |",
     "|---|---|",
-    "| `.nod/policy.ts` | What a PR needs before it may merge: classifiers (paths, diff size, dependencies, the PR brief, your own) and rules that map them to none, a self nod, a peer nod or a named person. Yours to change. |",
+    "| `.nod/policy.ts` | What a PR needs before it may merge: classifiers (paths, diff size, dependencies, the PR brief, your own) and rules that map them to nobody, the author (self), someone else (peer) or a named person. A GitHub approval counts unless a rule asks for a signed nod only. Yours to change. |",
     "| `.nod/classifiers/module-tier.ts` | An **example** custom classifier (module tiers from `modules/<name>/module.json`, `core/` is high risk). Delete or adapt it. |",
-    "| `.nod/verify.ts` | The whole verifier, top to bottom: fetches the PR as git objects, classifies it, verifies every nod with `ssh-keygen`, sets the `nod` check, updates one sticky comment and the `nod:*` labels. |",
+    "| `.nod/verify.ts` | The whole verifier, top to bottom: fetches the PR as git objects, classifies it, verifies every nod with `ssh-keygen`, reads the approvals, sets the `nod` check (neutral until it is required), updates the `nod:*` labels and, once the check is required, one sticky comment. |",
     `| \`.nod/allowed_signers\` | Who can nod: public SSH keys, principal = GitHub login. Enrolled here: ${who}. |`,
     `| \`.nod/package.json\`, \`.nod/bun.lock\` | Pin the helper kit (\`${kitSpec.replace(/`/g, "'")}\`). Dependabot can bump it. |`,
     "| `.nod/.gitignore` | Keeps `.nod/node_modules` out of git. |",
-    "| `.github/workflows/nod.yml` | Runs `.nod/verify.ts` on every PR event and PR comment. It checks out the default branch only, never code from the PR, and its job is deliberately not named `nod`. |",
+    "| `.github/workflows/nod.yml` | Runs `.nod/verify.ts` on every PR event, PR comment and review. It checks out the default branch only, never code from the PR, and its job is deliberately not named `nod`. |",
     "",
     ...(kitNote ? [kitNote, ""] : []),
     ...(actionsNote ? [actionsNote, ""] : []),
     "## This PR merges under the current rules",
     "",
-    "The verifier does not exist until this PR is merged, so this PR cannot be gated by it. Review it like any other change and merge it the way this repository merges today. From then on, every change to `.nod/` or `.github/workflows/` needs a peer's nod, this setup included.",
+    "The verifier does not exist until this PR is merged, so this PR cannot be gated by it. Review it like any other change and merge it the way this repository merges today. Once the check is required, every change to `.nod/` or `.github/workflows/` needs a peer's signed nod (an approval is not enough), this setup included.",
     "",
-    "## After merging: one step for a repo admin",
+    "## When you want it to block: one step for a repo admin",
     "",
-    `Make \`nod\` the gate of \`${defaultBranch}\` and turn on auto-merge. Either run`,
+    `Make \`nod\` the gate of \`${defaultBranch}\` and turn on auto-merge, whenever the team is ready (it needs this PR merged first). Either run`,
     "",
     "```sh",
     rulesetCommand(host, repo),
@@ -93,6 +96,8 @@ export function setupPrBody(ctx: SetupPrContext): string {
     "3. **Require status checks to pass**: add `nod` and pick **GitHub Actions** as its source.",
     "4. **Block force pushes** and **restrict deletions**.",
     "5. **Settings → General → Pull Requests → Allow auto-merge.**",
+    "",
+    "The verifier sees the required check on its next run of each PR. `nod init --ruleset` re-runs it for the open PRs whose `nod` check is still neutral (a neutral check would pass the new requirement); by hand, push to them or re-run their `verify` job.",
     "",
     "If classic branch protection or another ruleset still requires approvals on this branch, lower that to 0, or auto-merge will keep waiting for an approval as well.",
     isPrivate

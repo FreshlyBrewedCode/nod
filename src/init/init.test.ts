@@ -200,6 +200,42 @@ test("--ruleset creates the ruleset and enables auto-merge", async () => {
   expect(lines.join("\n")).toContain("auto-merge is enabled");
 });
 
+test("--ruleset re-runs the verifier on open PRs whose nod check is still neutral", async () => {
+  const head = (c: string) => c.repeat(40);
+  api = {
+    "repos/acme/widgets/contents/.nod/verify.ts?ref=main": { status: 0, stdout: "" },
+    "apps/github-actions": { status: 0, stdout: "15368\n" },
+    "repos/acme/widgets/rulesets": { status: 0, stdout: "\n" },
+    "repos/acme/widgets": { status: 0, stdout: "true\n" },
+    "repos/acme/widgets/pulls?state=open&base=main&per_page=100": {
+      status: 0,
+      stdout: `4\t${head("a")}\n5\t${head("b")}\n6\t${head("c")}\n`,
+    },
+    [`repos/acme/widgets/commits/${head("a")}/check-runs?check_name=nod&filter=latest`]: {
+      status: 0,
+      stdout: "neutral\n",
+    },
+    [`repos/acme/widgets/commits/${head("b")}/check-runs?check_name=nod&filter=latest`]: {
+      status: 0,
+      stdout: "success\n",
+    },
+    [`repos/acme/widgets/commits/${head("c")}/check-runs?check_name=nod&filter=latest`]: {
+      status: 0,
+      stdout: "neutral\n",
+    },
+    [`repos/acme/widgets/actions/workflows/nod.yml/runs?event=pull_request_target&head_sha=${head("a")}&per_page=1`]:
+      { status: 0, stdout: "777\n" },
+    "repos/acme/widgets/actions/runs/777/rerun": { status: 0, stdout: "" },
+    // #6: no run to re-run (e.g. only comment-triggered runs on this head)
+  };
+  expect(await runInit(flags({ ruleset: true }), deps())).toBe(0);
+  const out = lines.join("\n");
+  expect(out).toContain("re-ran the verifier on #4");
+  expect(out).toContain("could not re-run the verifier on #6");
+  expect(out).not.toMatch(/#5/);
+  expect(calls.some((c) => c.includes("repos/acme/widgets/actions/runs/777/rerun"))).toBe(true);
+});
+
 test("--ruleset says plainly when the plan refuses", async () => {
   const refusal = {
     status: 1,

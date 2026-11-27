@@ -247,6 +247,13 @@ export interface Slot {
   readonly state: "missing" | "ok" | "stale";
   /** Index into `PrView.signatures` of the nod that fills it (or filled it, when stale). */
   readonly signature: number | null;
+  /**
+   * Who filled it with a GitHub approval instead of a nod (ADR 0006); then
+   * `state` is `ok` and `signature` null. Absent or null: no approval fills it.
+   */
+  readonly approval?: Login | null;
+  /** Only a nod fills it; a GitHub approval does not (`peer({ approvals: false })`). */
+  readonly nodsOnly?: boolean;
 }
 
 /** The policy result for the PR's head (read from the verifier's check summary). */
@@ -257,6 +264,12 @@ export interface Requirement {
   readonly label: string;
   readonly slots: ReadonlyArray<Slot>;
   readonly satisfied: boolean;
+  /**
+   * Whether the base branch requires the `nod` check (ADR 0006): if not, an
+   * unmet requirement blocks nothing (the check is neutral). Absent: unknown,
+   * e.g. no verifier summary.
+   */
+  readonly enforced?: boolean;
 }
 
 /** A nod found on the PR, and whether it counts now (ADR 0001, rule 5). */

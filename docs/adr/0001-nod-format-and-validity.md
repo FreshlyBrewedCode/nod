@@ -1,6 +1,6 @@
 # 0001: Nod format and when a nod counts
 
-Status: accepted (2026-11-18). Evidence: [finding 01](../findings/01-spike-1-github-mechanics.md).
+Status: accepted (2026-11-18). Evidence: [finding 01](../findings/01-spike-1-github-mechanics.md). Rule 9 amended by [ADR 0006](0006-opt-in-ladder.md): `neutral` while the check is not enforced.
 
 ## Decision
 

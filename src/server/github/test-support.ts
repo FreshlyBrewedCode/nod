@@ -194,6 +194,9 @@ export function summaryFor(
     requirement?: Requirement;
     reasons?: Finding[];
     nods?: NodEvaluation[];
+    approvals?: CheckSummary["approvals"];
+    filled?: CheckSummary["filled"];
+    enforcement?: CheckSummary["enforcement"];
     satisfied?: boolean;
     missing?: MissingNod[];
     errors?: CheckSummary["errors"];
@@ -216,8 +219,11 @@ export function summaryFor(
     requirement,
     reasons: s.reasons ?? [],
     nods: s.nods ?? [],
+    approvals: s.approvals ?? [],
     satisfied: s.satisfied ?? requirement.level === "none",
+    filled: s.filled ?? [],
     missing: s.missing ?? [],
+    enforcement: s.enforcement ?? { enforced: true, by: "ruleset" },
     signers: [ALICE, BOB, CAROL],
     errors: s.errors ?? [],
     generated_at: iso(s.at ?? 20),

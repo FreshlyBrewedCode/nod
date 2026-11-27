@@ -106,7 +106,11 @@ The **patch-id** is a hash of the diff between the pull request and its base, co
 | Your key is removed from `.nod/allowed_signers` | Dropped on every open pull request at the next run |
 | The comment is deleted, or its block edited | Dropped |
 
-Every verifier run reads the full current state, so a dropped nod turns the check red again.
+Every verifier run reads the full current state, so a dropped nod puts the check back to
+waiting: red once [enforced](/docs/verifier#enforced-or-not).
+
+A GitHub approval of the head commit fills a slot too, unless the policy asks for a nod only (not
+released). It needs no key and no `nod serve`: see [Approvals](/docs/policy#approvals).
 
 ## Stale and failed
 

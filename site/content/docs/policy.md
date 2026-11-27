@@ -23,7 +23,7 @@ The setup PR adds these, and from then on they are yours:
 
 The verifier always runs the policy **from the default branch**, never from the pull request. A
 change to the policy is a pull request like any other, and since it is under `.nod/`, it always
-needs a peer nod.
+needs a peer nod; a GitHub approval is not enough for it.
 
 ## How a policy works
 
@@ -83,12 +83,15 @@ export default definePolicy({
 
 ## Requirements
 
-| Requirement | Who has to nod |
+A requirement has **slots**, and each slot is filled by a nod or by a GitHub
+[approval](#approvals):
+
+| Requirement | Who fills its slot |
 | --- | --- |
 | `none` | Nobody. The pull request merges on its own once CI is green |
-| `self` | Any signer; the human behind the agent attesting their own agent's work is enough |
-| `peer` | A signer other than the pull request's author |
-| `named("login")` | That person, in addition to whatever else is asked |
+| `self` | Any signer's nod, the human behind the agent attesting their own agent's work is enough; or anyone's approval |
+| `peer` | The nod or the approval of someone other than the pull request's author |
+| `named("login")` | That person's nod or approval, in addition to whatever else is asked |
 
 Everything combines to the strictest. The risk of a pull request is the highest risk of any
 finding, and the requirement is the strictest any rule returned. **No rule can lower what another
@@ -101,10 +104,48 @@ knowing. The **category** follows: `decide` when someone has to nod, `fyi` when 
 
 Two things are built in and cannot be lowered by rules:
 
-- A change under `.nod/**` or `.github/workflows/**` always needs a peer nod. These are the
-  trust root, the policy, the verifier, and workflows that could create a check of their own.
-- A classifier or a rule that throws counts as high risk and needs a peer nod. A broken policy
-  fails safe.
+- A change under `.nod/**` or `.github/workflows/**` always needs a peer nod, nod only. These are
+  the trust root, the policy, the verifier, and workflows that could create a check of their own.
+- A classifier or a rule that throws counts as high risk and needs a peer nod, nod only. A broken
+  policy fails safe.
+
+## Approvals
+
+> **Not released.** In a stable release, only nods fill slots.
+
+Teammates who never install nod keep reviewing the way they do on GitHub: a plain **approval**
+fills a slot like a nod. It counts when it is
+
+- the reviewer's latest review that approves, requests changes or was dismissed (a comment does
+  not change it), and it approves;
+- on the pull request's **head commit**. An approval given before the last push does not count,
+  and unlike a nod it does not survive a rebase, since GitHub records only the commit;
+- by someone with write access to the repository, other than the author, and not a bot. On a
+  public repository anyone can press Approve; those do not count, as on GitHub.
+
+Where only a signed nod will do, say so in the rule:
+
+```ts
+rule("auth needs a signed peer nod", (f) => f.has("auth") && peer({ approvals: false })),
+rule("billing needs alice's own nod", (f) => f.has("tier-1") && named("alice", { approvals: false })),
+```
+
+`self({ approvals: false })` works the same way. Plain `peer`, `self` and `named("alice")` accept
+approvals, so a policy written before keeps working. Combined, the strictest of both wins:
+`[peer, self({ approvals: false })]` needs a peer's approval or nod, and some nod.
+
+The trade-off, plainly: an agent that holds your `gh` login can approve a teammate's pull request
+as you. That is no worse than GitHub without nod, and within what nod promises today
+([Security and limits](/docs/security#approvals)). Ask for a nod only where that matters; nod's
+own setup always does.
+
+## Enforced or not
+
+The policy decides what a pull request needs. Whether that **blocks** a merge is up to the
+repository: until the default branch requires the `nod` check, a pull request that still needs
+someone gets a neutral check that says who, and nothing is blocked
+([Verifier](/docs/verifier#enforced-or-not)). The verifier asks GitHub. To have it treat the
+check as required without asking, add `enforced: true` to `definePolicy`.
 
 ## Built-in classifiers
 
@@ -183,5 +224,5 @@ A rule sees `f.risk`, `f.files`, `f.findings`, `f.has(...tags)`, `f.tagged(tag)`
 ## Trying a change
 
 Change `.nod/policy.ts` in a pull request. That pull request is still judged by the policy on the
-default branch, and needs a peer nod. The new policy applies to every pull request from the
+default branch, and needs a peer nod; an approval does not do. The new policy applies to every pull request from the
 moment it merges: the verifier re-runs on the next event of each.
