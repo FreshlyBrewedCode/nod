@@ -55,8 +55,10 @@ nod
     (`board.tsx`, group by Waiting on or State) opens the same panel as a 540 px overlay
     drawer. Every way to sign calls `openBatch(prNumbers)` (`components/batch-dialog.tsx`):
     review, unlock in place, signed / stale / posting failed, the steps a pure state machine
-    in `lib/batch.ts`; the passphrase only ever lives in its input (`components/unlock.tsx`,
-    also the lock chip). Screenshots of it: `docs/design/r3/impl/`
+    in `lib/batch.ts`; without an active key the asks are `approve` and the same dialog posts
+    GitHub approvals (request `approve`, review → approving → approved, one kind per batch;
+    `--fake --scenario inbox`, and `join` at a set-up repo); the passphrase only ever lives in
+    its input (`components/unlock.tsx`, also the lock chip). Screenshots of it: `docs/design/r3/impl/`
   - onboarding (`components/onboarding.tsx`): shown by `app.tsx` while the setup or the key is
     not ready, reopened at `#/setup` (avatar menu); where it starts is derived from server state
     only (`lib/onboarding.ts`, tested). Deep links (`components/link-landing.tsx`,
