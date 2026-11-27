@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { parseArgs, type ServeFlags } from "./cli";
+import { parseArgs, printedLinks, type ServeFlags } from "./cli";
 
 const serveFlags = (argv: string[]): ServeFlags => {
   const cmd = parseArgs(["serve", ...argv]);
@@ -152,11 +152,37 @@ test("bad arguments are errors", () => {
     ["serve", "--host", "not a host"],
     ["serve", "--allow-host", "100.64.0.7"],
     ["serve", "--allow-host", "https://laptop.example.test"],
-    ["serve", "--web-dir", "/w"],
     ["init", "x"],
     ["init", "--repo", "no-slash"],
     ["init", "--host", "https://acme.ghe.com/acme"],
     ["init", "--kit", "has space"],
   ])
     expect(parseArgs(argv).kind).toBe("error");
+});
+
+test("--web-dir works without --allow-host: it is the app on loopback too (ADR 0008)", () => {
+  const cmd = parseArgs(["serve", "--web-dir", "/w"]);
+  expect(cmd.kind).toBe("serve");
+  if (cmd.kind === "serve") expect(cmd.flags.webDir).toBe("/w");
+});
+
+test("the printed link: a release's app, a checkout's dev server, --web-url when given", () => {
+  const link = "http://localhost:4517/#host=…";
+  const appLink = "http://127.0.0.1:4518/#host=…";
+  expect(printedLinks({ release: true, explicit: false, link, appLink })).toEqual({
+    main: appLink,
+    app: null,
+  });
+  expect(printedLinks({ release: false, explicit: false, link, appLink })).toEqual({
+    main: link,
+    app: appLink,
+  });
+  expect(printedLinks({ release: true, explicit: true, link, appLink })).toEqual({
+    main: link,
+    app: appLink,
+  });
+  expect(printedLinks({ release: false, explicit: false, link, appLink: null })).toEqual({
+    main: link,
+    app: null,
+  });
 });

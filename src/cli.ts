@@ -44,7 +44,7 @@ export interface ServeFlags {
   readonly open: boolean;
   /** `--allow-host`: the TLS proxy's name in front of the port (another device, ADR 0005). */
   readonly allowHost: NamedHost | null;
-  /** `--web-dir`: the built web app served on that name. */
+  /** `--web-dir`: the built web app it serves, on loopback (the app) and on that name. */
   readonly webDir: string | null;
 }
 
@@ -83,8 +83,9 @@ serve options:
                       the host of its origin; needed when origin names an
                       ssh alias)
   --poll <seconds>    how often to read GitHub (default 60, at least 10)
-  --web-url <url>     the web app to pair with (default: this release's, or
-                      the Vite dev server for a checkout; env NOD_WEB_URL)
+  --web-url <url>     the web app the printed link opens instead of the app
+                      nod serves on 127.0.0.1 (a checkout: default the Vite
+                      dev server; env NOD_WEB_URL); its origin may pair
   --fake              serve a fake team and repo instead of GitHub
   --scenario <name>   with --fake: ${SCENARIOS.join(", ")} (default team)
   --frozen            with --fake: nothing changes on its own
@@ -99,8 +100,9 @@ serve options:
                       such as tailscale serve gives the port, and serve the
                       web app there for another device; prints its link
                       and a QR code
-  --web-dir <path>    with --allow-host: the built web app (default: the
-                      one this nod ships, in a checkout dist/web)
+  --web-dir <path>    the built web app nod serves on http://127.0.0.1:<port>/
+                      and on --allow-host's name (default: the one this nod
+                      ships, in a checkout dist/web once built)
   --open              open the host link in a browser
   --no-open           do not (the default)
 
@@ -187,8 +189,6 @@ function parseServe(args: string[]): Command {
       return { kind: "error", message: `--allow-host: ${(error as Error).message}` };
     }
   }
-  if (values["web-dir"] !== undefined && !allowHost)
-    return { kind: "error", message: "--web-dir needs --allow-host" };
   const webUrl = values["web-url"] ?? null;
   if (webUrl !== null && !/^https?:\/\/[^/]+/.test(webUrl))
     return { kind: "error", message: "--web-url is an http(s) URL" };
@@ -216,16 +216,19 @@ function parseServe(args: string[]): Command {
 
 async function runServe(flags: ServeFlags): Promise<number> {
   const { start } = await import("./server/start");
-  const { defaultWebUrl } = await import("./server/web-url");
+  const { defaultWebUrl, isRelease } = await import("./server/web-url");
   const { defaultTokenFile } = await import("./server/token");
   const { defaultWebRoot, isWebRoot } = await import("./server/static-files");
-  const webUrl = flags.webUrl ?? process.env.NOD_WEB_URL ?? defaultWebUrl(VERSION);
-  const webRoot = flags.allowHost ? resolve(flags.webDir ?? defaultWebRoot()) : null;
-  if (webRoot && !isWebRoot(webRoot)) {
+  const explicitWebUrl = flags.webUrl ?? process.env.NOD_WEB_URL ?? null;
+  const webUrl = explicitWebUrl ?? defaultWebUrl(VERSION);
+  // The app on loopback (ADR 0008), when there is a build; --allow-host needs one.
+  const candidate = resolve(flags.webDir ?? defaultWebRoot());
+  const webRoot = isWebRoot(candidate) ? candidate : null;
+  if (!webRoot && (flags.webDir || flags.allowHost)) {
     console.error(
       flags.webDir
-        ? `nod serve: there is no built web app in ${webRoot} (no index.html).`
-        : `nod serve: the web app for --allow-host is not built: run \`bun run build\` in this checkout (it writes ${webRoot}), or pass --web-dir.`,
+        ? `nod serve: there is no built web app in ${candidate} (no index.html).`
+        : `nod serve: the web app for --allow-host is not built: run \`bun run build\` in this checkout (it writes ${candidate}), or pass --web-dir.`,
     );
     return 1;
   }
@@ -244,6 +247,7 @@ async function runServe(flags: ServeFlags): Promise<number> {
       ...(flags.dir !== null && { dir: flags.dir }),
       ...(flags.poll !== null && { pollMs: flags.poll * 1000 }),
       namedHost: flags.allowHost && webRoot ? { host: flags.allowHost, webRoot } : null,
+      appRoot: webRoot,
     });
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -269,7 +273,15 @@ async function runServe(flags: ServeFlags): Promise<number> {
     console.log(
       "\n  no repository yet: add one in the dashboard, or with `nod repo add owner/name`.",
     );
-  console.log(`\n  open the dashboard:\n  ${started.link}\n`);
+  const links = printedLinks({
+    release: isRelease(VERSION),
+    explicit: explicitWebUrl !== null,
+    link: started.link,
+    appLink: started.appLink,
+  });
+  console.log(`\n  open the dashboard:\n  ${links.main}\n`);
+  if (links.app)
+    console.log(`  or the app nod serve serves (install it from there):\n  ${links.app}\n`);
   if (started.deviceLink) {
     const { qrLines } = await import("./server/qr");
     console.log(
@@ -291,7 +303,7 @@ async function runServe(flags: ServeFlags): Promise<number> {
       ? "  keep these links to yourself: while signing is unlocked on its side, each can sign.\n"
       : "  keep this link to yourself: while signing is unlocked, it can sign.\n",
   );
-  if (flags.open) openBrowser(started.link);
+  if (flags.open) openBrowser(links.main);
 
   const stop = () => {
     void started.stop().then(() => process.exit(0));
@@ -299,6 +311,24 @@ async function runServe(flags: ServeFlags): Promise<number> {
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   return new Promise<number>(() => {});
+}
+
+/**
+ * Which host link `nod serve` prints as the one to open (ADR 0008 §5): a
+ * release's own app on loopback; a checkout's Vite dev server; `--web-url`
+ * when given. The app's link, when it is served and not the main one, is
+ * printed under it.
+ */
+export function printedLinks(input: {
+  readonly release: boolean;
+  /** `--web-url` or `NOD_WEB_URL` was given. */
+  readonly explicit: boolean;
+  /** The host link of the web url (hosted UI, dev server, or the given one). */
+  readonly link: string;
+  readonly appLink: string | null;
+}): { main: string; app: string | null } {
+  if (input.appLink && input.release && !input.explicit) return { main: input.appLink, app: null };
+  return { main: input.link, app: input.appLink };
 }
 
 function openBrowser(url: string) {

@@ -4,6 +4,7 @@ import { FakeSource } from "../server/fake-source";
 import { ManualClock } from "../server/clock";
 import {
   attentionView,
+  badgeCount,
   boardView,
   bucketOf,
   chronologicalView,
@@ -632,5 +633,37 @@ describe("hints and summaries", () => {
         since,
       ),
     ).toBe(1);
+  });
+});
+
+describe("the badge (ADR 0008 §10)", () => {
+  test("my tier 1 rows: needs me and high risk, or a teammate's", () => {
+    expect(badgeCount([])).toBe(0);
+    expect(
+      badgeCount([
+        pr({ number: 1, needsMe: true, mine: false }),
+        pr({ number: 2, needsMe: true, mine: true, risk: 3 }),
+        pr({ number: 3, needsMe: true, mine: true, risk: 1 }),
+        pr({ number: 4, fyiForMe: true }),
+        pr({ number: 5 }),
+      ]),
+    ).toBe(2);
+  });
+
+  test("across every repo, and never a PR that is done", () => {
+    const other = { repo: "acme.ghe.com/finance/ledger" };
+    expect(
+      badgeCount([
+        pr({ number: 1, needsMe: true }),
+        pr({ number: 1, needsMe: true, ...other }),
+        pr({ number: 2, needsMe: true, state: "merged" }),
+        pr({ number: 3, needsMe: true, state: "closed" }),
+      ]),
+    ).toBe(2);
+  });
+
+  test("the mockup's team: the three prominent rows", () => {
+    expect(badgeCount(mockup().prs)).toBe(countByTier(mockup().prs)[1]);
+    expect(badgeCount(mockup().prs)).toBe(3);
   });
 });

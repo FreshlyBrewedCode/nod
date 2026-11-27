@@ -23,8 +23,9 @@ repository, `nod` is `bun src/cli.ts`; see [Quick start](/docs/quick-start). The
 
 ## `nod serve`
 
-Starts the local server the dashboard pairs with, and prints the link to open. Not released: it
-reads every repository of the [repo list](#nod-repo), each from its clone in the
+Starts the local server the dashboard pairs with, serves the [app](/docs/app) at
+`http://127.0.0.1:<port>/` and prints the link to open. Not released: it reads every repository
+of the [repo list](#nod-repo), each from its clone in the
 [clone cache](#files-and-environment), on whatever GitHub host it is:
 
 - **With a repo list**, it reads the list, wherever you start it. A change made with `nod repo`
@@ -44,16 +45,16 @@ reads every repository of the [repo list](#nod-repo), each from its clone in the
 | `--repo <owner/name>` | With a clone: the repository. Default: the clone's `origin` |
 | `--host <host>` | With a clone: its GitHub host, `github.com`, `<name>.ghe.com` or a GitHub Enterprise Server. Default: the host of the clone's `origin`. Needed when `origin` names an ssh alias |
 | `--poll <seconds>` | How often to read GitHub. Default 60, from 10 to 3600 |
-| `--web-url <url>` | The web app to pair with. Default: this release's, or the Vite dev server for a checkout. Also the environment variable `NOD_WEB_URL`. Not released: only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
+| `--web-url <url>` | The web app the printed link opens instead of the [app](/docs/app) `nod serve` serves on `127.0.0.1`; its origin may pair. A checkout's default is the Vite dev server. Also the environment variable `NOD_WEB_URL`. Not released: the app (before, a release's default was the hosted web app), and that only the hosted web app and a page on this machine (such as the dev server) can pair with `127.0.0.1` |
 | `--fake` | Serve a fictional team and repository instead of GitHub |
-| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox`, `shared` or `repos`; see [Fake scenarios](#fake-scenarios) |
+| `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox`, `shared`, `repos` or `dir`; see [Fake scenarios](#fake-scenarios) |
 | `--frozen` | With `--fake`: nothing changes on its own |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
 | `--new-token` | Replace both tokens: every paired browser pairs again |
 | `--new-remote-token` | Replace only the remote token: the other device pairs again, this machine's browser stays paired |
 | `--allow-host <name[:port]>` | Not released. Also answer to this https name, the [named host](/docs/phone) a TLS proxy such as `tailscale serve` gives the port, and serve the dashboard there for another device. Prints the device link and its QR code |
-| `--web-dir <path>` | With `--allow-host`: the built dashboard to serve. Default: the one this nod ships; in a checkout `dist/web`, from `bun run build` |
-| `--open` | Open the link in a browser |
+| `--web-dir <path>` | The built web app `nod serve` serves on `http://127.0.0.1:<port>/` (the [app](/docs/app)) and on `--allow-host`'s name. Default: the one this nod ships; in a checkout `dist/web`, once `bun run build` made it (without it, a checkout serves no app). Not released: on `127.0.0.1`, and without `--allow-host` |
+| `--open` | Open the printed link in a browser |
 | `--no-open` | Do not. The default |
 
 `--dir`, `--host` and `--poll` read GitHub and cannot be combined with `--fake`. `--allow-host`
@@ -82,6 +83,7 @@ onboarding first wherever the setup or the key is not ready.
 | `inbox` | The inbox step: no `.nod/`, no key, the pull requests classified locally. Not released | the dashboard | **Share one policy with the team** |
 | `shared` | The shared policy, its check not required yet; your key active, you an admin. Not released | the dashboard | **Let agents merge on their own** |
 | `repos` | [Three repositories](/docs/dashboard#many-repositories): `tallyho/fieldbook` enforced, `tallyho/field-app` at the inbox step, `finance/ledger` on the fictional host `acme.ghe.com` with the shared policy; your key active in the first and the last. Not released | the dashboard, with a repo chip on every row | **Share one policy with the team**, for `tallyho/field-app` |
+| `dir` | As `team`, read as one clone the way `nod serve --dir` reads it: a [fixed list](/docs/settings#a-fixed-list). Not released | the dashboard | none |
 
 ## `nod repo`
 
@@ -160,6 +162,6 @@ The signing key from a terminal. The passphrase is read without echo and never p
 | `$XDG_CONFIG_HOME/nod/serve-token-remote` | The remote token, the named host's (`--allow-host`) |
 | `$XDG_CONFIG_HOME/nod/config.json` | The repo list. Not released. Keys nod does not know are kept when it writes the file |
 | `$XDG_CACHE_HOME/nod/clones/` | The clone cache: `<host>/<owner>/<repo>.git` per repository of the list. `~/.cache/nod/` when the variable is unset. Not released |
-| `NOD_WEB_URL` | The web app to pair with, as `--web-url` |
+| `NOD_WEB_URL` | The web app the printed link opens, as `--web-url` |
 | `NOD_DEBUG=1` | Log each poll |
 | `gh auth token --hostname <host>` | Where the GitHub token of each host comes from; it is sent to that host only. `gh` keeps its login under `$XDG_CONFIG_HOME/gh`, so a changed `XDG_CONFIG_HOME` also needs `GH_CONFIG_DIR` |

@@ -1,5 +1,6 @@
 /**
- * Deep links on another device (ADR 0005 §7). A link in a PR comment or a
+ * Deep links on another device (ADR 0005 §7), and to this machine's app
+ * (ADR 0008 §6). A link in a PR comment or a
  * GitHub notification opens the hosted UI, which a phone cannot pair: the
  * phone's nod is the page `nod serve --allow-host` serves on its named host,
  * an origin the hosted page can neither read nor open a socket to. So the
@@ -23,10 +24,18 @@
  * - **Where.** Only the pages that pair with loopback forward: the hosted UI
  *   and pages on this machine (`pairsWithLoopback`). The named host's own
  *   page ignores `#/forward`.
+ * - **This machine's app** (ADR 0008): the record may also hold the app
+ *   `nod serve` serves on loopback, exactly `http://127.0.0.1:<port>`
+ *   (`localAppOriginOf`), learned the same way from the app's "Open links
+ *   from GitHub here" (shown when it runs on another port than the
+ *   default). With nothing remembered, the hosted UI (its origin only)
+ *   offers the app on the default port: a fixed loopback address the page
+ *   chose, never one a link names. A page never forwards to itself.
  */
 
 import { parseNamedHost } from "../../shared/named-host";
-import { NEXT_WEB_URL, STABLE_WEB_URL, isRelease } from "../../server/web-url";
+import { DEFAULT_SERVE_PORT } from "../../shared/protocol";
+import { NEXT_WEB_URL, STABLE_WEB_URL, appUrl, isRelease } from "../../server/web-url";
 import { pairsWithLoopback, type KeyValue, type PageOrigin } from "./connection";
 import { formatRoute, type LinkRoute } from "./route";
 
@@ -34,7 +43,10 @@ import { formatRoute, type LinkRoute } from "./route";
 export const FORWARD_KEY = "nod.forward";
 
 export interface Forward {
-  /** `https://<machine>.<tailnet>.ts.net:8445`, as `namedOriginOf` returns it. */
+  /**
+   * `https://<machine>.<tailnet>.ts.net:8445` (`namedOriginOf`), or this
+   * machine's app, `http://127.0.0.1:<port>` (`localAppOriginOf`).
+   */
   readonly to: string;
   /** When the user confirmed it. */
   readonly since: number;
@@ -69,9 +81,35 @@ export function namedOriginOf(value: string | null | undefined): string | null {
   return URL.parse(origin)?.origin === origin ? origin : null;
 }
 
-/** How the host is shown: `<name>[:port]`, the origin without `https://`. */
+/** `http://127.0.0.1:<port>`, a port from 1 to 65535 written plainly, and maybe a `/`. */
+const LOCAL_APP_FORM = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/?$/;
+
+/**
+ * This machine's app as a forward's target (ADR 0008 §6), or null: exactly
+ * `http://127.0.0.1:<port>`. No other loopback name (`localhost` is another
+ * origin, with another pairing), no `https` (the app is plain http on
+ * loopback), no path.
+ */
+export function localAppOriginOf(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const match = LOCAL_APP_FORM.exec(value);
+  const port = match ? Number(match[1]) : 0;
+  return port >= 1 && port <= 65535 ? appUrl(port) : null;
+}
+
+/** Where a forward may go: a named host, or this machine's app. */
+export function forwardOriginOf(value: string | null | undefined): string | null {
+  return namedOriginOf(value) ?? localAppOriginOf(value);
+}
+
+/** Whether `origin` is this machine's app rather than a named host. */
+export function isLocalApp(origin: string): boolean {
+  return localAppOriginOf(origin) === origin;
+}
+
+/** How the host is shown: `<name>[:port]`, the origin without its scheme. */
 export function hostOf(origin: string): string {
-  return origin.replace(/^https:\/\//, "");
+  return origin.replace(/^https?:\/\//, "");
 }
 
 /**
@@ -102,7 +140,7 @@ export function loadForward(storage: KeyValue | null): Forward | null {
     if (!value) return null;
     if (
       typeof value.to === "string" &&
-      namedOriginOf(value.to) === value.to &&
+      forwardOriginOf(value.to) === value.to &&
       typeof value.since === "number" &&
       Number.isFinite(value.since)
     )
@@ -114,9 +152,9 @@ export function loadForward(storage: KeyValue | null): Forward | null {
   return null;
 }
 
-/** Remember `to` (already checked by `namedOriginOf`); false when storage refuses. */
+/** Remember `to` (already checked by `forwardOriginOf`); false when storage refuses. */
 export function saveForward(storage: KeyValue | null, to: string, now: number): boolean {
-  if (!storage || namedOriginOf(to) !== to) return false;
+  if (!storage || forwardOriginOf(to) !== to) return false;
   try {
     storage.setItem(FORWARD_KEY, JSON.stringify({ to, since: now } satisfies Forward));
     return true;
@@ -139,7 +177,7 @@ export function forgetForward(storage: KeyValue | null): void {
  * the raw fragment. null when `to` is not a host a forward may go to.
  */
 export function forwardUrl(to: string, route: LinkRoute | null): string | null {
-  if (namedOriginOf(to) !== to) return null;
+  if (forwardOriginOf(to) !== to) return null;
   return `${to}/${route ? formatRoute(route) : ""}`;
 }
 
@@ -147,7 +185,9 @@ export function forwardUrl(to: string, route: LinkRoute | null): string | null {
  * What a page shows for a deep link (or the plain unpaired page): the
  * landing of a paired page (`paired`, whatever its socket does: what is
  * paired wins), the offer to open it on the remembered host (`forward`), or
- * how to pair (`pair`).
+ * how to pair (`pair`). A forward to this machine's app is `local`; with
+ * nothing remembered, the hosted UI offers the app on the default port,
+ * `assumed` (ADR 0008 §6).
  */
 export type Offer =
   | { readonly kind: "paired" }
@@ -156,7 +196,17 @@ export type Offer =
       readonly kind: "forward";
       readonly to: string;
       readonly url: string;
+      readonly local?: true;
+      readonly assumed?: true;
     };
+
+/** This machine's app on the default port: what the hosted UI offers with nothing remembered. */
+export const DEFAULT_LOCAL_APP = appUrl(DEFAULT_SERVE_PORT);
+
+/** Whether `page` is the hosted UI (either channel: they share the origin). */
+export function isHostedUi(page: PageOrigin | null): boolean {
+  return !!page && `${page.protocol}//${page.host}` === new URL(STABLE_WEB_URL).origin;
+}
 
 export function offerFor(input: {
   readonly paired: boolean;
@@ -165,9 +215,16 @@ export function offerFor(input: {
   readonly route: LinkRoute | null;
 }): Offer {
   if (input.paired) return { kind: "paired" };
-  if (!input.forward || !forwardsHere(input.page)) return { kind: "pair" };
-  const url = forwardUrl(input.forward.to, input.route);
-  return url ? { kind: "forward", to: input.forward.to, url } : { kind: "pair" };
+  if (!forwardsHere(input.page)) return { kind: "pair" };
+  const here = input.page ? `${input.page.protocol}//${input.page.host}` : null;
+  const to = input.forward?.to ?? (isHostedUi(input.page) ? DEFAULT_LOCAL_APP : null);
+  if (!to || to === here) return { kind: "pair" };
+  const url = forwardUrl(to, input.route);
+  if (!url) return { kind: "pair" };
+  if (!isLocalApp(to)) return { kind: "forward", to, url };
+  return input.forward
+    ? { kind: "forward", to, url, local: true }
+    : { kind: "forward", to, url, local: true, assumed: true };
 }
 
 /**
@@ -189,7 +246,7 @@ export function confirmOf(
   page: PageOrigin | null,
 ): Confirm {
   if (!forwardsHere(page)) return { kind: "not-here" };
-  const to = namedOriginOf(given);
+  const to = forwardOriginOf(given);
   if (!to) return { kind: "invalid", given };
   if (!remembered) return { kind: "new", to };
   if (remembered.to === to) return { kind: "same", to, since: remembered.since };
@@ -200,12 +257,22 @@ export function confirmOf(
  * "Open links from GitHub here", on the named host's page: the hosted UI's
  * `#/forward?to=<this origin>`, on the channel of the `nod serve` that served
  * the page (a release: the stable root; a pre-release or a checkout: `/next`;
- * both share one origin, so one record serves both). null on every page that
- * is not a named host's (the hosted UI, loopback, plain http).
+ * both share one origin, so one record serves both). Also on this machine's
+ * app (`servedApp`: the page is the app `nod serve` serves, ADR 0008) when it
+ * runs on another port than the default, which the hosted UI assumes. null on
+ * every other page (the hosted UI, the dev server, plain http elsewhere).
  */
-export function forwardSetupUrl(page: PageOrigin | null, version: string | null): string | null {
-  if (!page || page.protocol !== "https:" || forwardsHere(page)) return null;
-  const to = namedOriginOf(`https://${page.host}`);
+export function forwardSetupUrl(
+  page: PageOrigin | null,
+  version: string | null,
+  servedApp = false,
+): string | null {
+  if (!page) return null;
+  const local =
+    servedApp && page.protocol === "http:" ? localAppOriginOf(`http://${page.host}`) : null;
+  if (local === DEFAULT_LOCAL_APP) return null;
+  if (!local && (page.protocol !== "https:" || forwardsHere(page))) return null;
+  const to = local ?? namedOriginOf(`https://${page.host}`);
   if (!to) return null;
   const base = isRelease(version) && !version.includes("-") ? STABLE_WEB_URL : NEXT_WEB_URL;
   return `${base}/${formatRoute({ view: "forward", to })}`;

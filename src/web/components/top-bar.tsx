@@ -11,6 +11,7 @@ import type { Person } from "../../shared/protocol";
 import type { Rung } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./bits";
+import { useInstall } from "@/hooks/use-install";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 export function Logo() {
@@ -158,7 +159,9 @@ export interface MenuOffer {
  * the menu also holds what the top bar has no room for: "How this list works"
  * (the legend, where a desktop has the `?` key) and the fake-data note. On
  * the named host's page it offers "Open links from GitHub here", the way to
- * the hosted UI's confirmation (ADR 0005 §7).
+ * the hosted UI's confirmation (ADR 0005 §7), and so does this machine's app
+ * on another port than the default (ADR 0008 §6). Where the browser offers
+ * to install the app (`beforeinstallprompt`), a quiet "Install app".
  */
 export function Me({
   login,
@@ -169,6 +172,7 @@ export function Me({
   onLegend,
   fake = false,
   linksHere = null,
+  installable = false,
 }: {
   login: string;
   people: ReadonlyArray<Person>;
@@ -184,8 +188,11 @@ export function Me({
   fake?: boolean;
   /** The hosted UI's `#/forward?to=<this origin>` (`forwardSetupUrl`); null hides the item. */
   linksHere?: string | null;
+  /** The page is the app (`isServedApp`): only the app offers to install itself. */
+  installable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const install = useInstall();
   const name = people.find((p) => p.login.toLowerCase() === login.toLowerCase())?.name;
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -234,7 +241,7 @@ export function Me({
           className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
         >
           Settings
-          <span className="text-tx3 fs-code block">repositories, and each one’s ladder</span>
+          <span className="text-tx3 fs-code block">repositories, the app</span>
         </button>
         {onLegend && (
           <button
@@ -247,6 +254,21 @@ export function Me({
           >
             How this list works
             <span className="text-tx3 fs-code block">sizes, lanes, risk, the numbers</span>
+          </button>
+        )}
+        {installable && install.available && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              void install.install();
+            }}
+            className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
+          >
+            Install app
+            <span className="text-tx3 fs-code block">
+              its own window, and a badge with the count
+            </span>
           </button>
         )}
         {linksHere && (

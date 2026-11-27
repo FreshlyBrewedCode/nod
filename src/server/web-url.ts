@@ -1,6 +1,9 @@
 /**
- * The web app a host link opens, when neither `--web-url` nor `NOD_WEB_URL`
- * says otherwise. The hosted UI speaks the same `protocol.ts` as the CLI of
+ * The web apps a host link may open. A release prints the app `nod serve`
+ * serves itself (`appUrl`, ADR 0008); the hosted UI below stays for deep
+ * links and for pairings made before, and `defaultWebUrl` is still the one
+ * whose origin is let in when neither `--web-url` nor `NOD_WEB_URL` says
+ * otherwise. The hosted UI speaks the same `protocol.ts` as the CLI of
  * its release channel, so the default follows the version `nod serve` runs
  * as: a release is stamped with its version; a checkout runs as
  * `0.0.0-development` (or none) and opens the Vite dev server.
@@ -33,6 +36,14 @@ export function defaultWebUrl(version: string | null | undefined): string {
 export function allowedOrigins(webUrl: string): string[] {
   const dev = [`http://localhost:${DEV_WEB_PORT}`, `http://127.0.0.1:${DEV_WEB_PORT}`];
   return [...new Set([new URL(webUrl).origin, ...dev])];
+}
+
+/**
+ * The app `nod serve` serves on loopback (ADR 0008): its one origin,
+ * `127.0.0.1`, never `localhost` (another origin, another storage).
+ */
+export function appUrl(port: number = DEFAULT_SERVE_PORT): string {
+  return `http://127.0.0.1:${port}`;
 }
 
 export function serverUrl(port: number = DEFAULT_SERVE_PORT): string {

@@ -59,6 +59,11 @@ Built and not released yet, among others:
   blobless clone, on github.com and Enterprise hosts side by side, with one query per host and
   poll. Read once against two public repositories on github.com; Enterprise hosts on a fake
   GitHub only. [Many repositories](/docs/dashboard#many-repositories)
+- **The app.** `nod serve` serves the dashboard itself at `http://127.0.0.1:<port>/` and prints
+  that link: always its own version, installable, opening without `nod serve` (it says so and
+  waits), with the [badge](/docs/app#the-badge) on its icon and in the tab's title, and Settings →
+  App. The hosted web app hands deep links over to it. Tried in Chromium on Linux only.
+  [The app](/docs/app)
 - **The settings page** with its Repositories section: each repository's step, its next step and
   its ladder; adding (with suggestions) and removing; the repo filter and the board grouped by
   repository. With `--dir` the list is the one clone and cannot be changed there.

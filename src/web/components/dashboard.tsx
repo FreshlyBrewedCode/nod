@@ -131,6 +131,8 @@ export interface DashboardProps {
   readonly actions: Actions;
   readonly route: Route;
   readonly go: (route: Route, options?: { replace?: boolean }) => void;
+  /** The page is the app `nod serve` serves (ADR 0008, `isServedApp`). */
+  readonly servedApp?: boolean;
 }
 
 export function Dashboard(props: DashboardProps) {
@@ -190,6 +192,7 @@ function DashboardInner({
   actions,
   route,
   go,
+  servedApp = false,
   openPrRef,
 }: DashboardProps & { openPrRef: { current: (pr: PrId) => void } }) {
   const { openBatch } = useBatch();
@@ -780,7 +783,8 @@ function DashboardInner({
             onSettings={() => go({ view: "settings" })}
             onLegend={askLegend}
             fake={welcome?.fake}
-            linksHere={forwardSetupUrl(window.location, welcome?.version ?? null)}
+            linksHere={forwardSetupUrl(window.location, welcome?.version ?? null, servedApp)}
+            installable={servedApp}
           />
         </TopBarShell>
         {notice === "quiet" && (

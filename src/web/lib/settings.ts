@@ -1,6 +1,6 @@
 /**
  * The settings page (`#/settings`, ADR 0007, concept C.8 and D.7), the pure
- * part: its sections and the words of the Repositories section.
+ * part: its sections and the words of the Repositories and App sections.
  *
  * Adding a section: its id in `SETTINGS_SECTIONS` (`lib/route.ts`, which
  * also makes `#/settings/<id>` a route), its words in `SECTIONS` below, and
@@ -23,6 +23,7 @@ export interface SectionWords {
 
 export const SECTIONS: Readonly<Record<SettingsSection, SectionWords>> = {
   repositories: { title: "Repositories", line: "what nod reads, and each one’s step" },
+  app: { title: "App", line: "install it, the badge" },
 };
 
 /** The section a route shows: the one it names, else the first. */
@@ -84,4 +85,14 @@ export function repoListError(failure: Failure): string {
     default:
       return onboardingError(failure);
   }
+}
+
+// ---------------------------------------------------------------------------
+// App
+
+/** The badge's line in Settings → App: what it shows now. */
+export function badgeLine(n: number | null): string {
+  if (n === null) return "It shows once nod serve has read GitHub.";
+  if (n === 0) return "Nothing needs you most right now, so there is no badge.";
+  return `Now: ${n} pull request${n === 1 ? "" : "s"} ${n === 1 ? "needs" : "need"} you most, so it shows ${n}.`;
 }

@@ -7,9 +7,11 @@ order: 4
 
 | Term | Meaning |
 | --- | --- |
+| **app** | The dashboard `nod serve` serves itself at `http://127.0.0.1:<port>/`: always the server's own version, and installable from the browser. The link `nod serve` prints opens it. Not released. [The app](/docs/app) |
 | **approval** | A GitHub review that approves a pull request's head commit, by someone with write access other than its author. It fills a slot like a nod does, unless the policy asks for a nod only. Without a key you give one from the batch dialog (**Approve**). Not released. [Policy](/docs/policy#approvals), [Nodding](/docs/nodding#approve-or-nod) |
 | **ask** | What the dashboard asks of you on a pull request: Self-attest, Sign as peer, Sign as owner or Re-attest; without a key that signs in the repository, Approve. [Nodding](/docs/nodding#the-ask) |
 | **attention tier** | One of four sizes a pull request is shown in: prominent, normal, one line, folded. [Dashboard](/docs/dashboard#attention-tiers) |
+| **badge** | How many pull requests need you most (the prominent rows, in every repository): on the installed app's icon, and in the tab's title as `(3) nod`. Not released. [The app](/docs/app#the-badge) |
 | **batch** | One or more pull requests nodded with one signature, or approved on GitHub together. A batch across repositories is one signature per repository, made with one unlock. Not released: across repositories. [Nodding](/docs/nodding#the-batch-dialog) |
 | **batch dialog** | The dialog every way to sign or approve opens: review, unlock, signed; or review, approved |
 | **board** | The dashboard's view in columns, by who a pull request waits on or by state. [Dashboard](/docs/dashboard#board) |
@@ -19,7 +21,7 @@ order: 4
 | **clone cache** | Where nod keeps its own clone of each repository of the repo list: `$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`, blobless and bare, made on first use. `nod serve` computes patch-ids there. Deleting it costs a new clone, nothing else. Not released. [CLI](/docs/cli#files-and-environment) |
 | **classifier** | A function in the policy that looks at a pull request and reports findings. [Policy](/docs/policy#built-in-classifiers) |
 | **cluster** | Folded pull requests shown as one row, "7 low-risk changes", that expands in place |
-| **dashboard** | The web app, paired with `nod serve`. [Dashboard](/docs/dashboard) |
+| **dashboard** | The web app, paired with `nod serve`: the app it serves on your machine, the hosted web app, or on another device the named host's. [Dashboard](/docs/dashboard) |
 | **deep link** | A link that opens a pull request or a batch in the dashboard. It never approves by itself. [Nodding](/docs/nodding#deep-links) |
 | **detail panel** | The side panel (list) or drawer (board) showing one pull request |
 | **device link** | The second link `nod serve --allow-host` prints, also as a QR code. It pairs another device through the named host. [On your phone](/docs/phone) |
@@ -29,14 +31,15 @@ order: 4
 | **FYI** | A pull request people should notice without anyone having to nod. [Nodding](/docs/nodding#fyi) |
 | **FYI ack** | "Got it" on an FYI: an unsigned 👀 reaction |
 | **home-screen app** | The dashboard added to a phone's home screen: it opens without the browser's bars. On an iPhone it keeps its own pairing. [On your phone](/docs/phone#on-the-home-screen) |
-| **host link** | The link `nod serve` prints. It pairs the web app with the server |
-| **hosted web app** | The dashboard published at `ui.nod.frebreco.de`, where deep links point: the stable release's at the root, `main`'s at `/next`. [Status](/docs/status#released) |
+| **host link** | The link `nod serve` prints. It pairs the web app with the server; for a release it opens the app. [The app](/docs/app#open-it) |
+| **hosted web app** | The dashboard published at `ui.nod.frebreco.de`, where deep links point: the stable release's at the root, `main`'s at `/next`. Not paired, it hands a link over to the app or to your named host (link forwarding). [Status](/docs/status#released) |
+| **installed app** | The app installed from the browser: a window and an icon of its own, it opens even when `nod serve` is not running and says so. Not released. [The app](/docs/app#install-it) |
 | **inbox** | The first step of the ladder: the dashboard for you alone, with nothing in the repository. Your `nod serve` classifies the pull requests itself (local classification), and Needs you holds your review requests and your own stuck pull requests. Not released. [Dashboard](/docs/dashboard#the-inbox) |
 | **kit** | `@frebreco/nod/kit`: the helpers the policy and the verifier import. [Architecture](/docs/architecture#the-kit) |
 | **ladder** | The four steps of adopting nod, each one opt-in: inbox, shared policy, signing, enforced. [Quick start](/docs/quick-start#the-ladder) |
 | **local classification** | At the inbox step, your `nod serve` classifying a pull request itself, with the built-in classifiers, on the file list and brief GitHub returns. For your dashboard only: nothing is posted, nothing is required. A verifier summary always wins. The panel says "classified by your nod, not the repo". Not released. [Dashboard](/docs/dashboard#the-inbox) |
 | **lane** | A section of the list by attention: Needs you, Worth knowing, Background |
-| **link forwarding** | The hosted web app handing a deep link over to your named host, one tap per link, after you confirmed that host once in the same browser. Not released: on `ui.nod.frebreco.de/next` only, while links in comments open the root. [On your phone](/docs/phone#links-from-github) |
+| **link forwarding** | The hosted web app handing a deep link over, one tap per link: to the app on your machine (the default port, or the one you confirmed), or to your named host after you confirmed it once in the same browser. Not released: on `ui.nod.frebreco.de/next` only, while links in comments open the root. [The app](/docs/app#links-from-github), [On your phone](/docs/phone#links-from-github) |
 | **named host** | The https name a TLS proxy such as `tailscale serve` gives `nod serve`, named with `--allow-host`, so another device reaches it. It has its own token and its own unlock. [On your phone](/docs/phone) |
 | **named nod** | A nod by a person the policy names |
 | **nod** | A signed statement by a human approving a pull request, posted as a comment. Also the name of the tool and of the check |
@@ -57,7 +60,7 @@ order: 4
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
 | **self nod** | A nod by the pull request's author: the prompter attesting their own agent's work |
-| **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right. This version has one, Repositories. Not released. [Settings](/docs/settings) |
+| **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right. This version has two, Repositories and App. Not released. [Settings](/docs/settings) |
 | **setup page** | `#/setup`: one repository's ladder, its four steps, where each stands for the repository and you, and where they are done. Reached from an offer, the avatar menu's next steps, or the repository's row in Settings → Repositories (**The ladder ›**). Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
 | **setup PR** | The pull request `nod init` opens to add `.nod/` and the workflow. [Quick start](/docs/quick-start) |
 | **shared policy** | The second step of the ladder: the setup PR is merged, and the verifier classifies every pull request the same way for everyone. Its check never blocks until enforced. [Quick start](/docs/quick-start#the-ladder) |
