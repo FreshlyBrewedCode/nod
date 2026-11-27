@@ -319,6 +319,8 @@ function journeyOf(
   const local = isLocal(facts);
   // At the inbox step people review on GitHub and merge themselves.
   const verb = local ? ["You review", "reviews"] : ["You sign", "signs"];
+  // Before the repo requires the check a person merges, there and at the inbox step (ADR 0006).
+  const personMerges = local || facts.requirement.enforced === false;
   const now: JourneyEvent[] = [];
   if (first?.kind === "agent")
     now.push(
@@ -336,7 +338,7 @@ function journeyOf(
     );
   else if (first?.kind === "checks") now.push(step("Checks running", "now", facts.lastActivity.at));
   else if (first?.kind === "merge")
-    now.push(step(local ? "Ready to merge" : "Agent merges", "now", facts.lastActivity.at));
+    now.push(step(personMerges ? "Ready to merge" : "Agent merges", "now", facts.lastActivity.at));
   else if (first) now.push(step(`Waiting on ${whoText(first, ctx.people)}`, "now", since));
   const next: JourneyEvent[] = [];
   for (const w of first?.kind === "agent" ? waitingOn.slice(1) : rest)
@@ -349,7 +351,7 @@ function journeyOf(
       );
   if (facts.checks.state !== "passing" && facts.checks.state !== "none" && first?.kind !== "checks")
     next.push(step("Checks green", "next"));
-  if (first?.kind !== "merge") next.push(step(local ? "Merged" : "Agent merges", "next"));
+  if (first?.kind !== "merge") next.push(step(personMerges ? "Merged" : "Agent merges", "next"));
   return [...past, ...now, ...next];
 }
 

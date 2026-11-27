@@ -243,13 +243,24 @@ export function askHeadline(
 }
 
 /**
- * What happens once I sign, or approve. An approval at the inbox step (no
- * policy, `local`) leaves the PR ready for a person to merge.
+ * Who merges a PR once its requirement is met: its `agent` in an enforced
+ * repo; a `person` in a repo whose policy is shared but whose check is not
+ * required yet (ADR 0006: the check goes green and blocks nothing either
+ * way); `local` at the inbox step, where there is no check at all.
  */
-export function thenText(ask: Ask, people: People, local = false): string {
+export type Merger = "agent" | "person" | "local";
+
+export function mergerOf(pr: Pick<PrView, "classifiedBy" | "requirement">): Merger {
+  if (pr.classifiedBy === "local") return "local";
+  return pr.requirement.enforced === false ? "person" : "agent";
+}
+
+/** What happens once I sign, or approve, by who merges then (`mergerOf`). */
+export function thenText(ask: Ask, people: People, merger: Merger = "agent"): string {
   if (ask.then.outcome === "waits")
     return `Then it still waits on ${namesOf(ask.then.on, people)}.`;
-  if (ask.kind === "approve" && local) return "Then it is ready to merge.";
+  if (merger === "local") return "Then it is ready to merge.";
+  if (merger === "person") return "Then the check turns green and it is ready to merge.";
   return "Then the check turns green and the agent merges.";
 }
 

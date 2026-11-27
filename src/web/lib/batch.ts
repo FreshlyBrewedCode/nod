@@ -34,7 +34,7 @@ import type {
   SignerState,
 } from "../../shared/protocol";
 import { idOf, prId } from "../../shared/repo-key";
-import { namesOf, type People } from "./wording";
+import { mergerOf, namesOf, type People } from "./wording";
 import { openedKey, type Opened } from "./storage";
 
 export type Role = Ask["kind"];
@@ -314,12 +314,13 @@ export type Outcome = { readonly text: string; readonly tone: "ok" | "wait" | "n
 /**
  * What happens to a PR after my nod, from its ask: the check turns green and
  * the agent merges (after CI, when checks still run), or it still waits on
- * someone. `after`: the same, once signed ("the agent can merge"). An
- * approval at the inbox step (no policy) leaves it ready to merge, by a
- * person; at a set-up repo it fills a slot like a nod.
+ * someone. `after`: the same, once signed ("the agent can merge"). Where a
+ * person merges (`mergerOf`): an approval at the inbox step (no policy, no
+ * check) or a nod in a repo whose check is not required yet leaves it ready
+ * to merge.
  */
 export function outcomeOf(
-  pr: Pick<PrView, "ask" | "checks" | "classifiedBy">,
+  pr: Pick<PrView, "ask" | "checks" | "classifiedBy" | "requirement">,
   people: People,
   phase: "before" | "after" = "before",
 ): Outcome {
@@ -332,7 +333,8 @@ export function outcomeOf(
       tone: "wait",
     };
   }
-  if (pr.classifiedBy === "local") {
+  const merger = mergerOf(pr);
+  if (merger === "local") {
     if (pr.checks.state === "failing")
       return { text: "approved; a CI check still fails", tone: "wait" };
     if (pr.checks.state === "pending")
@@ -342,13 +344,19 @@ export function outcomeOf(
       };
     return { text: "ready to merge", tone: "ok" };
   }
+  const green = phase === "before" ? "check turns green, " : "";
   if (pr.checks.state === "failing")
     return {
       text:
         phase === "before"
           ? "check turns green; a CI check still fails"
-          : "signed; a CI check still fails",
+          : `${pr.ask?.kind === "approve" ? "approved" : "signed"}; a CI check still fails`,
       tone: "wait",
+    };
+  if (merger === "person")
+    return {
+      text: `${green}${pr.checks.state === "pending" ? "ready after CI" : "ready to merge"}`,
+      tone: "ok",
     };
   if (pr.checks.state === "pending")
     return {
@@ -367,13 +375,13 @@ export function outcomeOf(
  * with their agents now. One still waits on Jonas."
  */
 export function outcomeSentence(
-  prs: ReadonlyArray<Pick<PrView, "ask" | "checks" | "classifiedBy">>,
+  prs: ReadonlyArray<Pick<PrView, "ask" | "checks" | "classifiedBy" | "requirement">>,
   people: People,
   phase: "before" | "after",
 ): string {
   const done = prs.filter((p) => p.ask?.then.outcome === "satisfied");
-  // At the inbox step a person merges: an approval makes it ready, no agent merges it.
-  const ready = done.filter((p) => p.classifiedBy === "local").length;
+  // Where a person merges (the inbox step, a check not required yet) it is ready, no agent merges it.
+  const ready = done.filter((p) => mergerOf(p) !== "agent").length;
   const merging = done.length - ready;
   const waiting = prs.filter((p) => p.ask?.then.outcome === "waits");
   const names = [
