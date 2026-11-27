@@ -27,6 +27,7 @@ import {
   MIN_PASSPHRASE_LENGTH,
   type Account,
   type Enrolment,
+  type GhLogin,
   type GitHubInfo,
   type Person,
   type PrLink,
@@ -51,6 +52,7 @@ import {
   shortFingerprint,
   shortPath,
   signerLine,
+  signInViewOf,
   teammates,
   type Progress,
   type Rung,
@@ -69,6 +71,11 @@ import { PassphraseField, failureOf, takePassphrase } from "./unlock";
 const BTN =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border font-semibold disabled:opacity-50 disabled:cursor-default phone:h-auto phone:min-h-11 phone:py-2 phone:text-center phone:whitespace-normal";
 export const PRIMARY = cn(BTN, "bg-need border-need text-on-need h-[42px] px-5 text-[14px]");
+/** A second action beside the commands: bordered, quieter than {@link PRIMARY}. */
+export const SECONDARY = cn(
+  BTN,
+  "border-line2 bg-panel2 text-tx hover:border-tx3 h-[38px] px-4 text-[13.5px]",
+);
 export const GHOST = cn(
   BTN,
   "text-tx2 hover:text-tx h-[42px] border-transparent px-4 text-[14px] font-medium",
@@ -239,25 +246,81 @@ export function useRequest() {
 // ---------------------------------------------------------------------------
 // the pages before a dashboard
 
-/** `gh` is not logged in: a calm page with the command, nothing else to do here. */
-export function SignInPage({ github }: { github: GitHubInfo }) {
-  const onGitHubCom = github.host === GITHUB_COM;
+/**
+ * No account: a calm page that says why (no `gh` on nod serve's PATH, `gh`
+ * not logged in to the host, GitHub not reachable yet; as the service, that
+ * its environment is what counts), the commands to copy, what `gh` said,
+ * and "Try again". nod serve looks again by itself and pushes `account`, so
+ * the page moves on without a click (`signInViewOf`).
+ */
+export function SignInPage({
+  github,
+  gh,
+  service,
+  actions,
+}: {
+  github: GitHubInfo;
+  gh: GhLogin | null;
+  service: boolean;
+  actions: Actions | null;
+}) {
+  const view = signInViewOf({ host: github.host, gh, service });
+  const retry = useRequest();
   return (
     <FullPage
-      title={onGitHubCom ? "Sign in to GitHub" : `Sign in to ${github.host}`}
-      command={ghLoginCommand(github.host)}
+      title={view.title}
       after={
-        <p className="text-tx3 m-0 mt-4 fs-note leading-[1.55]">
-          Then restart <Mono>nod serve</Mono>. nod asks for no permission of its own and stores
-          nothing on a server.
-        </p>
+        <>
+          {view.commands.length > 0 && (
+            <div className="mt-4 flex flex-col gap-2">
+              {view.commands.map((command) => (
+                <CommandBox key={command} command={command} />
+              ))}
+            </div>
+          )}
+          {view.after.length > 0 && (
+            <div className="text-tx2 mt-4 [&_p]:m-0 [&_p+p]:mt-2">
+              {view.after.map((line) => (
+                <p key={line}>
+                  <Words text={line} />
+                </p>
+              ))}
+            </div>
+          )}
+          {view.facts.length > 0 && (
+            <dl className="text-tx3 fs-note m-0 mt-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 leading-[1.55]">
+              {view.facts.map((fact) => (
+                <div key={fact.label} className="contents">
+                  <dt>{fact.label}</dt>
+                  <dd className="m-0 min-w-0 font-mono [overflow-wrap:anywhere]">{fact.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {view.retries && actions && (
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                type="button"
+                className={SECONDARY}
+                disabled={retry.busy !== null}
+                onClick={() => void retry.run("check", () => actions.request("check-github", {}))}
+              >
+                {retry.busy ? "Checking…" : "Try again"}
+              </button>
+            </div>
+          )}
+          <ErrorNote failure={retry.failure} lead="nod serve did not check." />
+          <p className="text-tx3 m-0 mt-4 fs-note leading-[1.55]">
+            nod asks for no permission of its own and stores nothing on a server.
+          </p>
+        </>
       }
     >
-      <p>
-        nod runs on this machine and reads GitHub with the login of the <Mono>gh</Mono> command line
-        tool{onGitHubCom ? "" : ` for ${github.host}, the host of this clone’s origin`}. It is not
-        logged in yet. Run this in a terminal:
-      </p>
+      {view.lines.map((line) => (
+        <p key={line}>
+          <Words text={line} />
+        </p>
+      ))}
     </FullPage>
   );
 }

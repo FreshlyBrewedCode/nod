@@ -373,6 +373,39 @@ describe("the background service from the page", () => {
     });
   });
 
+  test("a service that could not sign in is not set up: this nod serve keeps the port", async () => {
+    const asked: Array<ReadonlyArray<string>> = [];
+    const { app, service, clock, handOvers } = control({
+      isThisNod: () => false,
+      hosts: () => ["github.com", "acme.ghe.com"],
+      preflight: (hosts) => {
+        asked.push(hosts);
+        return {
+          gh: "/opt/tools/bin/gh",
+          git: "/usr/bin/git",
+          hosts: [{ host: "github.com", ok: false, detail: "no oauth token found for github.com" }],
+          tokenVars: ["GITHUB_TOKEN"],
+          droppedProxies: [],
+        };
+      },
+    });
+    app.start();
+    await flush();
+    await expect(app.installService()).rejects.toMatchObject({
+      code: "service",
+      message: expect.stringContaining("without GITHUB_TOKEN, which your shell sets"),
+    });
+    expect(asked).toEqual([["github.com", "acme.ghe.com"]]);
+    expect(service.calls).toEqual([]);
+    expect(app.state("loopback").service).toMatchObject({
+      busy: null,
+      handOver: false,
+      error: expect.stringContaining("`gh` is not logged in to github.com"),
+    });
+    clock.advance(GRACE);
+    expect(handOvers).toEqual([]);
+  });
+
   test("unsupported: not-implemented, nothing written", async () => {
     const service = new FakeServiceManager("unsupported");
     const { app } = control({ service });

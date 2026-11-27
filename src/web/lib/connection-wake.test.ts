@@ -387,6 +387,25 @@ describe("my inbox's pushes (ADR 0009)", () => {
     expect(client.state.snapshot).toBe(before);
   });
 
+  test("an account push replaces the welcome's me and gh, the rest stays", () => {
+    const client = start();
+    const gh = {
+      host: "github.com",
+      state: "signed-in",
+      path: "/usr/bin/gh",
+      detail: null,
+      checkedAt: 5,
+      service: true,
+    };
+    lastSocket().push({ t: "account", me: { login: "bob", name: null, scopes: [] }, gh });
+    expect(client.state.welcome).toMatchObject({
+      repo: "acme/widgets",
+      me: { login: "bob" },
+      gh,
+    });
+    expect(client.state.status).toBe("open");
+  });
+
   test("the welcome's inbox, or none from an older server", () => {
     const client = start();
     expect(client.state.inbox).toBeNull();

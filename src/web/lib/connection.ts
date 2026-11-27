@@ -574,6 +574,13 @@ export class NodClient {
       }
       case "signer":
         return this.set({ signer: message.signer });
+      case "account": {
+        // Signed in after all (or not, and why): the welcome's own fields.
+        const welcome = this.state.welcome;
+        return welcome
+          ? this.set({ welcome: { ...welcome, me: message.me, gh: message.gh } })
+          : undefined;
+      }
       case "repos":
         return this.set({ repos: message.repos });
       case "app":

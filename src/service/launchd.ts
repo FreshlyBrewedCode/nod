@@ -81,6 +81,16 @@ export function parsePlistProgramArguments(plist: string): string[] | null {
   return [...array[1]!.matchAll(/<string>([\s\S]*?)<\/string>/g)].map((m) => unxml(m[1]!));
 }
 
+/** The `EnvironmentVariables` of a plist (as written above). */
+export function parsePlistEnvironment(plist: string): Record<string, string> {
+  const dict = /<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(plist);
+  const env: Record<string, string> = {};
+  if (!dict) return env;
+  for (const m of dict[1]!.matchAll(/<key>([\s\S]*?)<\/key>\s*<string>([\s\S]*?)<\/string>/g))
+    env[unxml(m[1]!)] = unxml(m[2]!);
+  return env;
+}
+
 /** `launchctl print gui/<uid>/<label>` output: whether it runs, and its pid. */
 export function parseLaunchctlPrint(output: string): { active: boolean; pid: number | null } {
   const state = /^\s*state = (\S+)/m.exec(output)?.[1];
@@ -119,14 +129,15 @@ export class LaunchdManager implements ServiceManager {
       return { state: "not-installed" };
     }
     const command = parsePlistProgramArguments(plist) ?? [];
+    const env = parsePlistEnvironment(plist);
     const printed = await this.options
       .runner("launchctl", ["print", this.target])
       .catch(() => null);
     const { active, pid } =
       printed?.status === 0 ? parseLaunchctlPrint(printed.stdout) : { active: false, pid: null };
     return active
-      ? { state: "running", unitPath: this.unitPath, command, pid }
-      : { state: "installed-stopped", unitPath: this.unitPath, command };
+      ? { state: "running", unitPath: this.unitPath, command, env, pid }
+      : { state: "installed-stopped", unitPath: this.unitPath, command, env };
   }
 
   async install({ args }: { args: readonly string[] }): Promise<ServiceStatus> {

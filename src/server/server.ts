@@ -184,7 +184,14 @@ export function serve(options: ServeOptions): Serving {
 
       if (url.pathname === "/health")
         return Response.json(
-          { ok: true, name: "nod", protocol: PROTOCOL_VERSION, version: options.version },
+          {
+            ok: true,
+            name: "nod",
+            protocol: PROTOCOL_VERSION,
+            version: options.version,
+            // What this nod serve sees of gh (`nod service status` shows it): no login, no path.
+            gh: options.session.ghHealth(),
+          },
           { headers: cors(origin) },
         );
 

@@ -3,6 +3,8 @@
  * same nod that installed it), its working folder and its environment.
  */
 
+import { findGh as defaultFindGh } from "../server/github/gh";
+
 /** The nod that is running: the runtime and the entry point it was started with, both absolute. */
 export interface NodInvocation {
   readonly runtime: string;
@@ -45,24 +47,57 @@ const DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin";
 
 /**
  * The environment a service gets, captured at install: `PATH` (so it finds
- * `gh` and `git`), and the variables that say where nod's and gh's files
- * are. Tokens are never captured: they would end up in a file on disk; `gh`
- * gets its login from its own config.
+ * `gh` and `git`), `HOME`, the variables that say where nod's and gh's files
+ * are, and how this machine reaches GitHub (a proxy, extra CA certificates).
+ * Tokens are never captured: they would end up in a file on disk; `gh`
+ * gets its login from its own config (or keyring). A proxy URL with a
+ * password in it is left out for the same reason (`preflight.ts` says so).
  */
 export const CAPTURED_ENV = [
   "PATH",
+  "HOME",
   "XDG_CONFIG_HOME",
   "XDG_CACHE_HOME",
   "GH_CONFIG_DIR",
   "NOD_WEB_URL",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "HTTP_PROXY",
+  "http_proxy",
+  "NO_PROXY",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
 ] as const;
 
-export function captureEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+/** A proxy URL that carries a user and password: not written into a unit file. */
+export const hasCredentials = (value: string): boolean =>
+  /^[a-z][a-z0-9+.-]*:\/\/[^/@]*@/i.test(value);
+
+const PROXY = /^(https?|no)_proxy$/i;
+
+/**
+ * The service's environment: {@link CAPTURED_ENV} as it is now, plus
+ * `NOD_GH`, the absolute path of the `gh` this environment finds (the
+ * service runs that one even when its PATH would find another, or none),
+ * and `NOD_SERVICE=1`, so the service's nod knows it is one (its sign-in
+ * page says the service's environment is what counts).
+ */
+export function captureEnv(
+  env: NodeJS.ProcessEnv,
+  findGh: (env: NodeJS.ProcessEnv) => string | null = defaultFindGh,
+): Record<string, string> {
   const captured: Record<string, string> = { PATH: env.PATH || DEFAULT_PATH };
   for (const name of CAPTURED_ENV) {
     const value = env[name];
-    if (name !== "PATH" && value) captured[name] = value;
+    if (name === "PATH" || !value) continue;
+    if (PROXY.test(name) && hasCredentials(value)) continue;
+    captured[name] = value;
   }
+  const gh = findGh({ ...env, PATH: captured.PATH });
+  if (gh) captured.NOD_GH = gh;
+  captured.NOD_SERVICE = "1";
   return captured;
 }
 

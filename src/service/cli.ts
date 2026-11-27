@@ -6,6 +6,9 @@
 
 import { tmpdir } from "node:os";
 
+import { DEFAULT_SERVE_PORT } from "../shared/protocol";
+import { findGh } from "../server/github/gh";
+import { preflightProblems, type Preflight } from "./preflight";
 import {
   createServiceManager,
   ServiceError,
@@ -28,10 +31,14 @@ export const SERVICE_HELP = `service commands:
                       (Linux) or a LaunchAgent (macOS), started now and at
                       login, restarted when it fails. It runs the nod that
                       installed it, with the serve options given here (see
-                      above; not --open). Run it again to change them
+                      above; not --open), and the gh its PATH finds; it warns
+                      when that gh would not be logged in for the service
+                      (GH_TOKEN is never written into it). Run it again to
+                      change them
   service uninstall   stop the service and remove it
   service status      not installed, installed but stopped, or running; the
-                      unit file and the command it runs
+                      unit file, the command it runs, the gh it runs and,
+                      while it runs, what it sees of GitHub
 `;
 
 /** What parsing `nod serve <args>` gives. */
@@ -90,6 +97,69 @@ export interface RunServiceOptions {
   /** The entry point to check for a fragile place (default: the running nod's). */
   readonly entry?: string;
   readonly tmpdir?: string;
+  /**
+   * `install`: what the service's nod will see (`preflight.ts`), checked
+   * before installing; its problems are printed as warnings. Default: none;
+   * `cli.ts` passes the real check.
+   */
+  readonly preflight?: () => Preflight;
+  /** `status`: what the running service says of `gh` on `/health` ({@link fetchHealth}). Default: not asked. */
+  readonly health?: (port: number) => Promise<HealthGh | null>;
+}
+
+/** `/health`'s `gh`: what a running nod serve sees of GitHub (`Session.ghHealth`). */
+export interface HealthGh {
+  readonly host: string;
+  readonly state: string;
+  readonly detail: string | null;
+}
+
+/** Asks the nod serve on `port` for its `/health`. null: it does not answer (yet). */
+export async function fetchHealth(port: number): Promise<HealthGh | null> {
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(3000) });
+    const body = (await r.json()) as { name?: string; gh?: HealthGh };
+    return body.name === "nod" && body.gh ? body.gh : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The port a service's command serves on (`--port`), else the default. */
+export function portOf(command: readonly string[]): number {
+  for (let i = 0; i < command.length; i++) {
+    const arg = command[i]!;
+    const value =
+      arg === "--port" ? command[i + 1] : arg.startsWith("--port=") ? arg.slice(7) : null;
+    if (value && /^\d+$/.test(value)) return Number(value);
+  }
+  return DEFAULT_SERVE_PORT;
+}
+
+const HEALTH_WORDS: Record<string, string> = {
+  "signed-in": "signed in",
+  "no-gh": "no gh on its PATH",
+  "signed-out": "gh is not logged in",
+  unreachable: "could not reach GitHub",
+};
+
+/** The lines `nod service status` adds: the gh the unit runs, and what the running service sees. */
+export function describeGh(status: ServiceStatus, health: HealthGh | null | undefined): string {
+  if (status.state !== "running" && status.state !== "installed-stopped") return "";
+  const lines: string[] = [];
+  if (status.env) {
+    const gh = findGh(status.env);
+    lines.push(
+      `  gh:      ${gh ?? "not found on the service's PATH (nod service install pins it)"}`,
+    );
+  }
+  if (status.state === "running" && health !== undefined)
+    lines.push(
+      health
+        ? `  GitHub:  ${health.host}: ${HEALTH_WORDS[health.state] ?? health.state}${health.detail ? ` (${health.detail})` : ""}`
+        : "  GitHub:  the service does not answer on its port yet",
+    );
+  return lines.map((l) => `${l}\n`).join("");
 }
 
 const terminal: ServiceIo = {
@@ -126,7 +196,11 @@ export async function runService(
     switch (flags.command) {
       case "status": {
         const status = await manager.status();
-        io.out(describeStatus(status));
+        const health =
+          status.state === "running" && options.health
+            ? await options.health(portOf(status.command))
+            : undefined;
+        io.out(describeStatus(status) + describeGh(status, health));
         return status.state === "unsupported" ? 1 : 0;
       }
       case "install": {
@@ -135,8 +209,11 @@ export async function runService(
           io.err(
             `nod service: warning: ${entry} looks like a cache or temp folder; the service would break when it is cleaned. Install nod properly, or run this from a checkout.\n`,
           );
+        // What the service's nod will see, checked in its environment before it starts.
+        const problems = options.preflight ? preflightProblems(options.preflight()) : [];
         const status = await manager.install({ args: flags.serveArgs });
-        io.out(describeStatus(status));
+        io.out(describeStatus(status) + describeGh(status, undefined));
+        for (const problem of problems) io.err(`nod service: warning: ${problem}\n`);
         if (manager.kind === "systemd")
           io.out("\nTo keep it running when you are logged out, once:\n  loginctl enable-linger\n");
         io.out(

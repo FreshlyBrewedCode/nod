@@ -33,11 +33,14 @@ export type ServiceStatus =
       readonly unitPath: string;
       /** argv the service runs: runtime, entry point, `serve`, flags. */
       readonly command: readonly string[];
+      /** The environment the unit gives it (what it finds `gh` with). */
+      readonly env?: Readonly<Record<string, string>>;
     }
   | {
       readonly state: "running";
       readonly unitPath: string;
       readonly command: readonly string[];
+      readonly env?: Readonly<Record<string, string>>;
       readonly pid: number | null;
     };
 
@@ -92,6 +95,8 @@ export interface ServiceManagerOptions {
   readonly cwd?: string;
   /** The environment to capture `PATH` and friends from (default `process.env`). */
   readonly env?: NodeJS.ProcessEnv;
+  /** Finds the `gh` the unit pins as `NOD_GH` (default: on the captured PATH). */
+  readonly findGh?: (env: NodeJS.ProcessEnv) => string | null;
 }
 
 /** The manager for this platform. Give it temp folders and a fake runner in tests. */
@@ -103,7 +108,7 @@ export function createServiceManager(options: ServiceManagerOptions = {}): Servi
     runner: options.runner ?? systemRunner,
     nod: options.nod ?? currentNod(),
     cwd: options.cwd ?? process.cwd(),
-    env: captureEnv(env),
+    env: captureEnv(env, ...(options.findGh ? [options.findGh] : [])),
   };
   // An explicit home never mixes with the real $XDG_CONFIG_HOME: a test's temp home stays its own.
   const configHome =

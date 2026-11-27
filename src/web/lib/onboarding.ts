@@ -15,9 +15,13 @@
  */
 
 import { shortName } from "../../shared/attention";
+import { GITHUB_COM, ghLoginCommand } from "../../kit/host.ts";
 import {
+  GH_RETRY_MS,
   MIN_PASSPHRASE_LENGTH,
   type Account,
+  type AppState,
+  type GhLogin,
   type Enrolment,
   type Person,
   type PrLink,
@@ -98,6 +102,140 @@ export function landingOf({
   if (me === null) return "sign-in";
   if (repos.length === 0) return "add-repo";
   return "dashboard";
+}
+
+// ---------------------------------------------------------------------------
+// the sign-in page: why nod serve has no account, and what to do
+
+/** The sign-in page's words: paragraphs with `code` in backticks, the commands to copy, what gh said. */
+export interface SignInView {
+  readonly kind: GhLogin["state"] | "older-server";
+  readonly title: string;
+  /** Before the commands. */
+  readonly lines: ReadonlyArray<string>;
+  readonly commands: ReadonlyArray<string>;
+  /** After the commands. */
+  readonly after: ReadonlyArray<string>;
+  readonly facts: ReadonlyArray<{ readonly label: string; readonly value: string }>;
+  /** Whether nod serve looks again by itself (an older server needs a restart). */
+  readonly retries: boolean;
+}
+
+/**
+ * Whether this nod serve is the background service: it says so (`gh.service`,
+ * from the unit's `NOD_SERVICE`), or the service's pid is this process's (a
+ * unit written before nod said so).
+ */
+export function isServiceNod(gh: GhLogin | null, app: AppState | null): boolean {
+  return (gh?.service ?? false) || (app?.service.thisNod ?? false);
+}
+
+/** Settings → Server's line on GitHub: signed in as whom, or why not. */
+export function ghLine(gh: GhLogin, me: Account | null): string {
+  switch (gh.state) {
+    case "signed-in":
+      return me
+        ? `Signed in to ${gh.host} as ${me.login}, with the login of \`gh\`.`
+        : `Signed in to ${gh.host} with the login of \`gh\`.`;
+    case "no-gh":
+      return "`nod serve` finds no `gh` on its PATH, so it reads nothing from GitHub.";
+    case "signed-out":
+      return `\`gh\` is not logged in to ${gh.host} where \`nod serve\` runs.`;
+    case "unreachable":
+      return `GitHub on ${gh.host} did not answer yet; \`nod serve\` tries again by itself.`;
+  }
+}
+
+const AGAIN = `nod looks again every ${GH_RETRY_MS / 1000} s and moves on by itself.`;
+
+/**
+ * The page for a nod serve without an account (`landingOf` → `sign-in`):
+ * no `gh` on its PATH, `gh` not logged in to the host, or GitHub not
+ * reachable yet, each with what to do; as the service, that its own
+ * environment is what counts. `gh` null: a server older than `welcome.gh`.
+ */
+export function signInViewOf(input: {
+  readonly host: string;
+  readonly gh: GhLogin | null;
+  readonly service: boolean;
+}): SignInView {
+  const { gh, service } = input;
+  const host = gh?.host ?? input.host;
+  const onCom = host === GITHUB_COM;
+  const login = ghLoginCommand(host);
+  const named = onCom ? "GitHub" : host;
+  const facts = gh
+    ? [
+        { label: "gh", value: gh.path ?? "not found on nod serve's PATH" },
+        ...(gh.detail
+          ? [{ label: gh.state === "unreachable" ? "GitHub said" : "gh said", value: gh.detail }]
+          : []),
+      ]
+    : [];
+  if (!gh)
+    return {
+      kind: "older-server",
+      title: `Sign in to ${named}`,
+      lines: [
+        `nod runs on this machine and reads GitHub with the login of the \`gh\` command line tool${onCom ? "" : ` for ${host}`}. It is not logged in yet. Run this in a terminal, then restart \`nod serve\`:`,
+      ],
+      commands: [login],
+      after: [],
+      facts,
+      retries: false,
+    };
+  switch (gh.state) {
+    case "no-gh":
+      return {
+        kind: "no-gh",
+        title: "nod can’t find gh",
+        lines: [
+          "nod reads GitHub with the login of `gh`, the GitHub command line tool, and this `nod serve` finds no `gh` on its PATH.",
+          service
+            ? "It runs as the background service, which has its own environment: what counts is what the service finds, not your terminal. In a terminal where `gh auth status` works, set the service up again:"
+            : `Install the GitHub CLI (cli.github.com), then log in:`,
+        ],
+        commands: service ? ["nod service install"] : [login],
+        after: [AGAIN],
+        facts,
+        retries: true,
+      };
+    case "unreachable":
+      return {
+        kind: "unreachable",
+        title: `Can’t reach ${named} yet`,
+        lines: [
+          `\`gh\` has a login${onCom ? "" : ` for ${host}`}, but GitHub did not answer \`nod serve\`. Is this machine online, or behind a proxy?`,
+          ...(service
+            ? [
+                "It runs as the background service: a proxy reaches it only when it was set in the terminal `nod service install` ran in.",
+              ]
+            : []),
+        ],
+        commands: [],
+        after: [AGAIN],
+        facts,
+        retries: true,
+      };
+    case "signed-out":
+    case "signed-in":
+      return {
+        kind: "signed-out",
+        title: `Sign in to ${named}`,
+        lines: service
+          ? [
+              `nod runs on this machine as the background service and reads GitHub with the login of \`gh\`${onCom ? "" : ` for ${host}`}. The login that counts is the one \`gh\` finds in the service’s environment, not your terminal’s: a \`GH_TOKEN\` in your shell does not reach it.`,
+              "Log `gh` in, then set the service up again from that terminal:",
+            ]
+          : [
+              `nod runs on this machine and reads GitHub with the login of \`gh\`, the GitHub command line tool${onCom ? "" : `, for ${host}`}. It is not logged in there yet. Run this in a terminal:`,
+            ],
+        commands: service ? [login, "nod service install"] : [login],
+        after: [AGAIN],
+        facts,
+        retries: true,
+      };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,8 +568,8 @@ export function onboardingError(failure: Failure): string {
         // The server names the host off github.com: `gh auth login --hostname acme.ghe.com`.
         const host = /--hostname ([\w.:-]+)/.exec(failure.message)?.[1];
         return host
-          ? `nod serve is not signed in to ${host}. Run \`gh auth login --hostname ${host}\` in a terminal, then restart nod serve.`
-          : "nod serve is not signed in to GitHub. Run `gh auth login` in a terminal, then restart nod serve.";
+          ? `nod serve is not signed in to ${host}. Run \`gh auth login --hostname ${host}\` in a terminal; nod serve picks the login up by itself.`
+          : "nod serve is not signed in to GitHub. Run `gh auth login` in a terminal; nod serve picks the login up by itself.";
       }
       if (
         /upgrade to github pro|make this repository public|pro, team or enterprise/i.test(

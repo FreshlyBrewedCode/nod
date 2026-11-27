@@ -100,8 +100,8 @@ review requests, to pick one. The rows then carry a [repo chip](/docs/dashboard#
 
 **Needs you** holds the reviews asked of you or your team and your own stuck pull requests;
 **Approve** answers a review request on GitHub, without a key
-([The inbox](/docs/dashboard#the-inbox)). If `gh` is not logged in, the page says so and names the
-command.
+([The inbox](/docs/dashboard#the-inbox)). If `gh` is not logged in, or not found, the page says so
+and names the command; it moves on by itself once `gh` is logged in.
 
 ![Day one: the inbox, with the offer to share a policy above it](./screenshots/offer.webp)
 

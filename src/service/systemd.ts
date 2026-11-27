@@ -50,6 +50,24 @@ export function parseSystemdExecStart(unit: string): string[] | null {
   const line = unit.split("\n").find((l) => l.startsWith("ExecStart="));
   if (line === undefined) return null;
   const text = line.slice("ExecStart=".length).replace(/^[-@:+!]+/, "");
+  return splitWords(text).map((part) => part.replaceAll("%%", "%").replaceAll("$$", "$"));
+}
+
+/** The `Environment=` variables of a unit file (as written above, or by hand). */
+export function parseSystemdEnvironment(unit: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of unit.split("\n")) {
+    if (!line.startsWith("Environment=")) continue;
+    for (const word of splitWords(line.slice("Environment=".length))) {
+      const at = word.indexOf("=");
+      if (at > 0) env[word.slice(0, at)] = word.slice(at + 1).replaceAll("%%", "%");
+    }
+  }
+  return env;
+}
+
+/** A systemd line's words: whitespace apart, `"…"` quoted with `\` escapes. */
+function splitWords(text: string): string[] {
   const parts: string[] = [];
   let current = "";
   let has = false;
@@ -70,7 +88,7 @@ export function parseSystemdExecStart(unit: string): string[] | null {
     }
   }
   if (has) parts.push(current);
-  return parts.map((part) => part.replaceAll("%%", "%").replaceAll("$$", "$"));
+  return parts;
 }
 
 /** `systemctl --user show --property=ActiveState,MainPID` output: whether it runs, and its pid. */
@@ -112,14 +130,15 @@ export class SystemdManager implements ServiceManager {
       return { state: "not-installed" };
     }
     const command = parseSystemdExecStart(unit) ?? [];
+    const env = parseSystemdEnvironment(unit);
     const shown = await this.options
       .runner("systemctl", ["--user", "show", SYSTEMD_UNIT, "--property=ActiveState,MainPID"])
       .catch(() => null);
     const { active, pid } =
       shown?.status === 0 ? parseSystemdShow(shown.stdout) : { active: false, pid: null };
     return active
-      ? { state: "running", unitPath: this.unitPath, command, pid }
-      : { state: "installed-stopped", unitPath: this.unitPath, command };
+      ? { state: "running", unitPath: this.unitPath, command, env, pid }
+      : { state: "installed-stopped", unitPath: this.unitPath, command, env };
   }
 
   async install({ args }: { args: readonly string[] }): Promise<ServiceStatus> {

@@ -194,9 +194,9 @@ has the details.
 
 | Command | Does |
 | --- | --- |
-| `nod service install [serve options]` | Write the unit, enable it and (re)start it. It runs the nod that installed it, as `nod serve` with the options given here: any of [`nod serve`'s](#nod-serve), except `--open`. Run it again to change them. Settings → Server does the same with **Run nod in the background** ([from the page](/docs/background#from-the-page)) |
+| `nod service install [serve options]` | Write the unit, enable it and (re)start it. It runs the nod that installed it, as `nod serve` with the options given here: any of [`nod serve`'s](#nod-serve), except `--open`, and with the `gh` its `PATH` finds. It warns when that `gh` would not be logged in for the service ([what the service gets](/docs/background#what-the-service-gets)). Run it again to change them. Settings → Server does the same with **Run nod in the background** ([from the page](/docs/background#from-the-page)) |
 | `nod service uninstall` | Stop the service and remove its unit |
-| `nod service status` | Not installed, installed but not running, or running, with the unit file and the command it runs |
+| `nod service status` | Not installed, installed but not running, or running, with the unit file, the command it runs, the `gh` it runs and, while it runs, what it sees of GitHub: signed in, `gh` not logged in, no `gh`, or GitHub not reachable |
 
 ```sh
 nod service install --port 4518 --poll 30
@@ -218,5 +218,7 @@ Windows is not supported yet: `nod service status` says so, and the other comman
 | `$XDG_CONFIG_HOME/systemd/user/nod.service` | The service of `nod service install` on Linux. Not released |
 | `~/Library/LaunchAgents/de.frebreco.nod.plist` | The same on macOS. Not released |
 | `NOD_WEB_URL` | The web app the printed link opens, as `--web-url` |
+| `NOD_GH` | The `gh` to run, by its absolute path; `nod service install` writes it into the unit. Else the first `gh` on `PATH`. Not released |
+| `NOD_SERVICE=1` | Set in the unit by `nod service install`: this `nod serve` is the service. Not released |
 | `NOD_DEBUG=1` | Log each poll |
 | `gh auth token --hostname <host>` | Where the GitHub token of each host comes from; it is sent to that host only. `gh` keeps its login under `$XDG_CONFIG_HOME/gh`, so a changed `XDG_CONFIG_HOME` also needs `GH_CONFIG_DIR` |

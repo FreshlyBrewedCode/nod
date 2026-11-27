@@ -97,7 +97,13 @@ describe("http", () => {
   test("/health says what it is, with CORS only for allowed origins", async () => {
     const { http } = startFake();
     const plain = await fetch(`${http}/health`);
-    expect(await plain.json()).toEqual({ ok: true, name: "nod", protocol: 2, version: null });
+    expect(await plain.json()).toEqual({
+      ok: true,
+      name: "nod",
+      protocol: 2,
+      version: null,
+      gh: { host: "github.com", state: "signed-in", detail: null },
+    });
     expect(plain.headers.get("access-control-allow-origin")).toBeNull();
     const ours = await fetch(`${http}/health`, {
       headers: { Origin: "https://ui.nod.frebreco.de" },

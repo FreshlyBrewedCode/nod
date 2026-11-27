@@ -39,6 +39,7 @@
 
 import type {
   Account,
+  GhLogin,
   Enrolment,
   GitHubInfo,
   JourneyEvent,
@@ -307,6 +308,17 @@ export class FakeSource implements Source {
 
   async account(): Promise<Account | null> {
     return FAKE_ACCOUNT;
+  }
+
+  gh(): GhLogin {
+    return {
+      host: this.list[0]?.github.host ?? GITHUB_COM,
+      state: "signed-in",
+      path: "/usr/bin/gh",
+      detail: null,
+      checkedAt: this.clock.now(),
+      service: false,
+    };
   }
 
   repos(): ReadonlyArray<SourceRepo> {

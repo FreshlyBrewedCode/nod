@@ -10,9 +10,10 @@
  * - not paired: a calm full page; for a deep link, its landing that says
  *   what to do and keeps the link across the pairing, or offers to open it
  *   on the remembered named host;
- * - `gh` not logged in, or an empty repo list: a calm page each
- *   (`components/onboarding.tsx`, `components/add-repo.tsx`). Nothing else
- *   gates (ADR 0006): no setup, no key;
+ * - no account (no `gh`, `gh` not logged in, GitHub not reachable yet), or
+ *   an empty repo list: a calm page each (`components/onboarding.tsx`,
+ *   `components/add-repo.tsx`); the first moves on by itself (`account`
+ *   push). Nothing else gates (ADR 0006): no setup, no key;
  * - the settings page at `#/settings` and `#/settings/<section>`
  *   (`components/settings.tsx`), an empty list too;
  * - the setup page at `#/setup` and `#/setup/<step>`: the ladder, where the
@@ -42,7 +43,7 @@ import { appAddressOf, isServedApp } from "@/lib/app";
 import { offerFor } from "@/lib/forward";
 import { checkForUpdate } from "@/lib/sw-register";
 import { isFramed } from "@/lib/guard";
-import { landingOf, setupRepoOf, setupRungOf } from "@/lib/onboarding";
+import { isServiceNod, landingOf, setupRepoOf, setupRungOf } from "@/lib/onboarding";
 import { githubOfRepo } from "@/lib/repos";
 import { isStandalone } from "@/lib/phone";
 import { isLinkRoute } from "@/lib/route";
@@ -121,12 +122,21 @@ function Gate() {
 
   if (welcome && repos) {
     const landing = landingOf({ me: welcome.me, repos });
-    if (landing === "sign-in") return <SignInPage github={githubOfRepo(repos, repos[0]?.key)} />;
+    if (landing === "sign-in")
+      return (
+        <SignInPage
+          github={githubOfRepo(repos, repos[0]?.key)}
+          gh={welcome.gh ?? null}
+          service={isServiceNod(welcome.gh ?? null, app)}
+          actions={actions}
+        />
+      );
     if (route.view === "settings")
       return (
         <SettingsPage
           section={sectionOf(route.section)}
           me={welcome.me}
+          gh={welcome.gh ?? null}
           repos={repos}
           repoList={welcome.repoList}
           signer={signer}

@@ -125,6 +125,10 @@ top bar leads here, and the entry in the list of sections has a dot while an upd
 - **In the background**: whether nod runs as a [service](/docs/background), the unit file, the
   command it runs, where its output goes; **Run nod in the background** sets it up from here, and
   **Remove the service…** takes it away. See [set it up from the page](/docs/background#from-the-page).
+- **GitHub**: what this `nod serve` sees of GitHub: signed in, and as whom, or why not (no `gh`
+  on its `PATH`, `gh` not logged in, GitHub not reachable), the `gh` it runs and what `gh` or
+  GitHub said. For the service this is its own environment, not your terminal's
+  ([when the page says "Sign in"](/docs/background#when-the-page-says-sign-in)).
 
 ![Settings, Server: an update with its release notes](./screenshots/settings-server.webp)
 
