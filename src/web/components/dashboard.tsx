@@ -38,6 +38,7 @@ import { useReconnectNotice } from "@/hooks/use-reconnect-notice";
 import { DashboardContext, useDashboard, type DashboardState } from "@/hooks/use-dashboard";
 import { useBackStop } from "@/hooks/use-back-stop";
 import { useIsPhone } from "@/hooks/use-is-phone";
+import { canSignWith } from "@/lib/batch";
 import { githubOf } from "@/lib/deep-link";
 import { forwardSetupUrl } from "@/lib/forward";
 import type { Status } from "@/lib/connection";
@@ -55,7 +56,7 @@ import { clampPanelWidth, panelMax, PANEL_MIN, readPanelPrefs, type PanelPrefs }
 import { needsYouOrder } from "@/lib/next";
 import { isLinkRoute, viewFor, type Route, type View } from "@/lib/route";
 import { selectionReducer } from "@/lib/selection";
-import { keyNoteOf } from "@/lib/wording";
+import { actWord, keyNoteOf } from "@/lib/wording";
 import {
   STORAGE_KEYS,
   browserStorage,
@@ -510,6 +511,7 @@ function DashboardInner({
     setPanelOpen,
     ackFyi,
     openBatch,
+    signing: canSignWith(signer),
   };
 
   const needs = lanes[0]!;
@@ -817,7 +819,8 @@ function boardColumns(
       id: `state:${c.id}`,
       title: c.title,
       count: c.count,
-      you: c.id === "signature" && !keyNote,
+      // Without a key that signs, a GitHub approval is still something I can do.
+      you: c.id === "signature" && (!keyNote || prsOf(c).some((p) => p.ask)),
       aside:
         c.id === "signature"
           ? c.mine
@@ -837,8 +840,8 @@ function boardColumns(
     title: c.title,
     note: c.note,
     count: c.count,
-    // Without a key that can sign it is a muted column: nothing in it is actionable yet.
-    you: c.kind === "me" && !c.note,
+    // Without a key that can sign it is a muted column, unless something in it asks for an approval.
+    you: c.kind === "me" && (!c.note || prsOf(c).some((p) => p.ask)),
     aside:
       c.kind === "me" ? (
         <SignColumn column={c} />
@@ -882,21 +885,29 @@ function alsoText(column: Column, prs: ReadonlyArray<PrView>, snapshot: Snapshot
   return `also ${after.join("; ")}`;
 }
 
-/** "Sign…" on my column: the batch dialog with the column's selection, or the whole column. */
+/**
+ * "Sign…" on my column: the batch dialog with the column's selection, or the
+ * whole column. "Approve…" when the asks are GitHub approvals (no active key).
+ */
 function SignColumn({ column }: { column: Column }) {
   const { openBatch, selection } = useDashboard();
   const mine = prsOf(column).filter((p) => p.ask);
   if (!mine.length) return null;
   const picked = selection.filter((n) => mine.some((p) => p.number === n));
   const numbers = picked.length ? picked : mine.map((p) => p.number);
+  const verb = actWord(mine) === "approve" ? "Approve" : "Sign";
   return (
     <button
       type="button"
       onClick={() => openBatch(numbers)}
-      title={picked.length ? "Sign the selected ones (s)" : "Sign everything in this column"}
+      title={
+        picked.length
+          ? `${verb} the selected ones (s)`
+          : `${verb} everything in this column${verb === "Approve" ? " on GitHub" : ""}`
+      }
       className="bg-need border-need text-on-need inline-flex h-[26px] items-center rounded-lg border px-2.5 text-xs font-semibold"
     >
-      {picked.length ? `Sign ${picked.length}…` : "Sign…"}
+      {picked.length ? `${verb} ${picked.length}…` : `${verb}…`}
     </button>
   );
 }
@@ -922,7 +933,7 @@ function KeyNote({
     return (
       <div className={box} role="note">
         <b className="text-tx font-semibold">You have no signing key yet.</b> You can read
-        everything; to nod, create a key and enrol it in this repository.{" "}
+        everything and approve on GitHub; to nod, create a key and enrol it in this repository.{" "}
         <button type="button" className={link} onClick={onSetup}>
           Create it
         </button>
@@ -935,7 +946,7 @@ function KeyNote({
       <div className={box} role="note">
         <b className="text-tx font-semibold">Your key is not enrolled.</b> Until a pull request adds
         it to <code className="font-mono text-xs">.nod/allowed_signers</code> you can read
-        everything and sign nothing.{" "}
+        everything and approve on GitHub, but sign nothing.{" "}
         <button type="button" className={link} onClick={onSetup}>
           Enrol it
         </button>

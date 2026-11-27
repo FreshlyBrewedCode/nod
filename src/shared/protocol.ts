@@ -325,11 +325,20 @@ export interface Fyi {
   readonly pending: ReadonlyArray<Login>;
 }
 
-/** What is asked of me on this PR: the one button of the row. */
+/**
+ * What is asked of me on this PR: the one button of the row.
+ *
+ * With an active enrolled key (ADR 0002) it is a nod: `peer`, `owner`,
+ * `self` or `re-attest`. Without one (no key, a pending or a not enrolled
+ * one) it is `approve`, a native GitHub approval (ADR 0006): at the inbox
+ * step when a review is requested from me or my team, at a set-up repo when
+ * a slot I could fill takes approvals. Never on my own PR: GitHub refuses
+ * that, and it is what a nod adds.
+ */
 export interface Ask {
-  /** `re-attest`: I signed before, the content changed, my nod dropped. */
-  readonly kind: "peer" | "owner" | "self" | "re-attest";
-  /** "Sign as peer", "Sign as owner of core/auth", "Self-attest", "Re-attest". */
+  /** `re-attest`: I signed before, the content changed, my nod dropped. `approve`: a GitHub approval, no key. */
+  readonly kind: "peer" | "owner" | "self" | "re-attest" | "approve";
+  /** "Sign as peer", "Sign as owner of core/auth", "Self-attest", "Re-attest", "Approve". */
   readonly label: string;
   /**
    * What happens once I sign (the batch dialog's outcome column):
@@ -420,6 +429,11 @@ export interface Review {
   /** A review is requested from me, directly or through a team I am in. Mentions do not count. */
   readonly fromMe: boolean;
   readonly approvedBy: ReadonlyArray<Login>;
+  /**
+   * Of `approvedBy`, those whose approval is at the PR's head now: one given
+   * before the last push does not count (ADR 0006). Absent: not known.
+   */
+  readonly approvedAtHead?: ReadonlyArray<Login>;
   readonly changesRequestedBy: ReadonlyArray<Login>;
 }
 
@@ -497,10 +511,11 @@ export interface PrView {
   readonly mine: boolean;
   /**
    * The PR is open and wants something of me. Classified by the verifier:
-   * the requirement has an open slot I can fill, the same as `ask !== null`.
+   * the requirement has an open slot I can fill now (by a nod, or by an
+   * approval without a key), the same as `ask !== null`.
    * Classified locally (`classifiedBy` `local`): a review is requested from
-   * me or a team I am in, or it is mine and stuck (`stuck`: a check failing,
-   * a conflict, changes requested); `ask` is then null, there is nothing to sign.
+   * me or a team I am in (the ask is `approve`), or it is mine and stuck
+   * (`stuck`: a check failing, a conflict, changes requested; no ask).
    */
   readonly needsMe: boolean;
   readonly ask: Ask | null;
@@ -576,6 +591,14 @@ export interface SignResult {
   readonly failed: ReadonlyArray<{ readonly pr: number; readonly message: string }>;
 }
 
+/** What `approve` did: the review on each PR, or why posting it failed. */
+export interface ApproveResult {
+  /** The PRs approved, with the review's URL. */
+  readonly posted: ReadonlyArray<{ readonly pr: number; readonly url: string }>;
+  /** GitHub refused or did not answer on these; nothing was approved there, retrying is safe. */
+  readonly failed: ReadonlyArray<{ readonly pr: number; readonly message: string }>;
+}
+
 export interface TestSignatureResult {
   readonly payload: string;
   readonly signature: string;
@@ -620,6 +643,21 @@ export interface Requests {
       readonly note?: string;
     };
     result: SignResult;
+  };
+  /**
+   * Approve a batch on GitHub, without a key (ADR 0006): for each entry an
+   * `APPROVED` review at the head the user looked at (`commit_id`), as `gh pr
+   * review --approve` does. The same all-or-nothing check as `sign`: if any
+   * entry moved since the user looked, nothing is approved and the error is
+   * `stale` with `details.stale`. No passphrase, no unlock. `note` is the
+   * review's text (none by default). The same shape as `sign`, so both get a
+   * PR's repo the same way once a batch spans repos. Errors: `stale`,
+   * `not-found`, `not-open` (drafts too), `forbidden` (my own PR: GitHub
+   * refuses it), `bad-request`.
+   */
+  approve: {
+    body: { readonly entries: ReadonlyArray<SignEntry>; readonly note?: string };
+    result: ApproveResult;
   };
   /**
    * Mark an FYI as seen ("Got it"): a 👀 reaction on the PR, unsigned; a 👀

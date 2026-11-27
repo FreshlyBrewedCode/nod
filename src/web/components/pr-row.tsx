@@ -8,7 +8,10 @@
  * - 4 dim one-liner: a folded PR, shown inside its open cluster or alone
  *
  * In the chronological view a time column leads and the meta says what
- * happened last instead of the age. Checkboxes only on tiers 1 and 2.
+ * happened last instead of the age. Checkboxes only on tiers 1 and 2. The
+ * ask is a nod ("Sign as peer") or, without an active key, a GitHub
+ * approval ("Approve"); my own PR then says on hover that GitHub does not
+ * let me approve it.
  *
  * On a phone (below 640 px, "Stacked rows", docs/design/m1) the same elements
  * are laid out again by `phone:` rules, with no second DOM: the content
@@ -33,6 +36,7 @@ import {
   dependencyHints,
   fyiWhy,
   localNeed,
+  ownPrHint,
   rowTag,
   statusText,
   whoOf,
@@ -122,19 +126,29 @@ function RowShell({
   );
 }
 
-function Checkbox({ pr, checked }: { pr: number; checked: boolean }) {
+function Checkbox({
+  pr,
+  checked,
+  approve,
+}: {
+  pr: number;
+  checked: boolean;
+  /** It asks for a GitHub approval, not a nod. */
+  approve: boolean;
+}) {
   const { toggleSelected } = useDashboard();
+  const what = approve ? "approving" : "signing";
   return (
     // On a phone the label is the 44 px target around a 22 px box.
     <label
       className={cn("relative grid size-4 place-items-center phone:size-11", PHONE_BOX_CELL)}
-      title="Select for signing (x)"
+      title={`Select for ${what} (x)`}
     >
       <input
         type="checkbox"
         tabIndex={-1}
         checked={checked}
-        aria-label={checked ? `Unselect #${pr}` : `Select #${pr} for signing`}
+        aria-label={checked ? `Unselect #${pr}` : `Select #${pr} for ${what}`}
         onChange={() => toggleSelected(pr)}
         className="peer border-line2 hover:border-tx3 checked:bg-need checked:border-need absolute inset-0 m-0 cursor-pointer appearance-none rounded-[5px] border-[1.5px] phone:inset-auto phone:top-1/2 phone:left-1/2 phone:size-[22px] phone:-translate-x-1/2 phone:-translate-y-1/2 phone:rounded-[7px]"
       />
@@ -193,8 +207,10 @@ function RightColumn({
   /** The classes that place it in a phone's grid. */
   phoneRow: string;
 }) {
-  const { openBatch, ackFyi, people, me } = useDashboard();
+  const { openBatch, ackFyi, people, me, signing } = useDashboard();
   const pr = item.pr;
+  // My own PR without a key: GitHub does not let me approve it; said quietly, on hover.
+  const own = ownPrHint(pr, signing) ?? undefined;
   const size = small ? "text-[12.5px]" : "text-[13px]";
   const phoneAction = cn(
     "phone:flex phone:min-h-11 phone:items-center phone:pr-4 phone:pl-2.5 phone:text-sm phone:col-start-[-2]",
@@ -205,7 +221,7 @@ function RightColumn({
       <button
         type="button"
         tabIndex={-1}
-        title="Sign (s)"
+        title={pr.ask.kind === "approve" ? "Approve on GitHub (s)" : "Sign (s)"}
         onClick={(e) => {
           e.stopPropagation();
           openBatch([pr.number]);
@@ -224,6 +240,7 @@ function RightColumn({
   if (need)
     return (
       <span
+        title={own}
         className={cn(
           "text-need justify-self-end text-right font-semibold whitespace-nowrap",
           size,
@@ -254,6 +271,7 @@ function RightColumn({
     );
   return (
     <span
+      title={own}
       className={cn(
         "text-tx3 truncate text-right text-[12.5px] whitespace-nowrap",
         "phone:col-start-[-2] phone:pr-4 phone:pl-2.5 phone:text-[13px] phone:leading-5 phone:overflow-visible phone:whitespace-normal",
@@ -289,7 +307,7 @@ export function PrRow({
     <span className="text-tx3 text-xs tabular-nums phone:hidden">{whenStr}</span>
   ) : null;
   const box = canSelect ? (
-    <Checkbox pr={pr.number} checked={selected} />
+    <Checkbox pr={pr.number} checked={selected} approve={pr.ask?.kind === "approve"} />
   ) : (
     <span className={cn(PHONE_BOX_CELL, "phone:hidden")} />
   );

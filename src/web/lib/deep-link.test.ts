@@ -154,4 +154,12 @@ describe("the request box", () => {
     expect(afterwards([pr(482)], people)).toBe("It can merge afterwards.");
     expect(afterwards([pr(485)], people)).toBe("It still waits on Jonas.");
   });
+
+  test("GitHub approvals: no patch-id needed, said as approvals", () => {
+    const approve = { kind: "approve", label: "Approve", then: { outcome: "satisfied" } } as const;
+    const a = { ...pr(482), ask: approve, patchId: null };
+    expect(whyNotNeeded(a, people, NOW)).toBeNull();
+    expect(asWhat([a])).toBe("An approval on GitHub for #482");
+    expect(asWhat([a, { ...pr(476), ask: approve }])).toBe("Approvals on GitHub for #482, #476");
+  });
 });

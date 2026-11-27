@@ -215,11 +215,22 @@ export function localNeed(
 
 /**
  * The panel's headline of what is needed from me: "Sign as peer", "Sign as
- * owner of core/auth", "Self-attest", "Sign again, content changed".
+ * owner of core/auth", "Self-attest", "Sign again, content changed"; for a
+ * GitHub approval "Your review is requested" (the inbox step) or "Approve as
+ * peer", "Approve as owner of core/auth".
  */
-export function askHeadline(pr: Pick<PrView, "ask" | "requirement">): string {
+export function askHeadline(
+  pr: Pick<PrView, "ask" | "requirement"> & Partial<Pick<PrView, "classifiedBy">>,
+): string {
   const ask = pr.ask;
   if (!ask) return "";
+  if (ask.kind === "approve") {
+    if (pr.classifiedBy === "local") return "Your review is requested";
+    const slot = pr.requirement.slots.find(
+      (s) => s.role === "owner" && s.state !== "ok" && !s.nodsOnly,
+    );
+    return slot ? `Approve as ${lowerFirst(slot.label)}` : "Approve as peer";
+  }
   if (ask.kind === "re-attest") return "Sign again, content changed";
   if (ask.kind === "owner") {
     const slot = pr.requirement.slots.find((s) => s.role === "owner" && s.state !== "ok");
@@ -228,11 +239,35 @@ export function askHeadline(pr: Pick<PrView, "ask" | "requirement">): string {
   return ask.label;
 }
 
-/** What happens once I sign. */
-export function thenText(ask: Ask, people: People): string {
-  return ask.then.outcome === "satisfied"
-    ? "Then the check turns green and the agent merges."
-    : `Then it still waits on ${namesOf(ask.then.on, people)}.`;
+/**
+ * What happens once I sign, or approve. An approval at the inbox step (no
+ * policy, `local`) leaves the PR ready for a person to merge.
+ */
+export function thenText(ask: Ask, people: People, local = false): string {
+  if (ask.then.outcome === "waits")
+    return `Then it still waits on ${namesOf(ask.then.on, people)}.`;
+  if (ask.kind === "approve" && local) return "Then it is ready to merge.";
+  return "Then the check turns green and the agent merges.";
+}
+
+/** The wording of the batch's primary button and the selection bar, by what the asks are. */
+export function actWord(prs: ReadonlyArray<Pick<PrView, "ask">>): "sign" | "approve" {
+  const first = prs.find((p) => p.ask)?.ask;
+  return first?.kind === "approve" ? "approve" : "sign";
+}
+
+/**
+ * The quiet hint on my own open PR when I have no active key: GitHub does
+ * not let me approve it, and a nod is what can attest my own agent's work.
+ * null when it does not apply (not mine, an ask, a draft, closed, or my key
+ * signs here already).
+ */
+export function ownPrHint(
+  pr: Pick<PrView, "mine" | "state" | "ask">,
+  signing: boolean,
+): string | null {
+  if (!pr.mine || pr.state !== "open" || pr.ask || signing) return null;
+  return "GitHub does not let you approve your own pull request. A nod can: signing is how you attest your own agent’s work.";
 }
 
 export interface Pip {
@@ -445,7 +480,10 @@ export function riskWords(risk: PrView["risk"], briefRisk: string | null): strin
  * The phone page's action bar line, its bold part: "Needed from you: sign as
  * owner of core/auth." Null when nothing is needed from me.
  */
-export function neededFromYou(pr: Pick<PrView, "ask" | "requirement">): string | null {
+export function neededFromYou(
+  pr: Pick<PrView, "ask" | "requirement"> & Partial<Pick<PrView, "classifiedBy">>,
+): string | null {
   if (!pr.ask) return null;
+  if (pr.ask.kind === "approve" && pr.classifiedBy === "local") return "Your review is requested.";
   return `Needed from you: ${lowerFirst(askHeadline(pr))}.`;
 }

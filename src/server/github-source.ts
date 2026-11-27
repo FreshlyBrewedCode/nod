@@ -21,7 +21,8 @@
  *   computed there (ADR 0001 rule 6), from objects fetched into
  *   `refs/nod/base`; the working tree and the user's branches are never
  *   touched (`github/clone.ts`).
- * - **Writing.** Nod comments (the same body on every PR of a batch), 👀 as
+ * - **Writing.** Nod comments (the same body on every PR of a batch), GitHub
+ *   approvals (an `APPROVED` review at the head the user looked at), 👀 as
  *   the FYI ack, the enrolment PR (contents API) and the setup PR (`nod
  *   init` in a temporary worktree).
  * - **Limits.** The GraphQL budget is read on every poll; a rate limit
@@ -79,6 +80,7 @@ import type { PolicyResult } from "../kit/policy.ts";
 import { publicKeyId } from "./signer/ssh-wire";
 import {
   SourceError,
+  type PostApprovalsInput,
   type PostNodInput,
   type PostResult,
   type SignTarget,
@@ -289,6 +291,7 @@ export class GitHubSource implements Source {
           state: string;
           isDraft: boolean;
           merged: boolean;
+          author: { login: string } | null;
           baseRefName: string;
           headRefOid: string;
         } | null;
@@ -317,7 +320,14 @@ export class GitHubSource implements Source {
         this.log(`nod serve: the patch-id of #${pr} failed: ${message(error)}`);
       }
     }
-    return { pr, state, base: p.baseRefName, headSha: p.headRefOid, patchId };
+    return {
+      pr,
+      state,
+      author: p.author?.login ?? "ghost",
+      base: p.baseRefName,
+      headSha: p.headRefOid,
+      patchId,
+    };
   }
 
   // -- Source: writing ------------------------------------------------------
@@ -347,6 +357,78 @@ export class GitHubSource implements Source {
     }
     this.poke();
     return results;
+  }
+
+  async postApprovals(input: PostApprovalsInput): Promise<ReadonlyArray<PostResult>> {
+    const results: PostResult[] = [];
+    const approved: Array<{ pr: number; headSha: string }> = [];
+    for (const entry of input.entries) {
+      if (!this.api || !sameLogin(input.repo, this.repo())) {
+        results.push({ pr: entry.pr, ok: false, url: null, message: `Not ${this.repo()}.` });
+        continue;
+      }
+      try {
+        // `gh pr review --approve`, pinned to the commit the user looked at.
+        const r = await this.api.rest<{ html_url?: string }>(
+          "POST",
+          `/repos/${this.repo()}/pulls/${entry.pr}/reviews`,
+          {
+            commit_id: entry.headSha,
+            event: "APPROVE",
+            ...(input.body ? { body: input.body } : {}),
+          },
+        );
+        results.push({
+          pr: entry.pr,
+          ok: true,
+          url: r.data?.html_url ?? `${this.host.webUrl}/${this.repo()}/pull/${entry.pr}`,
+          message: null,
+        });
+        approved.push(entry);
+      } catch (error) {
+        results.push({
+          pr: entry.pr,
+          ok: false,
+          url: null,
+          message: `Approving #${entry.pr} failed: ${message(error)}`,
+        });
+      }
+    }
+    if (approved.length) this.showApprovals(approved);
+    this.poke();
+    return results;
+  }
+
+  /**
+   * My approvals, shown at once; the next poll confirms them. GitHub answers
+   * the review request from me (a team's waits for the poll).
+   */
+  private showApprovals(entries: ReadonlyArray<{ pr: number; headSha: string }>) {
+    const me = this.viewer?.login;
+    if (!me) return;
+    const at = new Date(this.clock.now()).toISOString();
+    const approve = (raw: RawPr, headSha: string): RawPr => ({
+      ...raw,
+      reviewRequests: {
+        nodes: (raw.reviewRequests?.nodes ?? []).filter((n) => {
+          const r = n?.requestedReviewer;
+          return !(r && "login" in r && sameLogin(r.login, me));
+        }),
+      },
+      latestOpinionatedReviews: {
+        nodes: [
+          ...(raw.latestOpinionatedReviews?.nodes ?? []).filter(
+            (n) => !sameLogin(n?.author?.login ?? null, me),
+          ),
+          { state: "APPROVED", submittedAt: at, author: { login: me }, commit: { oid: headSha } },
+        ],
+      },
+    });
+    for (const { pr, headSha } of entries) {
+      this.open = this.open.map((r) => (r.number === pr ? approve(r, headSha) : r));
+      this.requestedOfMe.delete(pr);
+    }
+    this.rebuild();
   }
 
   async ackFyi(pr: number): Promise<void> {
@@ -779,9 +861,10 @@ export class GitHubSource implements Source {
   private views(now: number): PrView[] {
     const me = this.viewer?.login ?? "";
     const key = this.options.myKey?.() ?? null;
-    // ADR 0002: a pending key reads everything and signs nothing.
-    const signable = key !== null && this.enrolment(key).state === "active";
-    return toViews(this.facts, { me, now, people: this.people() }).map((v) => {
+    // ADR 0002: a pending key reads everything and signs nothing; without an
+    // active key the asks are GitHub approvals (ADR 0006).
+    const signing = key !== null && this.enrolment(key).state === "active";
+    return toViews(this.facts, { me, now, people: this.people(), signing }).map((v) => {
       let out = v;
       // Only an open PR is held back for the verifier; a merged or closed one is just history.
       if (this.noSummary.has(v.number) && (v.state === "open" || v.state === "draft")) {
@@ -793,8 +876,6 @@ export class GitHubSource implements Source {
           waitingOn: [{ kind: "checks" }],
         };
       }
-      // A locally classified PR has no ask: what it needs of me is a review on GitHub.
-      if (!signable && out.ask) out = { ...out, ask: null, needsMe: false };
       return out;
     });
   }

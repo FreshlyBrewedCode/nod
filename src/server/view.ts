@@ -14,6 +14,13 @@
  * own PR stuck (a check failing, a conflict, changes requested). Mentions do
  * not count. `review.fromMe` is already relative to the source's viewer: only
  * GitHub's search can tell a team request that includes me.
+ *
+ * What I can do about a slot depends on my key (`ViewContext.signing`):
+ * with an active enrolled key the ask is a nod, as always. Without one the
+ * ask is a GitHub approval (ADR 0006) where the slot takes approvals and the
+ * PR is not mine (GitHub refuses that); a nod-only slot, or my own PR's
+ * slot, still waits on my key. At the inbox step a review requested from me
+ * asks for an approval the same way.
  */
 
 import type {
@@ -55,6 +62,12 @@ export interface ViewContext {
   readonly me: Login;
   readonly now: number;
   readonly people: ReadonlyArray<Person>;
+  /**
+   * I have a key that is enrolled and active in this repo (ADR 0002): what is
+   * asked of me is a nod. false (no key, a pending or a not enrolled one):
+   * a GitHub approval where one counts. Default true.
+   */
+  readonly signing?: boolean;
 }
 
 export const sameLogin = (a: string | null, b: string | null) =>
@@ -66,6 +79,28 @@ export function canFill(slot: Slot, me: Login): boolean {
   if (slot.role === "peer")
     return !sameLogin(slot.except, me) && (slot.who === null || sameLogin(slot.who, me));
   return sameLogin(slot.who, me);
+}
+
+/**
+ * How I would fill a slot now: `nod` (my key can sign), `approval` (no key,
+ * and the slot takes a GitHub approval), `key` (it needs my nod, but my key
+ * cannot sign yet: a nod-only slot, or my own PR, which GitHub does not let
+ * me approve), `pending` (I approved this head already; the verifier has
+ * not counted it yet). null: not mine to fill.
+ */
+export type Fill = "nod" | "approval" | "key" | "pending";
+
+export function fillOf(
+  slot: Slot,
+  facts: Pick<PrFacts, "author" | "review">,
+  me: Login,
+  signing = true,
+): Fill | null {
+  if (!canFill(slot, me)) return null;
+  if (signing) return "nod";
+  if (slot.nodsOnly || sameLogin(facts.author, me)) return "key";
+  if (facts.review?.approvedAtHead?.some((l) => sameLogin(l, me))) return "pending";
+  return "approval";
 }
 
 function waitingOnSlot(slot: Slot, me: Login): WaitingOn {
@@ -130,17 +165,70 @@ function localNeedsMe(facts: PrFacts, me: Login, stuck: Stuck | null): boolean {
 
 const isHuman = (w: WaitingOn) => w.kind === "me" || w.kind === "person" || w.kind === "anyone";
 
-/** The humans the PR waits on, me first. */
-function humans(facts: PrFacts, me: Login): WaitingOn[] {
+/** The humans the PR waits on, me first. A slot I approved already waits on the verifier. */
+function humans(facts: PrFacts, ctx: Pick<ViewContext, "me" | "signing">): WaitingOn[] {
+  const { me, signing } = ctx;
   if (isLocal(facts)) return localWaitingOn(facts, me).filter(isHuman);
   const open = facts.requirement.slots.filter((s) => s.state !== "ok");
-  const mine = open.filter((s) => canFill(s, me)).length > 0 ? [{ kind: "me" } as const] : [];
+  const fill = (s: Slot) => fillOf(s, facts, me, signing);
+  const mine = open.some((s) => fill(s) !== null && fill(s) !== "pending")
+    ? [{ kind: "me" } as const]
+    : [];
   return dedupe([...mine, ...open.filter((s) => !canFill(s, me)).map((s) => waitingOnSlot(s, me))]);
 }
 
-function askOf(facts: PrFacts, me: Login): Ask | null {
-  if (facts.state !== "open" || isLocal(facts)) return null;
+/** My approval of this head is in, and the verifier has not counted it yet. */
+function approvalPending(facts: PrFacts, ctx: Pick<ViewContext, "me" | "signing">): boolean {
+  return (
+    !isLocal(facts) &&
+    facts.requirement.slots.some((s) => fillOf(s, facts, ctx.me, ctx.signing) === "pending")
+  );
+}
+
+const APPROVE_LABEL = "Approve";
+
+/**
+ * The inbox step: a review requested from me or my team on a teammate's PR
+ * asks for a GitHub approval. It is then ready to merge, unless it still
+ * waits on another reviewer, or on someone who requested changes.
+ */
+function localAskOf(facts: PrFacts, me: Login): Ask | null {
+  if (facts.state !== "open" || sameLogin(facts.author, me) || !facts.review?.fromMe) return null;
+  const others: WaitingOn[] = [
+    ...facts.review.changesRequestedBy
+      .filter((l) => !sameLogin(l, me))
+      .map((login): WaitingOn => ({ kind: "person", login })),
+    ...localWaitingOn(facts, me).filter((w) => isHuman(w) && w.kind !== "me"),
+  ];
+  const rest = dedupe(others);
+  return {
+    kind: "approve",
+    label: APPROVE_LABEL,
+    then: rest.length ? { outcome: "waits", on: rest } : { outcome: "satisfied" },
+  };
+}
+
+function askOf(facts: PrFacts, ctx: Pick<ViewContext, "me" | "signing">): Ask | null {
+  const { me, signing } = ctx;
+  if (isLocal(facts)) return localAskOf(facts, me);
+  if (facts.state !== "open") return null;
   const slots = facts.requirement.slots;
+  const fills = new Map(slots.map((s) => [s, fillOf(s, facts, me, signing)] as const));
+  // Without a key: a GitHub approval fills what takes one; the rest still waits.
+  const approvable = slots.filter((s) => fills.get(s) === "approval");
+  if (!(signing ?? true)) {
+    if (approvable.length === 0) return null;
+    const rest = dedupe(
+      slots
+        .filter((s) => s.state !== "ok" && !approvable.includes(s) && fills.get(s) !== "pending")
+        .map((s) => waitingOnSlot(s, me)),
+    );
+    return {
+      kind: "approve",
+      label: APPROVE_LABEL,
+      then: rest.length ? { outcome: "waits", on: rest } : { outcome: "satisfied" },
+    };
+  }
   const fillable = slots.filter((s) => canFill(s, me));
   if (fillable.length === 0) return null;
   const reattest = fillable.some(
@@ -173,13 +261,15 @@ function askOf(facts: PrFacts, me: Login): Ask | null {
   };
 }
 
-function waitingOnOf(facts: PrFacts, me: Login): WaitingOn[] {
-  if (isLocal(facts)) return localWaitingOn(facts, me);
+function waitingOnOf(facts: PrFacts, ctx: Pick<ViewContext, "me" | "signing">): WaitingOn[] {
+  if (isLocal(facts)) return localWaitingOn(facts, ctx.me);
   if (!isOpen(facts)) return [{ kind: "nothing" }];
   const list: WaitingOn[] = [];
   if (facts.state === "draft" || facts.checks.state === "failing") list.push({ kind: "agent" });
-  list.push(...humans(facts, me));
-  if (facts.checks.state === "pending") list.push({ kind: "checks" });
+  list.push(...humans(facts, ctx));
+  // The verifier runs on my approval: the `nod` check is a check like the others.
+  if (facts.checks.state === "pending" || approvalPending(facts, ctx))
+    list.push({ kind: "checks" });
   if (list.length === 0) list.push({ kind: "merge" });
   return list;
 }
@@ -285,9 +375,9 @@ export function toView(
 ): PrView {
   const { me, now } = ctx;
   const slots = facts.requirement.slots;
-  const ask = askOf(facts, me);
-  const waitingOn = waitingOnOf(facts, me);
-  const waitingHumans = isOpen(facts) ? humans(facts, me) : [];
+  const ask = askOf(facts, ctx);
+  const waitingOn = waitingOnOf(facts, ctx);
+  const waitingHumans = isOpen(facts) ? humans(facts, ctx) : [];
   const waitingSince = waitingHumans.length ? (facts.waitingSince ?? facts.openedAt) : null;
   const stuck = stuckOf(facts, now, waitingHumans, waitingSince);
   const local = isLocal(facts);

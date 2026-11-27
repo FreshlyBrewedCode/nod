@@ -1,8 +1,9 @@
 /**
  * The batch dialog (concept decision 14; r2 `11`–`14`, unchanged in r3).
- * Every way to sign goes through one function, `openBatch(prNumbers)`: the
- * selection bar's "Review & sign", `s`, the row's ask, the panel's "Sign",
- * the board's "Sign…". One surface from review to signed:
+ * Every way to sign or approve goes through one function,
+ * `openBatch(prNumbers)`: the selection bar's "Review & sign", `s`, the
+ * row's ask, the panel's "Sign", the board's "Sign…". One surface from
+ * review to signed:
  *
  * - review: one sentence, rows grouped by my role with the outcome per PR,
  *   "not opened" marks, a row can be taken out; the exact heads and
@@ -10,6 +11,10 @@
  * - unlock, in place, when the key is locked (never a second dialog);
  * - signed: what happens now per PR; or nothing signed (stale: what moved,
  *   "Review again"); posting failures per PR, with a retry.
+ *
+ * Without an active key the asks are GitHub approvals (ADR 0006): the same
+ * surface, review → approving → approved (or stale, or an error), with no
+ * passphrase and nothing signed. One kind per batch (`batchKind`).
  *
  * The steps are the pure state machine in `lib/batch.ts`.
  */
@@ -38,6 +43,7 @@ import { useIsPhone } from "@/hooks/use-is-phone";
 import { useVisualViewport } from "@/hooks/use-visual-viewport";
 import {
   INITIAL_BATCH,
+  batchKind,
   batchReducer,
   batchRows,
   countWord,
@@ -53,6 +59,7 @@ import {
   summarySentence,
   toggleRow,
   type BatchEvent,
+  type BatchKind,
   type BatchRow,
   type BatchState,
   type Outcome,
@@ -195,9 +202,14 @@ function BatchDialog({
   }, [state.step]);
 
   const rows = useMemo(() => batchRows(model, prs, { opened, repo }), [model, prs, opened, repo]);
+  // Nods or GitHub approvals: the first picked PR that asks for something decides.
+  const kind = useMemo(() => batchKind(model, prs), [model, prs]);
   const included = rows.filter((r) => r.included);
   const ready = readiness(signer);
-  const busy = state.step === "signing" || (state.step === "unlock" && state.busy);
+  const busy =
+    state.step === "signing" ||
+    state.step === "approving" ||
+    (state.step === "unlock" && state.busy);
   useBackStop(phone, onClose, busy);
   const order = useMemo(() => needsYouOrder(attentionView(prs)[0]!.items), [prs]);
 
@@ -211,6 +223,29 @@ function BatchDialog({
     }
   };
 
+  const runApprove = async (entries: Parameters<Actions["approve"]>[0]) => {
+    try {
+      dispatch({ t: "approved", result: await actions.approve(entries) });
+    } catch (error) {
+      const details = (
+        error as { details?: Extract<BatchEvent, { t: "approve-failed" }>["details"] }
+      ).details;
+      dispatch({ t: "approve-failed", failure: failureOf(error), ...(details && { details }) });
+    }
+  };
+
+  /** The primary button of a batch of approvals (and "Retry" after it): no unlock, ever. */
+  const approve = (event: Extract<BatchEvent, { t: "approve" }>) => {
+    const next = batchReducer(state, event);
+    dispatch(event);
+    if (next.step === "approving") void runApprove(next.attempt.entries);
+  };
+  const shownRows = () =>
+    groupByRole(rows, people)
+      .flatMap((g) => g.rows)
+      .filter((r) => r.included)
+      .map((r) => r.pr);
+
   /** The primary button in review (and "Retry" after signing): sign, or unlock first. */
   const sign = (event: Extract<BatchEvent, { t: "sign" }>) => {
     const next = batchReducer(state, event);
@@ -218,16 +253,10 @@ function BatchDialog({
     if (next.step === "signing") void run(next.attempt.entries);
   };
   const signIncluded = () =>
-    sign({
-      t: "sign",
-      readiness: ready.state,
-      // In the order the dialog shows them: by role.
-      rows: groupByRole(rows, people)
-        .flatMap((g) => g.rows)
-        .filter((r) => r.included)
-        .map((r) => r.pr),
-      entries: entriesOf(rows),
-    });
+    // In the order the dialog shows them: by role.
+    kind === "approve"
+      ? approve({ t: "approve", rows: shownRows(), entries: entriesOf(rows) })
+      : sign({ t: "sign", readiness: ready.state, rows: shownRows(), entries: entriesOf(rows) });
 
   const unlockAndSign = async () => {
     if (state.step !== "unlock" || state.busy) return;
@@ -256,6 +285,7 @@ function BatchDialog({
       case "unlock":
         return void unlockAndSign();
       case "signed":
+      case "approved":
         return onClose();
       case "stale":
         setModel((m) => reviewAgain(m, state.stale));
@@ -280,9 +310,11 @@ function BatchDialog({
         }}
       >
         <form onSubmit={onSubmit} className="flex min-h-0 flex-col phone:flex-1">
-          {state.step === "signed" ? (
+          {state.step === "signed" || state.step === "approved" ? (
             <Signed
-              state={state}
+              kind={state.step === "approved" ? "approve" : "sign"}
+              shown={state.shown}
+              result={state.result}
               people={people}
               signer={signer}
               primary={primary}
@@ -296,21 +328,31 @@ function BatchDialog({
               }
               prs={prs}
               onOpenLast={onOpenPr}
-              onRetry={(failed) =>
-                sign({
-                  t: "sign",
-                  readiness: ready.state,
-                  rows: [],
-                  entries: failed.map((pr) => ({ pr, head_sha: model.heads[pr] ?? "" })),
-                })
-              }
+              onRetry={(failed) => {
+                const entries = failed.map((pr) => ({ pr, head_sha: model.heads[pr] ?? "" }));
+                if (state.step === "approved") approve({ t: "approve", rows: [], entries });
+                else sign({ t: "sign", readiness: ready.state, rows: [], entries });
+              }}
             />
           ) : state.step === "stale" ? (
-            <Stale state={state} prs={prs} rows={rows} primary={primary} onCancel={onClose} />
+            <Stale
+              kind={kind}
+              state={state}
+              prs={prs}
+              rows={rows}
+              primary={primary}
+              onCancel={onClose}
+            />
           ) : state.step === "error" ? (
-            <ErrorStep state={state} primary={primary} onBack={() => dispatch({ t: "back" })} />
+            <ErrorStep
+              kind={kind}
+              state={state}
+              primary={primary}
+              onBack={() => dispatch({ t: "back" })}
+            />
           ) : (
             <Review
+              kind={kind}
               state={state}
               rows={rows}
               people={people}
@@ -323,7 +365,10 @@ function BatchDialog({
             />
           )}
 
-          {(state.step === "review" || state.step === "unlock" || state.step === "signing") && (
+          {(state.step === "review" ||
+            state.step === "unlock" ||
+            state.step === "signing" ||
+            state.step === "approving") && (
             <>
               {state.step === "unlock" && phone && (
                 <UnlockDock
@@ -355,6 +400,7 @@ function BatchDialog({
                 </div>
               )}
               {state.step === "review" &&
+                kind === "sign" &&
                 ready.state !== "unlocked" &&
                 ready.state !== "locked" && (
                   <p className="border-line2 bg-bg text-tx2 mx-[30px] mt-4 mb-0 rounded-xl border p-[18px] text-[13px] leading-[1.55] phone:mx-4 phone:p-3.5">
@@ -363,6 +409,7 @@ function BatchDialog({
                 )}
               {!(phone && state.step === "unlock") && (
                 <ReviewFooter
+                  kind={kind}
                   state={state}
                   count={included.length}
                   ready={ready.state}
@@ -429,6 +476,7 @@ const FOOTER =
 const FOOTER_NOTE = "text-tx3 text-[12.5px] phone:w-full phone:px-1 phone:text-[13px]";
 
 function Review({
+  kind,
   state,
   rows,
   people,
@@ -439,6 +487,7 @@ function Review({
   onDetails,
   onToggle,
 }: {
+  kind: BatchKind;
   state: BatchState;
   rows: ReadonlyArray<BatchRow>;
   people: People;
@@ -451,11 +500,15 @@ function Review({
 }) {
   const included = rows.filter((r) => r.included);
   const locked = state.step !== "review";
-  const groups = groupByRole(rows, people);
+  // While the passphrase is asked (and signing after it) a phone shows titles only.
+  const compact = phone && locked && state.step !== "approving";
+  const groups = groupByRole(rows, people, kind);
   return (
     <>
-      <Header title={`Sign ${plural(included.length, "pull request")}`}>
-        {summarySentence(rows)}{" "}
+      <Header
+        title={`${kind === "approve" ? "Approve" : "Sign"} ${plural(included.length, "pull request")}`}
+      >
+        {summarySentence(rows, kind)}{" "}
         {outcomeSentence(
           included.map((r) => r.pr),
           people,
@@ -466,17 +519,18 @@ function Review({
         {groups.map((g) => (
           <section key={g.role ?? "none"} aria-label={g.title}>
             {/* While the passphrase is asked a phone has room for titles only: no headings. */}
-            {!(phone && locked) && (
+            {!compact && (
               <div className="text-tx3 mt-4 pb-1.5 text-[12.5px] phone:fs-note phone:mt-3">
                 {g.title}
               </div>
             )}
             {g.rows.map((r) =>
-              phone && locked ? (
+              compact ? (
                 <CompactRow key={r.pr.number} row={r} />
               ) : (
                 <ReviewRow
                   key={r.pr.number}
+                  kind={kind}
                   row={r}
                   people={people}
                   details={details && !locked}
@@ -495,19 +549,31 @@ function Review({
               onClick={() => onDetails(!details)}
               className="hover:text-tx2 text-left phone:min-h-11"
             >
-              {details ? "▾" : "▸"} Show exactly what is signed
+              {details ? "▾" : "▸"} Show exactly what is{" "}
+              {kind === "approve" ? "approved" : "signed"}
             </button>
-            {details && (
-              <div className="mt-2 leading-[1.55]">
-                <p className="m-0">
-                  One signature covers each head commit and patch-id shown above. A clean rebase
-                  keeps it valid; a content change does not.
-                </p>
-                <p className="text-tx2 m-0 mt-1.5 font-mono text-xs">
-                  {repo} · verdict approve · level review · reviewer {me}
-                </p>
-              </div>
-            )}
+            {details &&
+              (kind === "approve" ? (
+                <div className="mt-2 leading-[1.55]">
+                  <p className="m-0">
+                    Each approval is a GitHub review of the head commit shown above, as you. Nothing
+                    is signed: a new push, a rebase too, needs a new approval.
+                  </p>
+                  <p className="text-tx2 m-0 mt-1.5 font-mono text-xs">
+                    {repo} · review APPROVE · commit_id head · by {me}
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-2 leading-[1.55]">
+                  <p className="m-0">
+                    One signature covers each head commit and patch-id shown above. A clean rebase
+                    keeps it valid; a content change does not.
+                  </p>
+                  <p className="text-tx2 m-0 mt-1.5 font-mono text-xs">
+                    {repo} · verdict approve · level review · reviewer {me}
+                  </p>
+                </div>
+              ))}
           </div>
         )}
       </div>
@@ -586,13 +652,20 @@ function CompactRow({ row }: { row: BatchRow }) {
   );
 }
 
+const CALL: Readonly<Record<BatchKind, string>> = {
+  sign: "Signing is still your call.",
+  approve: "Approving is still your call.",
+};
+
 function ReviewRow({
+  kind,
   row,
   people,
   details,
   disabled,
   onToggle,
 }: {
+  kind: BatchKind;
   row: BatchRow;
   people: People;
   details: boolean;
@@ -612,7 +685,9 @@ function ReviewRow({
             ? (whyNotNeeded(pr, people, now) ?? "no longer needs you")
             : row.blocked === "no-patch-id"
               ? "patch-id not known yet"
-              : "left out",
+              : row.blocked === "other-kind"
+                ? `${kind === "approve" ? "sign" : "approve"} it in a batch of its own`
+                : "left out",
         tone: "none",
       }
     : outcomeOf(pr, people);
@@ -629,9 +704,7 @@ function ReviewRow({
         <RiskBars risk={pr.risk} className={cn(pr.risk === 0 && "hidden")} />
         {row.notOpened && row.included && (
           <Mark tone="need">
-            <span title="You never opened its details here. Signing is still your call.">
-              not opened
-            </span>
+            <span title={`You never opened its details here. ${CALL[kind]}`}>not opened</span>
           </Mark>
         )}
         {row.moved && <Mark tone="bad">moved since you looked</Mark>}
@@ -672,23 +745,29 @@ function ReviewRow({
         {details && !tapped && (
           <div
             className="text-tx3 mt-0.5 font-mono text-xs phone:mt-1.5 phone:text-[12.5px]"
-            title={`head ${row.headSha}\npatch ${pr.patchId ?? "not known yet"}`}
+            title={
+              kind === "approve"
+                ? `head ${row.headSha}`
+                : `head ${row.headSha}\npatch ${pr.patchId ?? "not known yet"}`
+            }
           >
-            #{pr.number} · {pr.base} · {row.headSha.slice(0, 7)} · patch{" "}
-            {pr.patchId?.slice(0, 8) ?? "–"}
+            #{pr.number} · {pr.base} · {row.headSha.slice(0, 7)}
+            {kind === "sign" && ` · patch ${pr.patchId?.slice(0, 8) ?? "–"}`}
           </div>
         )}
         {tapped && !disabled && (
           <div className="text-tx3 mt-1.5 text-[13px] leading-[1.5]">
             <div className="font-mono text-[12.5px] [overflow-wrap:anywhere]">
               head {row.headSha}
-              <br />
-              patch {pr.patchId ?? "not known yet"}
+              {kind === "sign" && (
+                <>
+                  <br />
+                  patch {pr.patchId ?? "not known yet"}
+                </>
+              )}
             </div>
             {row.notOpened && row.included && (
-              <p className="m-0 mt-1.5">
-                You never opened its details here. Signing is still your call.
-              </p>
+              <p className="m-0 mt-1.5">You never opened its details here. {CALL[kind]}</p>
             )}
             {row.blocked === null && (
               <button
@@ -772,6 +851,7 @@ function UnlockDock({
 }
 
 function ReviewFooter({
+  kind,
   state,
   count,
   ready,
@@ -781,6 +861,7 @@ function ReviewFooter({
   onCancel,
   onBack,
 }: {
+  kind: BatchKind;
   state: BatchState;
   count: number;
   ready: ReturnType<typeof readiness>["state"];
@@ -791,6 +872,15 @@ function ReviewFooter({
   onBack: () => void;
 }) {
   const now = useNow(SECOND);
+  if (kind === "approve")
+    return (
+      <ApproveFooter
+        approving={state.step === "approving"}
+        count={count}
+        primary={primary}
+        onCancel={onCancel}
+      />
+    );
   const n = plural(count, "change");
   const unlockStep = state.step === "unlock";
   const signing = state.step === "signing" || (unlockStep && state.busy);
@@ -827,11 +917,40 @@ function ReviewFooter({
   );
 }
 
+/** The review step's footer for a batch of approvals: no key, no unlock, one button. */
+function ApproveFooter({
+  approving,
+  count,
+  primary,
+  onCancel,
+}: {
+  approving: boolean;
+  count: number;
+  primary: RefObject<HTMLButtonElement | null>;
+  onCancel: () => void;
+}) {
+  return (
+    <div className={FOOTER}>
+      <span className={FOOTER_NOTE}>No key needed: it is your approval on GitHub.</span>
+      <span className="flex-1 phone:hidden" />
+      <button type="button" className={GHOST} onClick={onCancel} disabled={approving}>
+        Cancel
+      </button>
+      <button ref={primary} type="submit" className={PRIMARY} disabled={count === 0 || approving}>
+        {approving ? "Approving…" : count > 1 ? `Approve ${count} on GitHub` : "Approve on GitHub"}
+        {!approving && <Kbd className={KBD_ON_NEED}>↵</Kbd>}
+      </button>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// signed
+// signed (and approved)
 
 function Signed({
-  state,
+  kind,
+  shown,
+  result,
   people,
   signer,
   primary,
@@ -840,7 +959,10 @@ function Signed({
   onOpenLast,
   onRetry,
 }: {
-  state: Extract<BatchState, { step: "signed" }>;
+  kind: BatchKind;
+  /** Every PR of the attempt, as they were before. */
+  shown: ReadonlyArray<PrView>;
+  result: Pick<Extract<BatchState, { step: "signed" }>["result"], "posted" | "failed">;
   people: People;
   signer: SignerState | null;
   primary: RefObject<HTMLButtonElement | null>;
@@ -851,17 +973,20 @@ function Signed({
   onRetry: (failed: ReadonlyArray<number>) => void;
 }) {
   const now = useNow(SECOND);
-  const { shown, result } = state;
+  const approved = kind === "approve";
   const posted = shown.filter((p) => result.posted.some((x) => x.pr === p.number));
   const failed = result.failed;
   const title =
     failed.length === 0
-      ? `${plural(posted.length, "pull request")} signed`
+      ? `${plural(posted.length, "pull request")} ${approved ? "approved" : "signed"}`
       : posted.length === 0
-        ? "Signed, but not posted yet"
-        : `${posted.length} of ${shown.length} pull requests posted`;
-  const note =
-    signer?.state === "unlocked"
+        ? approved
+          ? "Not approved"
+          : "Signed, but not posted yet"
+        : `${posted.length} of ${shown.length} pull requests ${approved ? "approved" : "posted"}`;
+  const note = approved
+    ? "Approved on GitHub, as you. No key was used."
+    : signer?.state === "unlocked"
       ? `Signing stays unlocked for ${countdown(signer.until, now)}.`
       : "Signing is locked again.";
   const lastPr = last === null ? null : (prs.find((p) => p.number === last) ?? null);
@@ -885,7 +1010,9 @@ function Signed({
         >
           {outcomeSentence(posted, people, "after")}
           {failed.length > 0 &&
-            ` The signature is valid; posting the comment failed on ${plural(failed.length, "pull request")}.`}
+            (approved
+              ? ` GitHub did not take the approval on ${plural(failed.length, "pull request")}; nothing was approved there.`
+              : ` The signature is valid; posting the comment failed on ${plural(failed.length, "pull request")}.`)}
         </DialogDescription>
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-[30px] pt-2.5 pb-2 phone:px-4 phone:pt-3">
@@ -909,7 +1036,7 @@ function Signed({
               </div>
               {fail ? (
                 <span className="text-tx3 text-[13px] whitespace-nowrap phone:col-start-2">
-                  not posted
+                  {approved ? "not approved" : "not posted"}
                 </span>
               ) : (
                 <a
@@ -917,7 +1044,7 @@ function Signed({
                   target="_blank"
                   rel="noreferrer"
                   className="text-tx2 hover:text-tx flex items-center gap-[7px] text-[13px] whitespace-nowrap phone:col-start-2 phone:min-h-6"
-                  title="The nod comment on GitHub"
+                  title={approved ? "The approval on GitHub" : "The nod comment on GitHub"}
                 >
                   <Dot tone={outcome.tone} />
                   {outcome.text}
@@ -948,7 +1075,7 @@ function Signed({
         <span className="flex-1 phone:hidden" />
         {failed.length > 0 && (
           <button type="button" className={GHOST} onClick={() => onRetry(failed.map((f) => f.pr))}>
-            Retry {plural(failed.length, "post")}
+            Retry {plural(failed.length, approved ? "approval" : "post")}
           </button>
         )}
         {lastPr && onOpenLast ? (
@@ -979,12 +1106,14 @@ function Signed({
 // stale: nothing was signed
 
 function Stale({
+  kind,
   state,
   prs,
   rows,
   primary,
   onCancel,
 }: {
+  kind: BatchKind;
   state: Extract<BatchState, { step: "stale" }>;
   prs: ReadonlyArray<PrView>;
   rows: ReadonlyArray<BatchRow>;
@@ -995,12 +1124,13 @@ function Stale({
   const unchanged = rows.filter((r) => r.included && !stale.some((s) => s.pr === r.pr.number));
   return (
     <>
-      <Header title="Nothing was signed">
+      <Header title={`Nothing was ${kind === "approve" ? "approved" : "signed"}`}>
         {stale.length === 1
           ? "One pull request"
           : `${capital(countWord(stale.length))} pull requests`}{" "}
-        changed since you looked. A nod covers exactly the commits you saw, so look at{" "}
-        {stale.length === 1 ? "it" : "them"} again, then sign.
+        changed since you looked. {kind === "approve" ? "An approval covers" : "A nod covers"}{" "}
+        exactly the commits you saw, so look at {stale.length === 1 ? "it" : "them"} again, then{" "}
+        {kind === "approve" ? "approve" : "sign"}.
       </Header>
       <div className="min-h-0 flex-1 overflow-auto px-[30px] pt-2.5 pb-2 phone:px-4">
         <div className="text-tx3 mt-4 pb-1.5 text-[12.5px]">Changed since you looked</div>
@@ -1051,10 +1181,12 @@ const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 // error: nothing was signed, and why
 
 function ErrorStep({
+  kind,
   state,
   primary,
   onBack,
 }: {
+  kind: BatchKind;
   state: Extract<BatchState, { step: "error" }>;
   primary: RefObject<HTMLButtonElement | null>;
   onBack: () => void;
@@ -1076,13 +1208,15 @@ function ErrorStep({
           failure.code === "bad-key-file"
             ? "The key cannot be unlocked"
             : uncertain
-              ? "Not sure whether it was signed"
-              : "Nothing was signed"
+              ? `Not sure whether it was ${kind === "approve" ? "approved" : "signed"}`
+              : `Nothing was ${kind === "approve" ? "approved" : "signed"}`
         }
       >
         {explained ??
           (uncertain
-            ? "The connection to nod serve dropped while it was signing, so the nod may be posted already. Wait for it to reconnect, then look for the nod on the PRs before you sign again."
+            ? kind === "approve"
+              ? "The connection to nod serve dropped while it was approving, so the approvals may be on GitHub already. Wait for it to reconnect, then look at the PRs before you approve again."
+              : "The connection to nod serve dropped while it was signing, so the nod may be posted already. Wait for it to reconnect, then look for the nod on the PRs before you sign again."
             : failure.message)}
       </Header>
       <div className={FOOTER}>

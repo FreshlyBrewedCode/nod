@@ -82,7 +82,9 @@ export function whyNotNeeded(pr: PrView, people: People, now: number): string | 
   if (pr.state === "merged")
     return pr.mergedAt !== null ? `merged ${duration(now - pr.mergedAt)} ago` : "merged";
   if (pr.state === "closed") return "closed without merging";
-  if (pr.ask && pr.patchId === null) return "its patch-id is not known yet; try again in a moment";
+  // A nod needs the patch-id; a GitHub approval does not.
+  if (pr.ask && pr.ask.kind !== "approve" && pr.patchId === null)
+    return "its patch-id is not known yet; try again in a moment";
   if (pr.ask) return null;
   if (pr.state === "draft") return "a draft: the agent is still writing it";
   // The inbox step: no policy, nothing to sign; what it needs of me is on GitHub.
@@ -138,8 +140,13 @@ export function landingOf(
   return { kind: "found", targets, unclassified, missing };
 }
 
-/** "#482 as peer, #476 as owner": what the batch signs, by role. */
+/**
+ * "#482 as peer, #476 as owner": what the batch signs, by role. A batch of
+ * GitHub approvals: "Approvals on GitHub for #482, #476".
+ */
 export function asWhat(prs: ReadonlyArray<PrView>): string {
+  if (prs.length && prs.every((p) => p.ask?.kind === "approve"))
+    return `${prs.length === 1 ? "An approval" : "Approvals"} on GitHub for ${prs.map((p) => `#${p.number}`).join(", ")}`;
   const role = (p: PrView) =>
     p.ask?.kind === "peer"
       ? "as peer"

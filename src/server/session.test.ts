@@ -74,8 +74,12 @@ describe("connecting", () => {
     });
     const prs = t.snapshot()!.prs;
     expect(prs.length).toBeGreaterThan(8);
-    expect(prs.every((p) => p.classifiedBy === "local" && p.ask === null)).toBe(true);
+    expect(prs.every((p) => p.classifiedBy === "local")).toBe(true);
     expect(prs.filter((p) => p.needsMe).map((p) => p.number)).toEqual([512, 515, 509, 511]);
+    expect(prs.filter((p) => p.ask).map((p) => [p.number, p.ask?.kind])).toEqual([
+      [512, "approve"],
+      [515, "approve"],
+    ]);
   });
 
   test("before a repo is picked there is no snapshot", async () => {
@@ -344,6 +348,94 @@ describe("unlock, sign, ack", () => {
   });
 });
 
+describe("approve (ADR 0006): a GitHub approval, no key", () => {
+  test("the inbox: approving answers the review request, the rows leave needs me", async () => {
+    const { session, source, tab } = setup("inbox");
+    await source.ready;
+    const t = tab();
+    await session.attach(t.client);
+    const result = ok(
+      await t.ask("approve", {
+        entries: [
+          { pr: 512, head_sha: t.pr(512).headSha },
+          { pr: 515, head_sha: t.pr(515).headSha },
+        ],
+      }),
+    ) as { posted: { pr: number; url: string }[]; failed: unknown[] };
+    expect(result.posted.map((p) => p.pr)).toEqual([512, 515]);
+    expect(result.posted[0]!.url).toMatch(/\/pull\/512#pullrequestreview-\d+$/);
+    expect(result.failed).toEqual([]);
+    expect([t.pr(512).needsMe, t.pr(512).ask, t.pr(515).needsMe]).toEqual([false, null, false]);
+    expect(t.pr(512).review).toMatchObject({ approvedBy: ["mara-l"], fromMe: false });
+    expect(t.pr(512).journey.some((e) => e.text === "You approved")).toBe(true);
+    // No key was asked for: there is none.
+    expect(t.last("welcome")?.signer.state).toBe("no-key");
+    expect(t.last("signer")).toBeUndefined();
+  });
+
+  test("join: a set-up repo without my key; an approval fills the peer slot, the PR merges", async () => {
+    const { session, tab, clock } = setup("join");
+    const t = tab();
+    await session.attach(t.client);
+    expect(t.pr(482).ask?.kind).toBe("approve");
+    // Ines approved #485 on GitHub already: its peer slot is filled, it waits on Jonas.
+    expect(t.pr(485).requirement.slots.find((s) => s.role === "peer")).toMatchObject({
+      state: "ok",
+      approval: "inescal",
+      signature: null,
+    });
+    expect([t.pr(485).needsMe, t.pr(485).ask]).toEqual([false, null]);
+    ok(await t.ask("approve", { entries: [{ pr: 482, head_sha: t.pr(482).headSha }] }));
+    expect(t.pr(482).requirement).toMatchObject({ satisfied: true });
+    expect(t.pr(482).requirement.slots[0]).toMatchObject({ state: "ok", approval: "mara-l" });
+    expect(t.pr(482).needsMe).toBe(false);
+    clock.advance(4 * SECOND);
+    expect(t.pr(482).state).toBe("merged");
+  });
+
+  test("all or nothing: one entry that moved since I looked approves nothing", async () => {
+    const { session, source, tab } = setup("inbox");
+    await source.ready;
+    const t = tab();
+    await session.attach(t.client);
+    const moved = "41aa9e7" + "0".repeat(33);
+    const reply = await t.ask("approve", {
+      entries: [
+        { pr: 512, head_sha: t.pr(512).headSha },
+        { pr: 515, head_sha: moved },
+      ],
+    });
+    expect(err(reply)).toBe("stale");
+    if (reply.ok) return;
+    expect(reply.error.message).toMatch(/Nothing was approved/);
+    expect(reply.error.details?.stale).toEqual([
+      { pr: 515, signed: moved, current: t.pr(515).headSha },
+    ]);
+    expect([t.pr(512).needsMe, t.pr(515).needsMe]).toEqual([true, true]);
+  });
+
+  test("refusals: my own PR, a draft, unknown, bad requests", async () => {
+    const { session, source, tab } = setup("inbox");
+    await source.ready;
+    const t = tab();
+    await session.attach(t.client);
+    const approve = (entries: unknown) => t.ask("approve", { entries });
+    const own = await approve([
+      { pr: 512, head_sha: t.pr(512).headSha },
+      { pr: 519, head_sha: t.pr(519).headSha },
+    ]);
+    expect(err(own)).toBe("forbidden");
+    if (!own.ok) expect(own.error.message).toMatch(/#519 is your own pull request/);
+    // Nothing was approved, not even the other one.
+    expect(t.pr(512).needsMe).toBe(true);
+    expect(err(await approve([{ pr: 518, head_sha: t.pr(518).headSha }]))).toBe("not-open");
+    expect(err(await approve([{ pr: 506, head_sha: t.pr(506).headSha }]))).toBe("not-open");
+    expect(err(await approve([{ pr: 1, head_sha: "a".repeat(40) }]))).toBe("not-found");
+    expect(err(await approve([]))).toBe("bad-request");
+    expect(err(await approve([{ pr: 512, head_sha: "nope" }]))).toBe("bad-request");
+  });
+});
+
 describe("onboarding", () => {
   test("fresh: pick a repo, create a key, open the setup PR, test signature", async () => {
     const { session, tab } = setup("fresh");
@@ -437,4 +529,13 @@ test("parseRequest keeps only what the protocol defines", () => {
   expect(() => parseRequest(JSON.stringify({ t: "unlock", id: "1" }))).toThrow();
   expect(() => parseRequest(JSON.stringify({ t: "ack-fyi", id: "1", pr: "482" }))).toThrow();
   expect(() => parseRequest(JSON.stringify({ t: "lock" }))).toThrow();
+  const head = "a".repeat(40);
+  expect(
+    parseRequest(
+      JSON.stringify({ t: "approve", id: "2", entries: [{ pr: 7, head_sha: head }], verdict: "x" }),
+    ),
+  ).toEqual({ t: "approve", id: "2", entries: [{ pr: 7, head_sha: head }] });
+  expect(() =>
+    parseRequest(JSON.stringify({ t: "approve", id: "2", entries: [{ pr: 7 }] })),
+  ).toThrow();
 });

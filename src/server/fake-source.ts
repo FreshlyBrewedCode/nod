@@ -11,6 +11,9 @@
  *   `fresh` (onboarding from step 1, no key), `join` (a set-up repo, no key),
  *   `inbox` (the ladder's step 0: no `.nod/`, no key, the PRs classified
  *   locally and "needs me" from review requests, `fake-inbox.ts`).
+ * - Without an active key (`fresh`, `join`, `inbox`) the asks are GitHub
+ *   approvals (ADR 0006); approving answers the review request and fills a
+ *   slot that takes approvals. In `join` Ines approved #485 already.
  */
 
 import type {
@@ -37,11 +40,13 @@ import {
   FAKE_REPO,
   SEEDS,
   UNCLASSIFIED_TITLES,
+  personName,
   prUrl,
   seedFacts,
 } from "./fake-data";
 import {
   SourceError,
+  type PostApprovalsInput,
   type PostNodInput,
   type PostResult,
   type SignTarget,
@@ -72,6 +77,8 @@ export interface FakeSourceOptions {
 }
 
 const SETUP_PR = 494;
+/** In `join`: Ines approved this one on GitHub, which fills its peer slot. */
+const JOIN_APPROVED = 485;
 const ENROL_PR = 501;
 const SECOND = 1000;
 
@@ -98,6 +105,8 @@ export class FakeSource implements Source {
   private readonly timers: Timer[] = [];
   private syncAt: number;
   private comments = 0;
+  /** The `publicKeyId` of the key the scenario treats as mine. */
+  private readonly myKey: string;
   /** Resolves once the scenario's PRs are in (the `inbox` scenario classifies them first). */
   readonly ready: Promise<void>;
 
@@ -129,6 +138,14 @@ export class FakeSource implements Source {
     if (scenario === "team" || scenario === "clear" || scenario === "join")
       this.facts = SEEDS.map((s) => seedFacts(s, this.started, repo));
     const myKey = publicKeyId(options.myKey ?? FAKE_KEY.publicKey);
+    this.myKey = myKey;
+    // A teammate who joins without a key sees a slot a GitHub approval filled (ADR 0006).
+    if (scenario === "join")
+      this.facts = this.facts.map((f) =>
+        f.number === JOIN_APPROVED
+          ? this.withApproval(f, FAKE_PEOPLE.ines.login, f.headSha, this.started - 2 * 60 * SECOND)
+          : f,
+      );
     if (scenario === "team" || scenario === "clear")
       this.enrolments.set(myKey, { state: "active" });
     if (scenario === "clear") this.facts = this.facts.map((f) => this.alreadyDone(f));
@@ -201,7 +218,13 @@ export class FakeSource implements Source {
       repo: this.repoName,
       me: FAKE_ME,
       people,
-      prs: toViews(this.facts, { me: FAKE_ME, now: this.clock.now(), people }),
+      prs: toViews(this.facts, {
+        me: FAKE_ME,
+        now: this.clock.now(),
+        people,
+        // My key signs only once it is enrolled; until then the asks are approvals.
+        signing: this.enrolments.get(this.myKey)?.state === "active",
+      }),
       unclassified: this.unclassified,
       sync: { at: this.syncAt, error: null },
     };
@@ -214,7 +237,16 @@ export class FakeSource implements Source {
 
   async signTarget(pr: number): Promise<SignTarget | null> {
     const f = this.facts.find((x) => x.number === pr);
-    return f ? { pr, state: f.state, base: f.base, headSha: f.headSha, patchId: f.patchId } : null;
+    return f
+      ? {
+          pr,
+          state: f.state,
+          author: f.author,
+          base: f.base,
+          headSha: f.headSha,
+          patchId: f.patchId,
+        }
+      : null;
   }
 
   async postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>> {
@@ -234,6 +266,29 @@ export class FakeSource implements Source {
       const f = this.facts[index]!;
       const url = `${f.url}#issuecomment-${9_000_000 + ++this.comments}`;
       this.facts[index] = this.withNod(f, payload.reviewer, entry, payload.entries.length, url);
+      results.push({ pr: entry.pr, ok: true, url, message: null });
+      this.whenReady(entry.pr);
+    }
+    this.emit("prs");
+    return results;
+  }
+
+  async postApprovals(input: PostApprovalsInput): Promise<ReadonlyArray<PostResult>> {
+    const results: PostResult[] = [];
+    for (const entry of input.entries) {
+      const index = this.facts.findIndex((f) => f.number === entry.pr);
+      if (index < 0 || !sameLogin(input.repo, this.repoName)) {
+        results.push({
+          pr: entry.pr,
+          ok: false,
+          url: null,
+          message: `#${entry.pr} is not in ${this.repoName}.`,
+        });
+        continue;
+      }
+      const f = this.facts[index]!;
+      const url = `${f.url}#pullrequestreview-${8_000_000 + ++this.comments}`;
+      this.facts[index] = this.withApproval(f, FAKE_ME, entry.headSha);
       results.push({ pr: entry.pr, ok: true, url, message: null });
       this.whenReady(entry.pr);
     }
@@ -382,10 +437,59 @@ export class FakeSource implements Source {
     };
   }
 
+  /**
+   * A GitHub approval as GitHub and the verifier would show it: the review
+   * request from me is answered, and a slot that takes approvals is filled.
+   */
+  private withApproval(
+    f: PrFacts,
+    reviewer: string,
+    headSha: string,
+    at = this.clock.now(),
+  ): PrFacts {
+    const atHead = headSha === f.headSha;
+    const review = f.review ?? {
+      requested: [],
+      teams: [],
+      fromMe: false,
+      approvedBy: [],
+      changesRequestedBy: [],
+    };
+    const others = (list: ReadonlyArray<string>) => list.filter((l) => !sameLogin(l, reviewer));
+    const counts = atHead && !sameLogin(f.author, reviewer);
+    const slots = f.requirement.slots.map((s) =>
+      counts && !s.nodsOnly && canFill(s, reviewer)
+        ? { ...s, state: "ok" as const, signature: null, approval: reviewer }
+        : s,
+    );
+    const you = sameLogin(reviewer, FAKE_ME);
+    return {
+      ...f,
+      review: {
+        ...review,
+        requested: others(review.requested),
+        fromMe: you ? false : review.fromMe,
+        approvedBy: [...others(review.approvedBy), reviewer],
+        approvedAtHead: atHead
+          ? [...others(review.approvedAtHead ?? []), reviewer]
+          : others(review.approvedAtHead ?? []),
+        changesRequestedBy: others(review.changesRequestedBy),
+      },
+      requirement: { ...f.requirement, slots },
+      journey: [
+        ...f.journey,
+        event("reviewed", you ? "You approved" : `${personName(reviewer)} approved`, at),
+      ],
+      lastActivity: { at, text: you ? "you approved" : `${personName(reviewer)} approved` },
+    };
+  }
+
   /** Merge once the requirement is met and the checks are green. */
   private whenReady(pr: number) {
     const f = this.facts.find((x) => x.number === pr);
-    if (!f || f.state !== "open" || f.requirement.slots.some((s) => s.state !== "ok")) return;
+    // At the inbox step a person merges, not the agent: nothing happens on its own.
+    if (!f || f.state !== "open" || f.classifiedBy === "local") return;
+    if (f.requirement.slots.some((s) => s.state !== "ok")) return;
     if (f.checks.state === "pending" || f.checks.state === "failing") return;
     this.timers.push(this.clock.after(this.mergeDelayMs, () => this.merge(pr)));
   }

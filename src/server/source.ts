@@ -13,6 +13,7 @@
 
 import type {
   Account,
+  Login,
   Enrolment,
   GitHubInfo,
   PrLink,
@@ -27,6 +28,8 @@ import type {
 export interface SignTarget {
   readonly pr: number;
   readonly state: PrState;
+  /** The GitHub author: GitHub refuses an approval of one's own PR. */
+  readonly author: Login;
   readonly base: string;
   readonly headSha: string;
   readonly patchId: string | null;
@@ -57,10 +60,19 @@ export interface PostNodInput {
   readonly body: string;
 }
 
+/** A batch of GitHub approvals, as the session checked it. */
+export interface PostApprovalsInput {
+  readonly repo: RepoName;
+  /** Each PR at the head the user looked at: the review's `commit_id`. */
+  readonly entries: ReadonlyArray<{ readonly pr: number; readonly headSha: string }>;
+  /** The review's text; null: none, as `gh pr review --approve`. */
+  readonly body: string | null;
+}
+
 export interface PostResult {
   readonly pr: number;
   readonly ok: boolean;
-  /** The comment's URL when it was posted, else why not. */
+  /** The comment's (or review's) URL when it was posted, else why not. */
   readonly url: string | null;
   readonly message: string | null;
 }
@@ -108,6 +120,12 @@ export interface Source {
   signTarget(pr: number): Promise<SignTarget | null>;
   /** Post the same nod comment on every PR of the payload. Never throws per PR. */
   postNod(input: PostNodInput): Promise<ReadonlyArray<PostResult>>;
+  /**
+   * Approve each PR on GitHub at its `headSha` (an `APPROVED` review, ADR
+   * 0006), as the source's account. Never throws per PR. The row leaves
+   * "needs me" with the next snapshot: the review request is answered.
+   */
+  postApprovals(input: PostApprovalsInput): Promise<ReadonlyArray<PostResult>>;
   /** Mark an FYI as seen. Throws `SourceError` `not-found`. */
   ackFyi(pr: number): Promise<void>;
   /** The repo's setup: `.nod/`, the workflow, the ruleset. */

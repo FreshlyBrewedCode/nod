@@ -26,6 +26,7 @@ import {
   journeySummary,
   localNeed,
   neededFromYou,
+  ownPrHint,
   reasonsSummary,
   reviewsSummary,
   riskWords,
@@ -37,9 +38,11 @@ import {
 import { Avatar, RiskBars, Tag } from "./bits";
 import { BriefText } from "./brief-text";
 import {
+  ApproveDetail,
   FilesBody,
   FyiBody,
   JourneyList,
+  OwnPrNote,
   ReasonsBody,
   ReviewsBody,
   SignaturesBody,
@@ -62,7 +65,7 @@ export function DetailPage({
   /** Show another PR in the page (`Next ›`). */
   onOpen: (pr: number) => void;
 }) {
-  const { people, me, openBatch, selection, toggleSelected, ackFyi } = useDashboard();
+  const { people, me, openBatch, selection, toggleSelected, ackFyi, signing } = useDashboard();
   const now = useNow(MINUTE);
   const offset = useUtcOffset();
   const page = useRef<HTMLElement>(null);
@@ -76,6 +79,7 @@ export function DetailPage({
   const who = whoOf(pr, people);
   const needed = neededFromYou(pr);
   const need = localNeed(pr, people, me);
+  const own = need ? null : ownPrHint(pr, signing);
   const canBatch = selectable(pr);
   const hasBar = Boolean(pr.ask || need || pr.fyiForMe || canBatch || next !== null);
   const riskWord = pr.risk > 0 ? riskWords(pr.risk, pr.brief?.risk ?? null) : null;
@@ -164,6 +168,7 @@ export function DetailPage({
               )}
             </>
           )}
+          {own && <OwnPrNote text={own} className="mt-1 mb-3.5" />}
         </div>
 
         <div className="mt-1">
@@ -197,7 +202,12 @@ export function DetailPage({
         <div className="border-line2 flex-none border-t bg-[#11141af2] px-3 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] backdrop-blur-md">
           {needed && pr.ask && (
             <p className="text-tx2 m-0 px-1 pb-[9px] text-[13px] leading-[18px]">
-              <b className="text-tx font-semibold">{needed}</b> {thenText(pr.ask, people)}
+              <b className="text-tx font-semibold">{needed}</b>{" "}
+              {pr.ask.kind === "approve" ? (
+                <ApproveDetail pr={pr} ask={pr.ask} />
+              ) : (
+                thenText(pr.ask, people)
+              )}
             </p>
           )}
           {need && (
@@ -233,7 +243,7 @@ export function DetailPage({
                 onClick={() => openBatch([pr.number])}
                 className={cn(BUTTON, "bg-need border-need text-on-need flex-1 px-2")}
               >
-                <Lock className="size-4 flex-none" />
+                {pr.ask.kind !== "approve" && <Lock className="size-4 flex-none" />}
                 <span className="truncate">{pr.ask.label}</span>
               </button>
             ) : need ? (

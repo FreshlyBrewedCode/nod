@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { githubHost } from "../kit/host.ts";
 import { tempRepo } from "../kit/test-support.ts";
-import type { Reply, ServerToClient } from "../shared/protocol";
+import type { Ask, Reply, ServerToClient } from "../shared/protocol";
 import { ManualClock } from "./clock";
 import { GitHubApi } from "./github/api";
 import type { PatchIds } from "./github/clone";
@@ -30,6 +30,7 @@ import { ed25519PublicKeyBlob, publicKeyLine } from "./signer/ssh-wire";
 import type { SourceChange } from "./source";
 
 const SECOND = 1000;
+const APPROVE: Ask = { kind: "approve", label: "Approve", then: { outcome: "satisfied" } };
 
 /** Let the fake fetch's promises and the patch-id jobs run. */
 const settle = async () => {
@@ -322,7 +323,7 @@ describe("the inbox step: a repo without nod's setup", () => {
     expect(
       snap.prs.map((p) => [p.number, p.classifiedBy, p.risk, p.needsMe, p.ask, p.waitingOn[0]]),
     ).toEqual([
-      [30, "local", 3, true, null, { kind: "me" }],
+      [30, "local", 3, true, APPROVE, { kind: "me" }],
       [31, "local", 0, true, null, { kind: "agent" }],
       [32, "local", 0, false, null, { kind: "person", login: CAROL }],
     ]);
@@ -336,15 +337,79 @@ describe("the inbox step: a repo without nod's setup", () => {
     expect((await t.source.setup()).step).toBe("inbox");
   });
 
-  test("a key changes nothing: there is still nothing to sign", async () => {
+  test("a key changes nothing: there is nothing to sign, a review request asks for an approval", async () => {
     const t = inbox(FAKE_KEY.publicKey);
     t.source.start();
     await settle();
     expect(t.source.snapshot()!.prs.map((p) => [p.number, p.needsMe, p.ask])).toEqual([
-      [30, true, null],
+      [30, true, APPROVE],
       [31, true, null],
       [32, false, null],
     ]);
+  });
+
+  test("approving: an APPROVED review at the head I looked at; the row leaves needs me at once", async () => {
+    const t = inbox();
+    t.source.start();
+    await settle();
+    const head = t.pr(30).headSha;
+    const results = await t.source.postApprovals({
+      repo: REPO,
+      entries: [{ pr: 30, headSha: head }],
+      body: null,
+    });
+    expect(results).toEqual([
+      {
+        pr: 30,
+        ok: true,
+        url: `https://github.com/${REPO}/pull/30#pullrequestreview-1`,
+        message: null,
+      },
+    ]);
+    expect(t.gh.rests().filter((c) => c.method === "POST")).toEqual([
+      {
+        method: "POST",
+        path: `/repos/${REPO}/pulls/30/reviews`,
+        body: { commit_id: head, event: "APPROVE" },
+      },
+    ]);
+    expect(t.pr(30)).toMatchObject({ needsMe: false, ask: null });
+    expect(t.pr(30).review).toMatchObject({ approvedBy: [ALICE], approvedAtHead: [ALICE] });
+    // The poll after it agrees: GitHub's search no longer finds the request.
+    t.gh.requested = [];
+    await t.advance(5 * SECOND);
+    expect(t.pr(30).needsMe).toBe(false);
+  });
+
+  test("a refused approval is a failed entry, the others still post", async () => {
+    const t = inbox();
+    t.source.start();
+    await settle();
+    t.gh.routes.set(`POST /repos/${REPO}/pulls/30/reviews`, {
+      status: 422,
+      body: { message: "Can not approve your own pull request" },
+    });
+    const results = await t.source.postApprovals({
+      repo: REPO,
+      entries: [
+        { pr: 30, headSha: t.pr(30).headSha },
+        { pr: 32, headSha: t.pr(32).headSha },
+      ],
+      body: "Looks good",
+    });
+    expect(results.map((r) => [r.pr, r.ok])).toEqual([
+      [30, false],
+      [32, true],
+    ]);
+    expect(results[0]!.message).toMatch(
+      /^Approving #30 failed: GitHub 422 .*your own pull request/,
+    );
+    expect(t.gh.rests().find((c) => c.path.endsWith("/32/reviews"))?.body).toEqual({
+      commit_id: t.pr(32).headSha,
+      event: "APPROVE",
+      body: "Looks good",
+    });
+    expect(t.pr(30).needsMe).toBe(true);
   });
 
   test("once set up, the verifier is the source: a PR without a summary waits for it", async () => {
@@ -368,7 +433,7 @@ describe("the inbox step: a repo without nod's setup", () => {
 });
 
 describe("my key", () => {
-  test("enrolled: the asks are there; pending or no key: readable, nothing signable", async () => {
+  test("enrolled: the asks are nods; pending or no key: approvals, nothing signable", async () => {
     const t = setup();
     t.source.start();
     await settle();
@@ -378,10 +443,12 @@ describe("my key", () => {
     const other = publicKeyLine(ed25519PublicKeyBlob(new Uint8Array(32).fill(7)));
     t.setKey(other);
     expect(t.source.enrolment(other)).toEqual({ state: "not-enrolled" });
-    expect(t.pr(26)).toMatchObject({ needsMe: false, ask: null, waitingOn: [{ kind: "me" }] });
+    // Not enrolled: a teammate's peer slot asks for a GitHub approval instead (ADR 0006).
+    expect(t.pr(26)).toMatchObject({ needsMe: true, ask: APPROVE, waitingOn: [{ kind: "me" }] });
 
     t.setKey(null);
-    expect(t.pr(27).needsMe).toBe(false);
+    // My own PR's self slot: GitHub does not let me approve it, it waits on my key.
+    expect(t.pr(27)).toMatchObject({ needsMe: false, ask: null, waitingOn: [{ kind: "me" }] });
   });
 
   test("a key in an open PR's allowed_signers is pending on that PR", async () => {
@@ -823,7 +890,7 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       "https://git.example.test",
     ],
   ] as const)
-    test(`${kind}: reads, signs and posts through ${host}'s API only`, async () => {
+    test(`${kind}: reads, signs, approves and posts through ${host}'s API only`, async () => {
       const { gh, source, clock } = await enterprise(origin, host);
       expect(source.github()).toEqual({ host, webUrl });
       expect(source.snapshot()!.prs.map((p) => p.number)).toEqual([26, 27, 28]);
@@ -852,6 +919,19 @@ describe("on GitHub Enterprise hosts: everything from the clone's origin", () =>
       >;
       expect(reply.ok).toBe(true);
       expect(reply.result.posted[0]!.url).toStartWith(`${webUrl}/acme/widgets/pull/26`);
+      // So does a GitHub approval: the review lands on this host.
+      await s.handle(
+        client,
+        JSON.stringify({ t: "approve", id: "a", entries: [{ pr: 26, head_sha: sha("head-26") }] }),
+      );
+      const approved = messages.find((m) => m.t === "reply" && m.id === "a") as Extract<
+        Reply,
+        { ok: true; to: "approve" }
+      >;
+      expect(approved.ok).toBe(true);
+      expect(approved.result.posted[0]!.url).toStartWith(
+        `${webUrl}/acme/widgets/pull/26#pullrequestreview-`,
+      );
       // The welcome tells the web app the host.
       await s.attach(client);
       const welcome = messages.find((m) => m.t === "welcome");

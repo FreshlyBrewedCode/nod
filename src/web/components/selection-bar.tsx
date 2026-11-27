@@ -6,11 +6,14 @@
  */
 
 import { useDashboard } from "@/hooks/use-dashboard";
+import { actWord } from "@/lib/wording";
 import { Kbd } from "./bits";
 
 export function SelectionBar() {
-  const { selection, clearSelection, openBatch } = useDashboard();
+  const { selection, clearSelection, openBatch, snapshot } = useDashboard();
   if (selection.length === 0) return null;
+  // Without an active key the selected rows ask for GitHub approvals (ADR 0006).
+  const verb = actWord(snapshot.prs.filter((p) => selection.includes(p.number)));
   return (
     <section
       aria-label="Selection"
@@ -30,7 +33,7 @@ export function SelectionBar() {
         onClick={() => openBatch(selection)}
         className="bg-need border-need text-on-need inline-flex h-8 items-center gap-2 rounded-lg border px-3.5 text-[13px] font-semibold phone:h-[46px] phone:rounded-[11px] phone:px-4 phone:text-[15px]"
       >
-        Review &amp; sign {selection.length}
+        Review &amp; {verb} {selection.length}
         <Kbd className="text-on-need border-[#0003] bg-[#0002] phone:hidden">s</Kbd>
       </button>
     </section>

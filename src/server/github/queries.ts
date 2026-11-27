@@ -20,7 +20,7 @@ export const PR_FIELDS = `
   autoMergeRequest { enabledAt }
   mergeable
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { combinedSlug } } } }
-  latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } } }
+  latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state submittedAt author { login } commit { oid } } }
   files(first: 100) { totalCount nodes { path additions deletions } }
   commits(last: 1) { nodes { commit { oid committedDate statusCheckRollup { state contexts(first: 60) { nodes { __typename
     ... on CheckRun { id databaseId name status conclusion startedAt completedAt title checkSuite { app { slug } workflowRun { workflow { resourcePath } } } }
@@ -71,7 +71,7 @@ export function requestedQuery(owner: string, name: string): string {
 export const SIGN_TARGET = `
 query SignTarget($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) { number state isDraft merged baseRefName headRefOid baseRef { target { oid } } }
+    pullRequest(number: $number) { number state isDraft merged author { login } baseRefName headRefOid baseRef { target { oid } } }
   }
 }`;
 
@@ -192,6 +192,8 @@ export interface RawPr {
       readonly state: string;
       readonly submittedAt: string | null;
       readonly author: { readonly login: string } | null;
+      /** The commit it reviewed. Optional: older fixtures. */
+      readonly commit?: { readonly oid: string } | null;
     } | null>;
   };
   readonly files: {

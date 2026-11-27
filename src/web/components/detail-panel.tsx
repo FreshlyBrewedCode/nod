@@ -6,8 +6,10 @@
  * the sections open.
  *
  * A PR classified locally (the inbox step, no policy in the repo) says so in
- * "Why this needs you"; what it needs of me links to GitHub (nothing to
- * sign), and "Reviews" (GitHub's) takes the place of "Signatures".
+ * "Why this needs you"; what it needs of me is a GitHub approval (or, my own
+ * stuck PR, a link to GitHub), and "Reviews" (GitHub's) takes the place of
+ * "Signatures". Without an active key the ask is "Approve" at a set-up repo
+ * too; my own PR then says quietly that GitHub does not let me approve it.
  */
 
 import { ExternalLink, Lock, Maximize2, X } from "lucide-react";
@@ -15,7 +17,7 @@ import { useState } from "react";
 import type * as React from "react";
 
 import { shortName } from "../../shared/attention";
-import type { JourneyEvent, PrView } from "../../shared/protocol";
+import type { Ask, JourneyEvent, PrView } from "../../shared/protocol";
 import { MINUTE, useNow, useUtcOffset } from "@/hooks/use-clock";
 import { useDashboard } from "@/hooks/use-dashboard";
 import { isWidePanel } from "@/lib/panel";
@@ -30,6 +32,7 @@ import {
   journeyDetail,
   LOCAL_NOTE,
   localNeed,
+  ownPrHint,
   reasonsSummary,
   reviewLines,
   reviewsSummary,
@@ -110,12 +113,13 @@ export function DetailPanel({
 }
 
 function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
-  const { people, me, openBatch, selection, toggleSelected } = useDashboard();
+  const { people, me, openBatch, selection, toggleSelected, signing } = useDashboard();
   const now = useNow(MINUTE);
   const checks = checksTag(pr);
   const selected = selection.includes(pr.number);
   const need = localNeed(pr, people, me);
   const local = pr.classifiedBy === "local";
+  const own = need ? null : ownPrHint(pr, signing);
   return (
     <div className="px-6 pt-5 pb-10">
       <h1 className="m-0 mb-1.5 text-[19px] leading-[1.3] font-bold tracking-[-0.01em]">
@@ -139,7 +143,13 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
           <div>
             <h6 className={H6}>Needed from you</h6>
             <b className="block text-[15.5px] font-bold">{askHeadline(pr)}</b>
-            <div className="text-tx3 text-[12.5px] leading-[1.55]">{thenText(pr.ask, people)}</div>
+            <div className="text-tx3 text-[12.5px] leading-[1.55]">
+              {pr.ask.kind === "approve" ? (
+                <ApproveDetail pr={pr} ask={pr.ask} />
+              ) : (
+                thenText(pr.ask, people)
+              )}
+            </div>
           </div>
           <div className="ml-auto flex gap-2">
             <button
@@ -147,8 +157,15 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
               className={cn(BUTTON, PRIMARY)}
               onClick={() => openBatch([pr.number])}
             >
-              <Lock className="size-[15px]" />
-              Sign <Kbd className="border-[#0003] bg-[#0002] text-on-need">s</Kbd>
+              {pr.ask.kind === "approve" ? (
+                "Approve"
+              ) : (
+                <>
+                  <Lock className="size-[15px]" />
+                  Sign
+                </>
+              )}{" "}
+              <Kbd className="border-[#0003] bg-[#0002] text-on-need">s</Kbd>
             </button>
             <button type="button" className={BUTTON} onClick={() => toggleSelected(pr.number)}>
               {selected ? "In the batch" : "Add to batch"} <Kbd>x</Kbd>
@@ -173,6 +190,8 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
           </a>
         </div>
       )}
+
+      {own && <OwnPrNote text={own} className="mt-[18px]" />}
 
       {pr.brief ? (
         <dl className="mt-[22px] mb-0 grid grid-cols-[64px_1fr] gap-x-3.5 gap-y-2.5 text-[14px] leading-[1.5]">
@@ -238,6 +257,52 @@ function PanelBody({ pr, wide }: { pr: PrView; wide: boolean }) {
         </Fold>
       </div>
     </div>
+  );
+}
+
+/**
+ * What a GitHub approval does here, under "Needed from you": at the inbox
+ * step it answers my review request (the files are on GitHub to look at);
+ * at a set-up repo it fills a slot, no key needed.
+ */
+export function ApproveDetail({ pr, ask }: { pr: Pick<PrView, "classifiedBy" | "url">; ask: Ask }) {
+  const { people } = useDashboard();
+  if (pr.classifiedBy === "local")
+    return (
+      <>
+        Approve it here, or{" "}
+        <a
+          href={`${pr.url}/files`}
+          target="_blank"
+          rel="noreferrer"
+          className="hover:text-tx2 underline underline-offset-2"
+        >
+          review it on GitHub
+        </a>
+        . {thenText(ask, people, true)}
+      </>
+    );
+  return <>{thenText(ask, people)} A GitHub approval counts here; no key needed.</>;
+}
+
+/** My own PR without a key: GitHub does not let me approve it; signing does (quiet, r3's dashed note). */
+export function OwnPrNote({ text, className }: { text: string; className?: string }) {
+  return (
+    <p
+      role="note"
+      className={cn(
+        "border-line2 text-tx2 mb-0 rounded-[10px] border border-dashed px-3 py-2 text-[12.5px] leading-[1.55] phone:text-[13px]",
+        className,
+      )}
+    >
+      {text}{" "}
+      <a
+        href={formatRoute({ view: "setup" })}
+        className="hover:text-tx underline underline-offset-2"
+      >
+        Set up signing
+      </a>
+    </p>
   );
 }
 
