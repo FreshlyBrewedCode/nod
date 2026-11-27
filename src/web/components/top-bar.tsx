@@ -8,6 +8,7 @@ import { useState } from "react";
 import type * as React from "react";
 
 import type { Person } from "../../shared/protocol";
+import type { Rung } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
 import { Avatar, Kbd } from "./bits";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -141,9 +142,17 @@ export function ShortcutsHelp({
   );
 }
 
+/** A step of the ladder offered in the avatar menu (`offersOf`, `offerWords`). */
+export interface MenuOffer {
+  readonly rung: Rung;
+  readonly title: string;
+  readonly line: string;
+}
+
 /**
- * Me, and the avatar menu: who `nod serve` is signed in as, and "Setup and
- * checks" to reopen onboarding (r3 shows no other place for it). On a phone
+ * Me, and the avatar menu: who `nod serve` is signed in as, the steps of the
+ * ladder offered to me (each opens the setup page on it, dismissed or not),
+ * and "Setup" for the whole ladder (`#/setup`). On a phone
  * the menu also holds what the top bar has no room for: "How this list works"
  * (the legend, where a desktop has the `?` key) and the fake-data note. On
  * the named host's page it offers "Open links from GitHub here", the way to
@@ -152,6 +161,7 @@ export function ShortcutsHelp({
 export function Me({
   login,
   people,
+  offers = [],
   onSetup,
   onLegend,
   fake = false,
@@ -159,7 +169,10 @@ export function Me({
 }: {
   login: string;
   people: ReadonlyArray<Person>;
-  onSetup: () => void;
+  /** The ladder's steps offered to me, in order. */
+  offers?: ReadonlyArray<MenuOffer>;
+  /** Opens the setup page, on a step or on the next one. */
+  onSetup: (rung?: Rung) => void;
   /** Shows the legend again (phone only). */
   onLegend?: () => void;
   /** `nod serve --fake`: said in the menu on a phone, where the top bar has no room. */
@@ -177,13 +190,34 @@ export function Me({
       >
         <Avatar login={login} people={people} large />
       </PopoverTrigger>
-      <PopoverContent className="w-[240px] p-1.5 phone:w-[min(300px,calc(100vw-16px))]">
+      <PopoverContent className="w-[264px] p-1.5 phone:w-[min(300px,calc(100vw-16px))]">
         <div className="px-2.5 pt-1.5 pb-2 text-[13px]">
           <b className="block font-semibold">{name ?? login}</b>
           <span className="text-tx3 text-[12.5px]">
             {name ? `${login} · ` : ""}through <code className="font-mono text-[11.5px]">gh</code>
           </span>
         </div>
+        {offers.length > 0 && (
+          <div className="border-line mb-1 border-y py-1">
+            <p className="text-tx3 m-0 px-2.5 pt-1.5 pb-0.5 text-[11px] font-semibold tracking-[0.08em] uppercase">
+              Next steps
+            </p>
+            {offers.map((o) => (
+              <button
+                key={o.rung}
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onSetup(o.rung);
+                }}
+                className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
+              >
+                {o.title}
+                <span className="text-tx3 fs-code block">{o.line}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           onClick={() => {
@@ -192,8 +226,8 @@ export function Me({
           }}
           className="text-tx2 hover:text-tx hover:bg-bg w-full rounded-lg px-2.5 py-2 text-left text-[13px] phone:min-h-11"
         >
-          Setup and checks
-          <span className="text-tx3 fs-code block">repository, signing key, test signature</span>
+          Setup
+          <span className="text-tx3 fs-code block">the ladder, step by step</span>
         </button>
         {onLegend && (
           <button

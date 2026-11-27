@@ -4,7 +4,8 @@
  *   #/                                 the list, by attention (also the empty fragment)
  *   #/chrono                           the list, chronological
  *   #/board                            the board
- *   #/setup                            onboarding's checks, reopened from the avatar menu
+ *   #/setup                            the setup page: the ladder, on the next step
+ *   #/setup/<step>                     on that step: inbox, shared-policy, signing, enforced
  *   #/forward?to=https://<name[:port]> asks the hosted page to remember where this
  *                                      browser's nod is (`lib/forward.ts`, ADR 0005 §7)
  *   #/pr/<owner>/<repo>/<n>            a deep link to one PR: its landing
@@ -35,7 +36,11 @@ export type Route =
   | { readonly view: "list" }
   | { readonly view: "chrono" }
   | { readonly view: "board" }
-  | { readonly view: "setup" }
+  | {
+      readonly view: "setup";
+      /** The ladder's step to open on; none: the next one (`setupRungOf`). */
+      readonly step?: SetupStep;
+    }
   | {
       readonly view: "forward";
       /**
@@ -59,6 +64,10 @@ export type Route =
     };
 
 export type View = "list" | "chrono" | "board";
+
+/** The ladder's steps, as `#/setup/<step>` names them (`RUNGS` in `lib/onboarding.ts`). */
+export const SETUP_STEPS = ["inbox", "shared-policy", "signing", "enforced"] as const;
+export type SetupStep = (typeof SETUP_STEPS)[number];
 
 /** A deep link: what a link from a PR comment opens. */
 export type LinkRoute = Extract<Route, { view: "pr" | "batch" }>;
@@ -96,6 +105,10 @@ export function parseRoute(hash: string): Route {
   if (parts.length === 1 && parts[0] === "chrono") return { view: "chrono" };
   if (parts.length === 1 && parts[0] === "board") return { view: "board" };
   if (parts.length === 1 && parts[0] === "setup") return { view: "setup" };
+  if (parts.length === 2 && parts[0] === "setup")
+    return (SETUP_STEPS as ReadonlyArray<string>).includes(parts[1]!)
+      ? { view: "setup", step: parts[1] as SetupStep }
+      : { view: "setup" };
   if (parts.length === 1 && parts[0] === "forward") {
     const to = new URLSearchParams(params).getAll("to");
     return { view: "forward", to: to.length === 1 ? to[0]! : null };
@@ -131,7 +144,7 @@ export function formatRoute(route: Route): string {
     case "board":
       return "#/board";
     case "setup":
-      return "#/setup";
+      return route.step ? `#/setup/${route.step}` : "#/setup";
     case "forward":
       return route.to === null ? "#/forward" : `#/forward?to=${encodeURIComponent(route.to)}`;
     case "pr":

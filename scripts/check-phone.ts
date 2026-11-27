@@ -38,7 +38,15 @@ import { join } from "node:path";
 
 import { chromium, devices, type Browser, type BrowserContext, type Page } from "playwright-core";
 
-export const SCENARIOS = ["team", "clear", "first-run", "fresh", "join", "inbox"] as const;
+export const SCENARIOS = [
+  "team",
+  "clear",
+  "first-run",
+  "fresh",
+  "join",
+  "inbox",
+  "shared",
+] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
 /** The fake team's repo and two of its PRs (`src/server/fake-data.ts`). */
@@ -55,6 +63,8 @@ const ROUTES = [
   "#/chrono",
   "#/board",
   "#/setup",
+  "#/setup/inbox",
+  "#/setup/enforced",
   `#/pr/${REPO}/${PRS[0]}`,
   `#/pr/${REPO}/9999`,
   `#/pr/other/repo/1`,
@@ -689,11 +699,190 @@ const FORWARD_STATES: ReadonlyArray<State> = [
   },
 ];
 
-/** The inbox scenario starts in onboarding (no `.nod/`, no key): "Look around first" leads on. */
+/** The inbox scenario lands in the dashboard, with no `.nod/` and no key: nothing gates (ADR 0006). */
 const lookAround = async (page: Page) => {
-  await page.getByRole("button", { name: "Look around first" }).click();
   await page.getByRole("heading", { name: /Needs you/ }).waitFor();
 };
+
+/** The offer card above the list, by its title. */
+const offerCard = (page: Page, title: string) => page.getByRole("region", { name: title });
+
+/** Rewrites the welcome as if `gh` were not logged in: the fake always is. */
+async function routeSignedOut(page: Page) {
+  await page.routeWebSocket(/\/ws\?/, (ws) => {
+    const server = ws.connectToServer();
+    ws.onMessage((raw) => server.send(raw));
+    server.onMessage((raw) => {
+      const message = JSON.parse(String(raw)) as { t: string; me?: unknown };
+      if (message.t === "welcome") message.me = null;
+      ws.send(JSON.stringify(message));
+    });
+  });
+}
+
+const OFFER_STATES: ReadonlyArray<State> = [
+  {
+    name: "the inbox lands in the dashboard, with the offer",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: lookAround,
+    assert: async (page) => {
+      await must(
+        offerCard(page, "Share one policy with the team").isVisible(),
+        "the inbox shows no offer to share a policy",
+      );
+      await must(
+        page
+          .getByText(/no signing key yet/)
+          .count()
+          .then((n) => n === 0),
+        "the old key note is still there",
+      );
+    },
+    shot: "26a-inbox-offer",
+  },
+  {
+    name: "not now puts the offer away, also after a reload",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: async (page) => {
+      await lookAround(page);
+      await offerCard(page, "Share one policy with the team")
+        .getByRole("button", { name: "Not now" })
+        .click();
+      await page.reload();
+      await lookAround(page);
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .getByRole("region", { name: "Share one policy with the team" })
+          .count()
+          .then((n) => n === 0),
+        "the dismissed offer came back",
+      );
+      await page.getByRole("button", { name: /: menu$/ }).click();
+      await must(
+        page.getByRole("button", { name: /Share one policy with the team/ }).isVisible(),
+        "the avatar menu lost the dismissed offer",
+      );
+    },
+  },
+  {
+    name: "the avatar menu with the offers",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: async (page) => {
+      await lookAround(page);
+      await page.getByRole("button", { name: /: menu$/ }).click();
+    },
+    assert: async (page) => {
+      await must(
+        page.getByRole("button", { name: /Share one policy with the team/ }).isVisible(),
+        "the menu does not offer the shared policy",
+      );
+    },
+    shot: "26b-avatar-menu-offers",
+  },
+  {
+    name: "the offer leads to its step of the ladder",
+    route: "#/",
+    scenarios: ["inbox"],
+    act: async (page) => {
+      await lookAround(page);
+      await offerCard(page, "Share one policy with the team")
+        .getByRole("button", { name: "Set it up" })
+        .click();
+      await page.getByRole("heading", { name: "Share one policy with the team" }).waitFor();
+    },
+    assert: async (page) => {
+      await must(
+        page
+          .locator("[aria-current=step]")
+          .textContent()
+          .then((t) => !!t?.includes("Shared policy") || !!t?.includes("1")),
+        "the ladder does not mark the shared policy",
+      );
+    },
+    shot: "26c-setup-shared-policy",
+  },
+  {
+    name: "a teammate joining lands in the dashboard, offered signing",
+    route: "#/",
+    scenarios: ["join"],
+    act: lookAround,
+    assert: async (page) => {
+      await must(
+        offerCard(page, "Sign your own agent PRs").isVisible(),
+        "join shows no signing offer",
+      );
+    },
+    shot: "26d-join-landing",
+  },
+  {
+    name: "the signing step",
+    route: "#/setup",
+    scenarios: ["join"],
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Sign your own agent PRs" }).waitFor();
+    },
+    shot: "26e-setup-signing",
+  },
+  {
+    name: "an admin at the shared policy is offered enforcing, with the command",
+    route: "#/",
+    scenarios: ["shared"],
+    act: lookAround,
+    assert: async (page) => {
+      const card = offerCard(page, "Let agents merge on their own");
+      await must(card.isVisible(), "shared shows no enforcement offer");
+      await must(
+        card.getByText("nod init --ruleset").isVisible(),
+        "the enforcement offer does not show the command",
+      );
+    },
+    shot: "26f-shared-enforce-offer",
+  },
+  {
+    name: "the enforced step",
+    route: "#/setup/enforced",
+    scenarios: ["shared"],
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Let agents merge on their own" }).waitFor();
+    },
+    shot: "26g-setup-enforced",
+  },
+  {
+    name: "the setup PR on its way",
+    route: "#/",
+    scenarios: ["first-run"],
+    act: async (page) => {
+      await offerCard(page, "Setup PR #494 is open").waitFor();
+    },
+  },
+  {
+    name: "not signed in to GitHub",
+    route: "#/",
+    scenarios: ["team"],
+    before: (page) => routeSignedOut(page),
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Sign in to GitHub" }).waitFor();
+    },
+    assert: async (page) => {
+      await must(page.getByText("gh auth login").isVisible(), "the page names no command");
+    },
+    shot: "26h-sign-in",
+  },
+  {
+    name: "no repository picked",
+    route: "#/",
+    scenarios: ["fresh"],
+    act: async (page) => {
+      await page.getByRole("heading", { name: "Pick a repository" }).waitFor();
+    },
+    shot: "26i-pick-repo",
+  },
+];
 
 const INBOX_STATES: ReadonlyArray<State> = [
   {
@@ -892,6 +1081,7 @@ const APPROVE_STATES: ReadonlyArray<State> = [
 
 const STATES: ReadonlyArray<State> = [
   ...FORWARD_STATES,
+  ...OFFER_STATES,
   ...INBOX_STATES,
   ...APPROVE_STATES,
   {

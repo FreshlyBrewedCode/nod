@@ -22,6 +22,9 @@ describe("parseRoute", () => {
     expect(parseRoute("#/board")).toEqual({ view: "board" });
     expect(parseRoute("#/board/")).toEqual({ view: "board" });
     expect(parseRoute("#/setup")).toEqual({ view: "setup" });
+    expect(parseRoute("#/setup/signing")).toEqual({ view: "setup", step: "signing" });
+    expect(parseRoute("#/setup/shared-policy")).toEqual({ view: "setup", step: "shared-policy" });
+    expect(parseRoute("#/setup/nonsense")).toEqual({ view: "setup" });
   });
 
   test("a deep link to a PR", () => {
@@ -117,6 +120,7 @@ describe("formatRoute", () => {
       { view: "chrono" },
       { view: "board" },
       { view: "setup" },
+      { view: "setup", step: "enforced" },
       { view: "forward", to: "https://nod.example.test:8445" },
       { view: "forward", to: "odd & ?#= value" },
       { view: "forward", to: null },

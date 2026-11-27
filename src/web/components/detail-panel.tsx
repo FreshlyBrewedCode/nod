@@ -297,7 +297,7 @@ export function OwnPrNote({ text, className }: { text: string; className?: strin
     >
       {text}{" "}
       <a
-        href={formatRoute({ view: "setup" })}
+        href={formatRoute({ view: "setup", step: "signing" })}
         className="hover:text-tx underline underline-offset-2"
       >
         Set up signing

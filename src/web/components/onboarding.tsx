@@ -1,10 +1,14 @@
 /**
- * Onboarding (r3 `12`–`16`): four short steps, each mostly a list of checks.
- * Shown instead of the dashboard while the setup or the key is not ready,
- * and reopened later from the avatar menu ("Setup and checks", `#/setup`).
+ * The setup page (`#/setup`, `#/setup/<step>`): the opt-in ladder (ADR
+ * 0006), each step mostly a list of checks (r3 `12`–`16`). Nothing here
+ * gates: the dashboard shows as soon as `gh` is logged in and a repo is
+ * picked; the steps are offered (`offer.tsx`, the avatar menu) and done here.
+ * Only the two pages before a dashboard are left: not signed in to GitHub,
+ * and no repo picked yet.
  *
- * Where a visit starts and what is done come from the server's state alone
- * (`lib/onboarding.ts`), so it resumes wherever it was left. Every action is
+ * Every step takes one repo's setup and my signer as props, so a settings
+ * page for many repos (epic C) can show them per repo. Where each step stands
+ * comes from the server's state alone (`lib/onboarding.ts`). Every action is
  * one protocol request; the state it changes arrives as a push.
  *
  * Passphrases live only in their inputs and the one request that sends
@@ -32,23 +36,27 @@ import { MINUTE, useNow } from "@/hooks/use-clock";
 import type { Failure } from "@/lib/batch";
 import {
   CHECK_PURPOSE,
-  STEP_NAMES,
-  nextStep,
+  RUNGS,
+  RUNG_NAMES,
+  RUNG_WHO,
+  offersOf,
   onboardingError,
   passphraseProblem,
   progressOf,
-  reachable,
+  rungsOf,
   shortFingerprint,
   shortPath,
   signerLine,
   teammates,
   type Progress,
-  type StepNumber,
+  type Rung,
+  type RungState,
 } from "@/lib/onboarding";
 import { formatRoute } from "@/lib/route";
 import { GITHUB_COM, ghLoginCommand } from "../../kit/host.ts";
 import { duration } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { FullPage } from "./full-page";
 import { Logo, TopBarShell } from "./top-bar";
 import { PassphraseField, failureOf, takePassphrase } from "./unlock";
 
@@ -226,73 +234,108 @@ function useRequest() {
 }
 
 // ---------------------------------------------------------------------------
-// the flow
+// the pages before a dashboard
 
-export interface OnboardingProps {
+/** `gh` is not logged in: a calm page with the command, nothing else to do here. */
+export function SignInPage({ github }: { github: GitHubInfo }) {
+  const onGitHubCom = github.host === GITHUB_COM;
+  return (
+    <FullPage
+      title={onGitHubCom ? "Sign in to GitHub" : `Sign in to ${github.host}`}
+      command={ghLoginCommand(github.host)}
+      after={
+        <p className="text-tx3 m-0 mt-4 fs-note leading-[1.55]">
+          Then restart <Mono>nod serve</Mono>. nod asks for no permission of its own and stores
+          nothing on a server.
+        </p>
+      }
+    >
+      <p>
+        nod runs on this machine and reads GitHub with the login of the <Mono>gh</Mono> command line
+        tool{onGitHubCom ? "" : ` for ${github.host}, the host of this clone’s origin`}. It is not
+        logged in yet. Run this in a terminal:
+      </p>
+    </FullPage>
+  );
+}
+
+/** No repo picked yet (only `nod serve --fake --scenario fresh`: the GitHub source reads its clone's). */
+export function PickRepoPage(props: { me: Account; setup: SetupStatus; actions: Actions }) {
+  return (
+    <FullPage title="Pick a repository">
+      <p>nod shows the pull requests of one repository. Nothing in it changes by looking.</p>
+      <RepoPicker {...props} />
+    </FullPage>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// the setup page
+
+export interface SetupPageProps {
   readonly me: Account | null;
   /** The GitHub host `nod serve` reads. */
   readonly github: GitHubInfo;
+  /** The repo's setup and ladder step. */
   readonly setup: SetupStatus;
+  /** My key and its enrolment in the repo. */
   readonly signer: SignerState;
   readonly people: ReadonlyArray<Person>;
   readonly actions: Actions;
-  /** Reopened from the avatar menu: starts on the checks, not on what is missing. */
-  readonly reopened: boolean;
-  /** There is a dashboard to go to (a snapshot is in). */
-  readonly canLeave: boolean;
-  readonly onDone: () => void;
+  /** The step shown (`setupRungOf`). */
+  readonly step: Rung;
+  readonly onStep: (step: Rung) => void;
+  /** Back to the dashboard; null while there is none to go to (no snapshot yet). */
+  readonly onLeave: (() => void) | null;
 }
 
-/** The step a visit opens on. */
-function firstStep(progress: Progress, reopened: boolean): StepNumber {
-  if (reopened && !progress.needed) return 2;
-  return progress.start;
-}
+type StepProps = SetupPageProps & { readonly progress: Progress };
 
-export function Onboarding(props: OnboardingProps) {
-  const { me, setup, signer, canLeave, onDone } = props;
+export function SetupPage(props: SetupPageProps) {
+  const { me, setup, signer, step, onStep, onLeave } = props;
   const progress = progressOf({ me, setup, signer });
-  const [step, setStep] = useState<StepNumber>(() => firstStep(progress, props.reopened));
-  const [created, setCreated] = useState(false);
-  const go = (s: StepNumber) => setStep(s);
-  const next = () => setStep(nextStep(progress, step));
+  const rungs = rungsOf({ me, setup, signer });
+  const next = offersOf({ me, setup, signer })[0]?.rung ?? null;
+  const stepProps: StepProps = { ...props, progress };
 
   return (
     <div className="pt-safe pb-safe px-safe flex min-h-full flex-col">
       <TopBarShell>
         <Logo />
+        {setup.repo && <span className="text-tx3 min-w-0 truncate text-[13px]">{setup.repo}</span>}
         <span className="flex-1" />
-        {canLeave && (
+        {onLeave && (
           <button
             type="button"
-            onClick={onDone}
-            className="text-tx3 hover:text-tx2 fs-note phone:min-h-11"
+            onClick={onLeave}
+            className="text-tx3 hover:text-tx2 fs-note flex-none phone:min-h-11"
           >
-            {progress.needed ? "Look around first" : "Back to the dashboard"}
+            <span className="phone:hidden">Back to the dashboard</span>
+            <span className="hidden phone:inline">Dashboard</span>
           </button>
         )}
-        <span className="text-tx3 fs-note phone:hidden">Setup · step {step} of 4</span>
       </TopBarShell>
       <div className="mx-auto my-12 grid w-full max-w-[940px] grid-cols-[230px_1fr] gap-11 px-6 phone:my-4 phone:grid-cols-1 phone:gap-4 phone:px-4">
-        <Stepper progress={progress} step={step} onStep={go} />
+        <Ladder
+          rungs={rungs}
+          step={step}
+          next={next}
+          setup={setup}
+          signer={signer}
+          onStep={onStep}
+        />
         <main
           className="border-line bg-panel rounded-2xl border px-9 py-8 phone:px-5 phone:py-6"
           aria-live="polite"
         >
-          {step === 1 ? (
-            <GitHubStep progress={progress} {...props} onNext={next} />
-          ) : step === 2 ? (
-            <SetupStep progress={progress} {...props} onNext={next} />
-          ) : step === 3 ? (
-            <KeyStep
-              progress={progress}
-              {...props}
-              created={created}
-              onCreated={() => setCreated(true)}
-              onNext={next}
-            />
+          {step === "inbox" ? (
+            <InboxStep {...stepProps} />
+          ) : step === "shared-policy" ? (
+            <SetupStep {...stepProps} />
+          ) : step === "signing" ? (
+            <SigningStep key={setup.repo ?? ""} {...stepProps} />
           ) : (
-            <TestStep progress={progress} {...props} onDone={onDone} onBack={() => go(3)} />
+            <EnforcedStep {...stepProps} state={rungs.enforced} />
           )}
         </main>
       </div>
@@ -300,72 +343,111 @@ export function Onboarding(props: OnboardingProps) {
   );
 }
 
-function Stepper({
-  progress,
+/** The short line under a step's name: who opts in, and where it stands. */
+function rungLine(
+  rung: Rung,
+  state: RungState,
+  next: boolean,
+  setup: SetupStatus,
+  signer: SignerState,
+): string {
+  const who = RUNG_WHO[rung];
+  if (state === "done") return `${who} · done`;
+  if (state === "waiting") {
+    const pr =
+      rung === "shared-policy"
+        ? setup.setupPr
+        : signer.state !== "no-key" && signer.key.enrolment.state === "pending"
+          ? signer.key.enrolment.pr
+          : null;
+    return `${who} · ${pr ? `#${pr.number} open` : "pending"}`;
+  }
+  if (state === "later") return `${who} · after the shared policy`;
+  if (state === "not-yours")
+    return `${who} · ${rung === "enforced" ? "needs a repo admin" : "needs write access"}`;
+  return `${who} · ${next ? "next" : "optional"}`;
+}
+
+/**
+ * The ladder (r3's stepper): the four steps with who opts in and where each
+ * stands, the next one marked; any step can be opened. On a phone the circles
+ * only, and the open step's name beside them.
+ */
+function Ladder({
+  rungs,
   step,
+  next,
+  setup,
+  signer,
   onStep,
 }: {
-  progress: Progress;
-  step: StepNumber;
-  onStep: (step: StepNumber) => void;
+  rungs: Readonly<Record<Rung, RungState>>;
+  step: Rung;
+  next: Rung | null;
+  setup: SetupStatus;
+  signer: SignerState;
+  onStep: (step: Rung) => void;
 }) {
   return (
-    <div className="contents phone:flex phone:items-center phone:justify-between">
-      <ol
-        className="m-0 mt-1.5 list-none p-0 phone:mt-0 phone:flex phone:items-center"
-        aria-label="Setup steps"
-      >
-        {STEP_NAMES.map((name, i) => {
-          const n = (i + 1) as StepNumber | 5;
-          const on = n === step;
-          const done = n !== 5 && !on && progress.done[n];
-          const canGo = n !== 5 && !on && reachable(progress, n);
-          const inner = (
-            <>
-              <i
-                className={cn(
-                  "grid size-[22px] flex-none place-items-center rounded-full border-[1.5px] text-[11px] font-bold not-italic phone:size-7 phone:text-xs",
-                  on
-                    ? "border-need text-need"
-                    : done
-                      ? "bg-ok border-ok text-[#06140d]"
-                      : "border-line2",
-                )}
-              >
-                {done ? "✓" : n}
-              </i>
-              <span className="phone:sr-only">{name}</span>
-            </>
-          );
-          const cls = cn(
-            "flex items-center gap-3 py-[9px] text-left phone:min-h-11 phone:min-w-11 phone:justify-center",
-            on ? "text-tx font-semibold" : done ? "text-tx2" : "text-tx3",
-          );
-          return (
-            // "Done" is the end of the list on a desktop, where it has a name; on a phone
-            // there are no names, so a fifth circle would contradict "Step 3 of 4".
-            <li
-              key={name}
-              aria-current={on ? "step" : undefined}
-              className={cn(n === 5 && "phone:hidden")}
-            >
-              {canGo ? (
+    <nav aria-label="The ladder" className="contents phone:flex phone:items-center phone:gap-3">
+      <div className="phone:contents">
+        <h2 className="text-tx3 m-0 mt-1.5 mb-1 text-[11px] font-semibold tracking-[0.08em] uppercase phone:hidden">
+          The ladder
+        </h2>
+        <ol className="m-0 list-none p-0 phone:flex phone:items-center">
+          {RUNGS.map((rung, i) => {
+            const on = rung === step;
+            const state = rungs[rung];
+            const done = state === "done";
+            const line = rungLine(rung, state, rung === next, setup, signer);
+            return (
+              <li key={rung} aria-current={on ? "step" : undefined}>
                 <button
                   type="button"
-                  className={cn(cls, "hover:text-tx")}
-                  onClick={() => onStep(n)}
+                  onClick={() => onStep(rung)}
+                  className={cn(
+                    "hover:text-tx flex w-full items-start gap-3 py-[9px] text-left phone:min-h-11 phone:min-w-11 phone:items-center phone:justify-center",
+                    on ? "text-tx" : done ? "text-tx2" : "text-tx3",
+                  )}
                 >
-                  {inner}
+                  <i
+                    aria-hidden
+                    className={cn(
+                      "mt-px grid size-[22px] flex-none place-items-center rounded-full border-[1.5px] text-[11px] font-bold not-italic phone:mt-0 phone:size-7 phone:text-xs",
+                      on
+                        ? "border-need text-need"
+                        : done
+                          ? "bg-ok border-ok text-[#06140d]"
+                          : state === "waiting"
+                            ? "border-need-line text-need"
+                            : "border-line2",
+                    )}
+                  >
+                    {done && !on ? "✓" : i}
+                  </i>
+                  <span className="phone:sr-only">
+                    <span className={cn("block", on && "font-semibold")}>{RUNG_NAMES[rung]}</span>
+                    <span
+                      className={cn(
+                        "block fs-note leading-[1.45]",
+                        rung === next && state === "open" ? "text-need" : "text-tx3",
+                      )}
+                    >
+                      {line}
+                    </span>
+                  </span>
                 </button>
-              ) : (
-                <span className={cls}>{inner}</span>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-      <span className="text-tx3 fs-note hidden phone:block">Step {step} of 4</span>
-    </div>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+      <span className="text-tx3 fs-note hidden phone:block">
+        <b className="text-tx2 font-semibold">{RUNG_NAMES[step]}</b>
+        <br />
+        {rungLine(step, rungs[step], step === next, setup, signer)}
+      </span>
+    </nav>
   );
 }
 
@@ -378,54 +460,26 @@ function Heading({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** The button to the next step of the ladder, or back to the dashboard after the last. */
+function NextButton({ to, onStep }: { to: Rung; onStep: (step: Rung) => void }) {
+  return (
+    <button type="button" className={PRIMARY} onClick={() => onStep(to)}>
+      Next: {RUNG_NAMES[to].toLowerCase()}
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// 1 · GitHub and repository (r3 `12`)
+// 0 · Inbox: GitHub and the repository (r3 `12`)
 
-function GitHubStep({
-  progress,
-  me,
-  github,
-  setup,
-  actions,
-  onNext,
-}: OnboardingProps & { progress: Progress; onNext: () => void }) {
-  const now = useNow(MINUTE);
+function InboxStep({ me, github, setup, actions, onStep }: StepProps) {
   const onGitHubCom = github.host === GITHUB_COM;
-  const [repos, setRepos] = useState<ReadonlyArray<RepoChoice> | null>(null);
-  const list = useRequest();
-  const pick = useRequest();
-  const [chosen, setChosen] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!me) return;
-    let live = true;
-    void list.run("list", async () => {
-      const r = await actions.request("list-repos", {});
-      if (live) setRepos(r.repos);
-    });
-    return () => {
-      live = false;
-    };
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per account
-  }, [me?.login, actions]);
-
-  const current = repos?.find((r) => r.current) ?? repos?.[0] ?? null;
-  const selected = chosen ?? setup.repo ?? current?.repo ?? null;
-  const sorted = repos ? [...repos].sort((a, b) => Number(b.current) - Number(a.current)) : [];
-
-  const onContinue = async () => {
-    if (!selected) return;
-    const same = setup.repo?.toLowerCase() === selected.toLowerCase();
-    if (same && setup.state !== "none") return onNext();
-    if (await pick.run("pick", () => actions.request("pick-repo", { repo: selected }))) onNext();
-  };
-
   const scopes = me?.scopes ?? [];
   return (
     <>
-      <Heading title="Connect to GitHub">
-        nod runs on this machine and uses the GitHub login you already have. Nothing is stored on a
-        server.
+      <Heading title="Your inbox">
+        The first step is yours alone. nod reads the pull requests with your GitHub login and sorts
+        them on your screen. Nothing changes in the repository.
       </Heading>
       <Checks>
         {me ? (
@@ -450,84 +504,138 @@ function GitHubStep({
             note="nothing changed"
           >
             nod uses the login of the <Mono>gh</Mono> command line tool
-            {onGitHubCom ? "" : ` for ${github.host}, the host of this clone's origin`}. Run{" "}
+            {onGitHubCom ? "" : ` for ${github.host}, the host of this clone’s origin`}. Run{" "}
             <Mono>{ghLoginCommand(github.host)}</Mono> in a terminal, then restart{" "}
             <Mono>nod serve</Mono>.
           </Check>
         )}
       </Checks>
       {me && (
-        <fieldset className="m-0 mt-5 border-0 p-0">
-          <legend className="text-tx3 mb-2 p-0 fs-note">Repository</legend>
-          {!repos && !list.failure && <p className="text-tx3 m-0 text-[13px]">Reading…</p>}
-          {sorted.map((r) => {
-            const on = r.repo === selected;
-            const sub = r.current
-              ? [
-                  "the repo of your current folder",
-                  r.canWrite ? "you have write access" : "you can read it, not push to it",
-                  setup.state === "ready" && setup.repo?.toLowerCase() === r.repo.toLowerCase()
-                    ? "set up for nod already"
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : r.pushedAt
-                ? `last pushed ${duration(now - r.pushedAt)} ago`
-                : "";
-            return (
-              <label
-                key={r.repo}
-                className={cn(
-                  "mb-2 grid w-full cursor-pointer grid-cols-[20px_1fr] gap-3 rounded-[10px] border px-4 py-3.5 text-left has-[:focus-visible]:ring-2",
-                  on ? "border-need bg-need-bg" : "border-line hover:border-line2",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="repo"
-                  value={r.repo}
-                  checked={on}
-                  onChange={() => setChosen(r.repo)}
-                  className="sr-only"
-                />
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mt-0.5 size-4 rounded-full",
-                    on ? "border-need border-[5px]" : "border-line2 border-[1.5px]",
-                  )}
-                />
-                <span className="min-w-0 [overflow-wrap:anywhere]">
-                  {on ? <b>{r.repo}</b> : r.repo}
-                  <span className="text-tx3 block fs-note leading-[1.55]">{sub}</span>
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
+        <RepoPicker
+          me={me}
+          setup={setup}
+          actions={actions}
+          then={() => onStep("shared-policy")}
+          label={setup.state === "none" ? "Continue" : "Next: shared policy"}
+        />
       )}
+    </>
+  );
+}
+
+/** The repos to pick from (`list-repos`), the current folder's first; one per `nod serve`. */
+function RepoPicker({
+  me,
+  setup,
+  actions,
+  then,
+  label = "Continue",
+}: {
+  me: Account;
+  setup: SetupStatus;
+  actions: Actions;
+  /** After the pick: the next step, or nothing (the app moves on by itself). */
+  then?: () => void;
+  label?: string;
+}) {
+  const now = useNow(MINUTE);
+  const [repos, setRepos] = useState<ReadonlyArray<RepoChoice> | null>(null);
+  const list = useRequest();
+  const pick = useRequest();
+  const [chosen, setChosen] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void list.run("list", async () => {
+      const r = await actions.request("list-repos", {});
+      if (live) setRepos(r.repos);
+    });
+    return () => {
+      live = false;
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- once per account
+  }, [me.login, actions]);
+
+  const current = repos?.find((r) => r.current) ?? repos?.[0] ?? null;
+  const selected = chosen ?? setup.repo ?? current?.repo ?? null;
+  const sorted = repos ? [...repos].sort((a, b) => Number(b.current) - Number(a.current)) : [];
+
+  const onContinue = async () => {
+    if (!selected) return;
+    const same = setup.repo?.toLowerCase() === selected.toLowerCase();
+    if (same && setup.state !== "none") return then?.();
+    if (await pick.run("pick", () => actions.request("pick-repo", { repo: selected }))) then?.();
+  };
+
+  return (
+    <>
+      <fieldset className="m-0 mt-5 border-0 p-0">
+        <legend className="text-tx3 mb-2 p-0 fs-note">Repository</legend>
+        {!repos && !list.failure && <p className="text-tx3 m-0 text-[13px]">Reading…</p>}
+        {sorted.map((r) => {
+          const on = r.repo === selected;
+          const sub = r.current
+            ? [
+                "the repo of your current folder",
+                r.canWrite ? "you have write access" : "you can read it, not push to it",
+                setup.state === "ready" && setup.repo?.toLowerCase() === r.repo.toLowerCase()
+                  ? "its policy is shared already"
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : r.pushedAt
+              ? `last pushed ${duration(now - r.pushedAt)} ago`
+              : "";
+          return (
+            <label
+              key={r.repo}
+              className={cn(
+                "mb-2 grid w-full cursor-pointer grid-cols-[20px_1fr] gap-3 rounded-[10px] border px-4 py-3.5 text-left has-[:focus-visible]:ring-2",
+                on ? "border-need bg-need-bg" : "border-line hover:border-line2",
+              )}
+            >
+              <input
+                type="radio"
+                name="repo"
+                value={r.repo}
+                checked={on}
+                onChange={() => setChosen(r.repo)}
+                className="sr-only"
+              />
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-0.5 size-4 rounded-full",
+                  on ? "border-need border-[5px]" : "border-line2 border-[1.5px]",
+                )}
+              />
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {on ? <b>{r.repo}</b> : r.repo}
+                <span className="text-tx3 block fs-note leading-[1.55]">{sub}</span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
       <ErrorNote failure={list.failure} lead="Could not list repositories." />
       <ErrorNote failure={pick.failure} lead="Could not use that repository." />
       <Footer note="One repository per window in this version.">
         <button
           type="button"
           className={PRIMARY}
-          disabled={!me || !selected || pick.busy !== null}
+          disabled={!selected || pick.busy !== null}
           onClick={() => void onContinue()}
         >
-          {pick.busy ? "Reading the repository…" : "Continue"}
+          {pick.busy ? "Reading the repository…" : label}
         </button>
       </Footer>
-      {progress.done[2] && progress.setup === "ready" && (
-        <span className="sr-only">The repository is set up already; step 2 is skipped.</span>
-      )}
     </>
   );
 }
 
 // ---------------------------------------------------------------------------
-// 2 · Repository setup (r3 `13`)
+// 1 · Shared policy: the setup PR (r3 `13`)
 
 const FILE_CHECKS: ReadonlyArray<SetupCheck["id"]> = [
   "policy",
@@ -589,33 +697,23 @@ function Limits() {
   );
 }
 
-function AfterMerge({ setup }: { setup: SetupStatus }) {
-  const paid = setup.checks.some(
-    (c) => c.id === "required-check" && c.note === "needs a paid plan",
-  );
+function AfterMerge() {
   return (
     <NoteBox className="mt-4">
-      <b>After it merges</b>, a repo admin does one step: the required check on, required approvals
-      from 1 to 0, auto-merge allowed. <Mono>nod init --ruleset</Mono> in the repository’s folder
-      does it.{" "}
-      {paid
-        ? "This repository’s plan has no rulesets: private repos need GitHub Pro, Team or Enterprise."
-        : "On a private repository this needs GitHub Pro, Team or Enterprise."}
+      <b>After it merges</b>, every pull request gets a <Mono>nod</Mono> check that says what it
+      needs and blocks nothing. Requiring it is the ladder’s last step, enforced, taken by a
+      repository admin.
     </NoteBox>
   );
 }
 
-function SetupStep({
-  setup,
-  signer,
-  actions,
-  onNext,
-}: OnboardingProps & { progress: Progress; onNext: () => void }) {
+function SetupStep({ setup, signer, actions, onStep }: StepProps) {
   const open = useRequest();
   const recheck = useRequest();
   const repo = setup.repo ?? "this repository";
   const hasKey = signer.state !== "no-key";
-  const rules = setup.checks.filter((c) => !FILE_CHECKS.includes(c.id));
+  // The required check and auto-merge are the last step's (enforced).
+  const files = setup.checks.filter((c) => FILE_CHECKS.includes(c.id));
   const again = (
     <button
       type="button"
@@ -630,58 +728,55 @@ function SetupStep({
   if (setup.state === "ready")
     return (
       <>
-        <Heading title="Repository setup">
-          Setup happens once, through a pull request. This repository has it already, so this step
-          is skipped.
+        <Heading title="Shared policy">
+          The repository has its policy and verifier: every pull request is classified the same way
+          for everyone, and its <Mono>nod</Mono> check never blocks until the repository is
+          enforced.
         </Heading>
         <Checks>
-          <Check mark="ok" title={`${repo} is set up for nod`}>
+          <Check mark="ok" title={`${repo} shares one policy`}>
             the policy, the verifier, its workflow and the allowed signers are on the default branch
           </Check>
-          {rules
-            .filter((c) => c.state !== "ok")
-            .map((c) => (
-              <SetupCheckRow key={c.id} check={c} />
-            ))}
         </Checks>
         <ErrorNote failure={recheck.failure} lead="Could not check." />
         <Footer note="Changes to .nod/** go through a pull request a teammate nods.">
           {again}
-          <button type="button" className={PRIMARY} onClick={onNext}>
-            Continue
-          </button>
+          <NextButton to="signing" onStep={onStep} />
         </Footer>
       </>
     );
 
   const pr = setup.setupPr;
+  const readOnly = setup.permission === "read";
   const onOpen = () => open.run("open", () => actions.request("open-setup-pr", {}));
   return (
     <>
-      <Heading title={`Set up ${repo}`}>
+      <Heading title={pr ? "Shared policy" : "Share one policy with the team"}>
         {pr ? (
           <>
             The setup pull request <PrAnchor pr={pr} /> is open. It merges under the repository’s
-            current rules: nobody can nod it yet, the verifier comes with it.
+            current rules, the usual way: nothing is gated before or after it merges.
           </>
         ) : (
-          "This repository has not been set up yet. Setup happens once, through a pull request, and everything it adds lives in the repo."
+          "Today only your nod sorts these pull requests. One setup pull request adds a policy and a verifier to the repository: then every pull request is classified the same way for everyone, and its nod check never blocks until the repository is enforced."
         )}
       </Heading>
       <Checks>
-        {setup.checks.map((c) => (
+        {files.map((c) => (
           <SetupCheckRow key={c.id} check={c} />
         ))}
       </Checks>
-      {pr && <AfterMerge setup={setup} />}
+      {pr && <AfterMerge />}
       <Limits />
       <ErrorNote failure={open.failure} lead="Could not open the setup PR." />
       <ErrorNote failure={recheck.failure} lead="Could not check." />
       <Footer
         note={
-          pr || hasKey
-            ? "The PR is yours to read and merge the usual way. Nothing is gated before it merges."
-            : "Your public key goes into this PR, so you create your key first. Nothing is gated before it merges."
+          readOnly
+            ? `Opening the setup PR needs write access to ${repo}. Someone who has it can open it from their nod.`
+            : pr || hasKey
+              ? "The PR is yours to read and merge the usual way. Teammates who never install nod keep approving on GitHub."
+              : "Its first allowed signer is you: your public key goes into this PR, so you create your key first."
         }
       >
         {pr ? (
@@ -689,10 +784,10 @@ function SetupStep({
             <a href={pr.url} target="_blank" rel="noreferrer" className={GHOST}>
               Open #{pr.number} ↗
             </a>
-            <button type="button" className={PRIMARY} onClick={onNext}>
-              Continue
-            </button>
+            <NextButton to="signing" onStep={onStep} />
           </>
+        ) : readOnly ? (
+          again
         ) : hasKey ? (
           <>
             {again}
@@ -708,8 +803,8 @@ function SetupStep({
         ) : (
           <>
             {again}
-            <button type="button" className={PRIMARY} onClick={onNext}>
-              Continue
+            <button type="button" className={PRIMARY} onClick={() => onStep("signing")}>
+              Create your key
             </button>
           </>
         )}
@@ -719,28 +814,21 @@ function SetupStep({
 }
 
 // ---------------------------------------------------------------------------
-// 3 · Your signing key (r3 `14`, `15`)
+// 2 · Signing: your key (r3 `14`, `15`) and a test signature (r3 `16`)
 
-function KeyStep(
-  props: OnboardingProps & {
-    progress: Progress;
-    created: boolean;
-    onCreated: () => void;
-    onNext: () => void;
-  },
-) {
-  if (props.signer.state === "no-key") return <CreateKey {...props} />;
-  return <Enrol {...props} />;
+function SigningStep(props: StepProps) {
+  const [created, setCreated] = useState(false);
+  const [testing, setTesting] = useState(false);
+  if (props.signer.state === "no-key")
+    return <CreateKey {...props} onCreated={() => setCreated(true)} />;
+  if (testing) return <TestStep {...props} onBack={() => setTesting(false)} />;
+  return <Enrol {...props} created={created} onTest={() => setTesting(true)} />;
 }
 
 const FIELD =
   "bg-bg text-tx h-[38px] w-full rounded-lg border px-3 text-[15px] tracking-[2px] outline-none phone:h-11";
 
-function CreateKey({
-  progress,
-  actions,
-  onCreated,
-}: OnboardingProps & { progress: Progress; onCreated: () => void }) {
+function CreateKey({ progress, setup, actions, onCreated }: StepProps & { onCreated: () => void }) {
   const first = useRef<HTMLInputElement>(null);
   const second = useRef<HTMLInputElement>(null);
   // Only facts about the fields, never their content.
@@ -816,9 +904,11 @@ function CreateKey({
 
   return (
     <form onSubmit={(e) => void onSubmit(e)}>
-      <Heading title="Your signing key">
-        Signatures are made with an SSH key that only this app can unlock. The public half goes into
-        the repository, in <Mono>.nod/allowed_signers</Mono>.
+      <Heading title="Sign your own agent PRs">
+        GitHub does not let you approve your own pull request; a nod can attest it. Nods are signed
+        with an SSH key that only this app can unlock, and its public half goes into{" "}
+        {setup.repo ?? "the repository"}, in <Mono>.nod/allowed_signers</Mono>. Without one you keep
+        approving on GitHub.
       </Heading>
       <div className="border-need bg-need-bg rounded-[10px] border px-4 py-3.5">
         <b>Create a new key</b>
@@ -871,8 +961,8 @@ function Enrol({
   people,
   actions,
   created,
-  onNext,
-}: OnboardingProps & { progress: Progress; created: boolean; onNext: () => void }) {
+  onTest,
+}: StepProps & { created: boolean; onTest: () => void }) {
   const open = useRequest();
   const [copied, setCopied] = useState(false);
   if (signer.state === "no-key") return null;
@@ -963,8 +1053,8 @@ function Enrol({
   let primary: ReactNode;
   if (active || pendingPr)
     primary = (
-      <button type="button" className={PRIMARY} onClick={onNext}>
-        Continue
+      <button type="button" className={PRIMARY} onClick={onTest}>
+        Test signature
       </button>
     );
   else if (viaSetup && !setup.setupPr)
@@ -1020,7 +1110,7 @@ function Enrol({
         <Check mark={active ? "ok" : "no"} title="Key active">
           {active
             ? `your nods count in ${repo}`
-            : `once ${prNumber ? `#${prNumber}` : viaSetup ? "the setup PR" : "the enrolment PR"} merges. Until then you can read everything, and your signatures do not count.`}
+            : `once ${prNumber ? `#${prNumber}` : viaSetup ? "the setup PR" : "the enrolment PR"} merges. Until then you approve on GitHub, and your signatures do not count.`}
         </Check>
       </Checks>
       <ErrorNote
@@ -1052,15 +1142,9 @@ function Enrol({
 }
 
 // ---------------------------------------------------------------------------
-// 4 · Test signature (r3 `16`)
+// 2 · Signing, the test signature (r3 `16`)
 
-function TestStep({
-  setup,
-  signer,
-  actions,
-  onDone,
-  onBack,
-}: OnboardingProps & { progress: Progress; onBack: () => void }) {
+function TestStep({ setup, signer, actions, onLeave, onBack }: StepProps & { onBack: () => void }) {
   const passphrase = useRef<HTMLInputElement>(null);
   const [filled, setFilled] = useState(false);
   const [result, setResult] = useState<
@@ -1132,9 +1216,9 @@ function TestStep({
         . Your signatures count once it merges.
       </Check>
     ) : (
-      <Check mark="no" title={`Not enrolled in ${repo} yet`} note="step 3">
-        open the pull request that adds your key in step 3; until it merges you can read everything
-        and sign nothing.
+      <Check mark="no" title={`Not enrolled in ${repo} yet`} note="not yet">
+        open the pull request that adds your key first; until it merges you approve on GitHub and
+        sign nothing.
       </Check>
     );
 
@@ -1206,9 +1290,15 @@ function TestStep({
                 Open #{pendingPr.number}
               </a>
             )}
-            <button type="button" className={PRIMARY} onClick={onDone}>
-              Go to the dashboard
-            </button>
+            {onLeave ? (
+              <button type="button" className={PRIMARY} onClick={onLeave}>
+                Go to the dashboard
+              </button>
+            ) : (
+              <button type="button" className={GHOST} onClick={onBack}>
+                Back
+              </button>
+            )}
           </>
         ) : (
           <button
@@ -1228,5 +1318,141 @@ function TestStep({
         )}
       </Footer>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 3 · Enforced: the required check (`nod init --ruleset`, run by an admin)
+
+/** The command that enforces a repo; nod never runs it from the browser: it changes who may merge. */
+export const ENFORCE_COMMAND = "nod init --ruleset";
+
+/** The command, in a box with a copy button. */
+export function CommandBox({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <div className="bg-bg border-line flex items-center gap-2.5 rounded-lg border py-1 pr-1 pl-3.5">
+      <code className="text-tx fs-code min-w-0 flex-1 font-mono [overflow-wrap:anywhere] phone:select-all">
+        {command}
+      </code>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        className="text-tx2 hover:text-tx fs-note h-8 flex-none rounded-md px-2.5 phone:h-11"
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function EnforcedStep({
+  setup,
+  actions,
+  onLeave,
+  onStep,
+  state,
+}: StepProps & { state: RungState }) {
+  const recheck = useRequest();
+  const repo = setup.repo ?? "this repository";
+  const rules = setup.checks.filter((c) => c.id === "required-check" || c.id === "auto-merge");
+  const paid = rules.some((c) => c.note === "needs a paid plan");
+  const again = (
+    <button
+      type="button"
+      className={GHOST}
+      disabled={recheck.busy !== null}
+      onClick={() => void recheck.run("check", () => actions.request("check-setup", {}))}
+    >
+      {recheck.busy ? "Checking…" : "Check again"}
+    </button>
+  );
+  const leave = onLeave && (
+    <button type="button" className={PRIMARY} onClick={onLeave}>
+      Back to the dashboard
+    </button>
+  );
+
+  return (
+    <>
+      <Heading title={state === "done" ? "Enforced" : "Let agents merge on their own"}>
+        {state === "done" ? (
+          <>
+            {repo} requires the <Mono>nod</Mono> check: a pull request merges once its requirement
+            is met, and agents merge on their own.
+          </>
+        ) : (
+          <>
+            The last step, taken by the repository. A ruleset makes the <Mono>nod</Mono> check
+            required on the default branch, with zero required approvals, and auto-merge is allowed.
+            Then a pull request merges once its requirement is met: a nod, or an approval where the
+            policy takes one.
+          </>
+        )}
+      </Heading>
+      {rules.length > 0 && (
+        <Checks>
+          {rules.map((c) => (
+            <SetupCheckRow key={c.id} check={c} />
+          ))}
+        </Checks>
+      )}
+      {state === "later" ? (
+        <NoteBox className="mt-4">
+          <b>After the shared policy.</b> The check exists once the setup PR has merged; requiring
+          it comes after that.
+        </NoteBox>
+      ) : state === "open" || state === "not-yours" ? (
+        <div className="mt-4">
+          <p className="text-tx2 m-0 mb-2.5 text-[13px] leading-[1.55]">
+            {state === "open"
+              ? "Run this in a clone of the repository. It needs admin rights"
+              : "It needs a repository admin: ask one to run this in a clone of the repository"}
+            {setup.permission === "admin" ? ", which you have" : ""}. nod does not run it from here:
+            it changes who may merge.
+          </p>
+          <CommandBox command={ENFORCE_COMMAND} />
+          {paid && (
+            <p className="text-bad m-0 mt-2 fs-note">
+              Private repositories need GitHub Pro, Team or Enterprise for rulesets; this plan has
+              none.
+            </p>
+          )}
+          <NoteBox className="mt-4">
+            <b>Before you do.</b> From then on every change to <Mono>.nod/</Mono> or{" "}
+            <Mono>.github/workflows/</Mono> needs a peer’s nod, so at least two people should have
+            signing set up. Teammates without a key keep approving on GitHub; their approval counts
+            where the policy takes one.
+          </NoteBox>
+        </div>
+      ) : null}
+      <ErrorNote failure={recheck.failure} lead="Could not check." />
+      <Footer
+        note={
+          state === "done"
+            ? "Changes to the policy go through a pull request a teammate nods."
+            : "nod reads the rules again on its next poll, or when you check."
+        }
+      >
+        {state === "later" ? (
+          <button type="button" className={PRIMARY} onClick={() => onStep("shared-policy")}>
+            Back to the shared policy
+          </button>
+        ) : (
+          <>
+            {again}
+            {leave}
+          </>
+        )}
+      </Footer>
+    </>
   );
 }

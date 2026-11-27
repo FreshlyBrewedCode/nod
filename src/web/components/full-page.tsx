@@ -1,7 +1,9 @@
 /**
  * Calm full-page messages for when there is no dashboard to show: not
  * paired, connecting, `nod serve` not running, a refused pairing, a version
- * mismatch, a page inside another's frame. Onboarding and a deep link before pairing have their own pages.
+ * mismatch, a page inside another's frame. Not signed in to GitHub and no
+ * repo picked (`onboarding.tsx`) use it too; a deep link before pairing has
+ * its own page.
  */
 
 import type * as React from "react";
