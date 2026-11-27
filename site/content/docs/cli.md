@@ -50,6 +50,9 @@ of the [repo list](#nod-repo), each from its clone in the
 | `--fake` | Serve a fictional team and repository instead of GitHub |
 | `--scenario <name>` | With `--fake`: `team` (the default), `clear`, `first-run`, `fresh`, `join`, `inbox`, `shared`, `repos` or `dir`; see [Fake scenarios](#fake-scenarios) |
 | `--frozen` | With `--fake`: nothing changes on its own |
+| `--fake-update <state>` | Not released. With `--fake`, the [update](/docs/updates) check: `available` (the default: a fake `0.2.0`, with `0.3.0` on offer and its release notes), `none` (up to date), `failing` (the check fails) or `downgrade` (a `0.4.0-next.2` switched to stable, offered `0.3.0`) |
+| `--fake-service <state>` | Not released. With `--fake`, the [service](/docs/background): `not-installed` (the default), `running` (this `nod serve` plays the service: an update restarts it), `stopped` or `unsupported` |
+| `--fake-install <how>` | Not released. With `--fake`, how nod was installed: `npm` (the default), `bun`, `unknown` (the page shows the commands only) or `fail` (the install fails). A fake install takes a few seconds; nothing is installed |
 | `--token-file <path>` | Where the pairing token is kept. Default `$XDG_CONFIG_HOME/nod/serve-token`. The remote token is next to it, as `<path>-remote` |
 | `--new-token` | Replace both tokens: every paired browser pairs again |
 | `--new-remote-token` | Replace only the remote token: the other device pairs again, this machine's browser stays paired |
@@ -59,7 +62,10 @@ of the [repo list](#nod-repo), each from its clone in the
 | `--no-open` | Do not. The default |
 
 `--dir`, `--host` and `--poll` read GitHub and cannot be combined with `--fake`. `--allow-host`
-works with and without it. The config file holds only the repo list: give `--allow-host` every
+works with and without it. With `--fake`, updates, installs and the service are fakes too: nothing
+reaches GitHub's releases, a package manager, `systemctl` or `launchctl`, and the
+[channel](/docs/updates#the-channel) is kept in memory only. After a fake install with
+`--fake-service running`, the page plays the restart: it reconnects to the new version. The config file holds only the repo list: give `--allow-host` every
 time.
 
 `nod serve` reads GitHub with one query per host and poll, whatever the number of repositories
@@ -162,7 +168,7 @@ has the details.
 
 | Command | Does |
 | --- | --- |
-| `nod service install [serve options]` | Write the unit, enable it and (re)start it. It runs the nod that installed it, as `nod serve` with the options given here: any of [`nod serve`'s](#nod-serve), except `--open`. Run it again to change them |
+| `nod service install [serve options]` | Write the unit, enable it and (re)start it. It runs the nod that installed it, as `nod serve` with the options given here: any of [`nod serve`'s](#nod-serve), except `--open`. Run it again to change them. Settings → Server does the same with **Run nod in the background** ([from the page](/docs/background#from-the-page)) |
 | `nod service uninstall` | Stop the service and remove its unit |
 | `nod service status` | Not installed, installed but not running, or running, with the unit file and the command it runs |
 
@@ -180,7 +186,7 @@ Windows is not supported yet: `nod service status` says so, and the other comman
 | `$XDG_CONFIG_HOME/nod/signing-key.json` | The encrypted signing key. `~/.config/nod/` when the variable is unset |
 | `$XDG_CONFIG_HOME/nod/serve-token` | The pairing token of `nod serve` |
 | `$XDG_CONFIG_HOME/nod/serve-token-remote` | The remote token, the named host's (`--allow-host`) |
-| `$XDG_CONFIG_HOME/nod/config.json` | The repo list. Not released. Keys nod does not know are kept when it writes the file |
+| `$XDG_CONFIG_HOME/nod/config.json` | The repo list and the update [channel](/docs/updates#the-channel). Not released. Keys nod does not know are kept when it writes the file |
 | `$XDG_CACHE_HOME/nod/clones/` | The clone cache: `<host>/<owner>/<repo>.git` per repository of the list. `~/.cache/nod/` when the variable is unset. Not released |
 | `$XDG_CONFIG_HOME/systemd/user/nod.service` | The service of `nod service install` on Linux. Not released |
 | `~/Library/LaunchAgents/de.frebreco.nod.plist` | The same on macOS. Not released |

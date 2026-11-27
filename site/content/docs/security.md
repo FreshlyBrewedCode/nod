@@ -150,6 +150,21 @@ and the token itself is in the part of the address a browser never sends. On a p
 paired, the hosted web app offers to open a link in the app at `http://127.0.0.1:4518`: an address
 it chose, not one a link names, and the link carries no token.
 
+### Updates and the service
+
+Not released. `nod serve` looks for a new release on GitHub about every 10 minutes, without a
+token. It never installs one by itself: an [update](/docs/updates) is the code that will hold
+your signing key, so it installs only when you click **Update** in Settings → Server and confirm,
+with the command shown before it runs (an argument list, never a shell, and only a version
+number). The release notes are shown as text: HTML in them stays text, and only `http` and
+`https` links are links.
+
+Installing an update, choosing the channel and setting up or removing the
+[service](/docs/background) change what runs on your machine, so only this machine's own page may
+ask for them: `nod serve` refuses them from the named host's side below, whatever that page
+sends, and its page does not offer them. Neither does it get the other device's QR code, which
+carries that device's token: only this machine's page shows it.
+
 ### Another device
 
 With `--allow-host` (not released), `nod serve` also answers to one

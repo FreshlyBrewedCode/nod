@@ -17,6 +17,7 @@ order: 4
 | **board** | The dashboard's view in columns, by who a pull request waits on or by state. [Dashboard](/docs/dashboard#board) |
 | **brief** | The pull request description an agent writes: what, why, risk, verified, look at. [Agents](/docs/agents#the-brief) |
 | **category** | Where the policy puts a pull request: `auto`, `decide` or `fyi`. [Policy](/docs/policy#requirements) |
+| **channel** | Where updates come from: **stable**, the releases (npm's `latest`), or **next**, every change merged to `main` (npm's `next`). Chosen in Settings → Server; a new choice is checked at once and installs nothing by itself. Not released. [Updates](/docs/updates#the-channel) |
 | **check** | The check run named `nod` on a pull request's head commit. Once enforced, a ruleset requires it; before that, a pull request that still needs someone gets a neutral check that blocks nothing. [Verifier](/docs/verifier#the-check) |
 | **clone cache** | Where nod keeps its own clone of each repository of the repo list: `$XDG_CACHE_HOME/nod/clones/<host>/<owner>/<repo>.git`, blobless and bare, made on first use. `nod serve` computes patch-ids there. Deleting it costs a new clone, nothing else. Not released. [CLI](/docs/cli#files-and-environment) |
 | **classifier** | A function in the policy that looks at a pull request and reports findings. [Policy](/docs/policy#built-in-classifiers) |
@@ -60,8 +61,8 @@ order: 4
 | **risk** | 0 to 3: none, low, medium, high. The highest risk of any finding |
 | **rule** | A function in the policy that turns findings into a requirement or an FYI |
 | **self nod** | A nod by the pull request's author: the prompter attesting their own agent's work |
-| **service** | `nod serve` run in the background by your system: a systemd user unit on Linux, a LaunchAgent on macOS. `nod service install` sets it up. Not released. [In the background](/docs/background) |
-| **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right. This version has two, Repositories and App. Not released. [Settings](/docs/settings) |
+| **service** | `nod serve` run in the background by your system: a systemd user unit on Linux, a LaunchAgent on macOS. `nod service install` sets it up, or **Run nod in the background** in Settings → Server. Not released. [In the background](/docs/background) |
+| **settings page** | `#/settings`, from **Settings** in the avatar menu: sections on the left, one at a time on the right: Repositories, Signing, App, Server and Other device. Not released. [Settings](/docs/settings) |
 | **setup page** | `#/setup`: one repository's ladder, its four steps, where each stands for the repository and you, and where they are done. Reached from an offer, the avatar menu's next steps, or the repository's row in Settings → Repositories (**The ladder ›**). Not released: before, it was onboarding, shown first. [Quick start](/docs/quick-start#the-ladder) |
 | **setup PR** | The pull request `nod init` opens to add `.nod/` and the workflow. [Quick start](/docs/quick-start) |
 | **shared policy** | The second step of the ladder: the setup PR is merged, and the verifier classifies every pull request the same way for everyone. Its check never blocks until enforced. [Quick start](/docs/quick-start#the-ladder) |
@@ -76,5 +77,6 @@ order: 4
 | **summary** | The machine-readable result in the check run's output, read by `nod serve`. [Verifier](/docs/verifier#the-summary) |
 | **tailnet** | Your private Tailscale network: the devices logged in to it. [On your phone](/docs/phone) |
 | **trust root** | `.nod/allowed_signers` on the default branch |
+| **update** | A release of your channel other than the one `nod serve` runs: newer, or older after a switch to stable. A pill in the top bar says so; Settings → Server shows its release notes and installs it when you click **Update**, never by itself. Not released. [Updates](/docs/updates) |
 | **unlock** | Decrypting the signing key into the memory of `nod serve`, for 15 minutes or one signature. With a named host, your machine and the other device each unlock on their own |
 | **verifier** | `.nod/verify.ts`, run by the workflow on every pull request event. It sets the check. [Verifier](/docs/verifier) |
